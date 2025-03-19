@@ -1,0 +1,64 @@
+
+# a sample yaml input file
+
+# This input file specifies how graph objects are to be constructed; it reads information
+# for defining node (atom) features and edge features.
+
+# it is possible to avoid generating the graph objects (usually for debug purposes);
+# in that case, uncomment the following line.
+generate_graphs: True
+
+# the specific type of graph definition to be used 
+graphType: 'XG'
+
+# address where to find the data-base files, and where to put the graph files once created
+DataBaseDirectory: '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/DataBase_AMES/FILES_DEV'
+TargetDirectory: '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/GraphDataBase_AMES'
+
+# the file extensions, both for the input and for the graph files
+
+InputFileExtension: '.xyz'
+OutputFileExtension: '.pkl'
+
+nodeFeatures:   # the following are a list of mendeleev recognised keywords
+   - 'atomic_number'
+   - 'covalent_radius'
+   - 'vdw_radius'
+   #- 'electron_affinity'
+   - 'en_pauling'
+   #- 'group'
+
+species: ["N", "C", "H", "O", "S", "Cl", "Be", "Br", "Pt", "P", 
+          "F", "As", "Hg", "Zn", "Si", "V", "I", "B", "Sn", "Ge", 
+          "Ag", "Sb", "Cu", "Cr", "Pb", "Mo", "Se", "Al", "Cd", 
+          "Mn", "Fe", "Ga", "Pd", "Na", "Ti", "Bi", "Co", "Ni", 
+          "Ce", "Ba", "Zr", "Rh"]
+
+# Edges can have three different input features: distance (related to the length of the edge),
+# bond-angle, which is a sum of cosines of bond angles (note that this particular feature
+# is in general different for each of the two edges that define a bond, as the angles are 
+# defined between the neighbours of i in the first edge, and between the neighbours of j
+# in the second edge), and finally dihedral features, which are a sum of cosines of dihedral
+# angles in which i-j is the central bond (contrary to bond-angle, this feature is the same
+# for both edges in the bond
+
+EdgeDistanceFeatures: True
+
+nMaxNeighbours: 850 # Needs to be adjusted based on max number of atoms in molecules
+
+# bond angle features
+
+BondAngleFeatures: True
+
+# optionally, edges can also have dihedral features, i.e. a sum of cosines of the dihedral angles
+# in which the edge participates as the central edge. A dihedral angle in a sequence of three
+# consecutive edges, 1-2-3-4 is the cosine of the angle between planes 1-2-3 and 2-3-4, and is
+# assigned to edge 2-3.
+
+DihedralAngleFeatures: True
+
+useCovalentRadii: True
+
+# transformData: std
+
+

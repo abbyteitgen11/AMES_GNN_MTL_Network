@@ -1,0 +1,64 @@
+
+# Input file for model training
+
+nNodeNeurons: 200 # Number of node neurons for GNN
+nEdgeNeurons: 30 # Number of edge neurons for GNN
+nGraphConvolutionLayers: 2 # Number of graph convolutional layers
+nSharedLayers: 4 # Number of layers in shared core
+nTargetSpecificLayers: 2 # Number of layers in target specific core
+n0: 200 # Number of neurons layer 1 shared core
+n1: 100 # Number of neurons layer 2 shared core
+n2: 50 # Number of neurons layer 3 shared core
+n3: 10 # Number of neurons layer 4 shared core
+
+# Dropout
+prob_h1: 0.25
+prob_h2: 0.15
+prob_h3: 0.1
+prob_h4: 0.0001   
+
+# Batch normalization
+momentum_batch_norm: 0.9
+
+# Activation function
+activation: "ReLU"
+
+nEpochs: 10 #np.iinfo(np.int32).max
+nBatch: 3
+nCheckpoint: 10
+randomSeed: 42
+#nTrainMaxEntries: 8
+#nValMaxEntries: 2
+
+# this only gives the starting learning rate iff loadModel = False; otherwise it is read from checkpoint file
+learningRate: 5e-4 #5e-4
+
+weightedCostFunction: "None" # Include weighted cost function
+L2Regularization: 0.005 # L2 regularization coefficient
+
+# the following command specifies if the model.state_dict() and optimizer.state_dict() are to be loaded
+# from a checkpoint file from a previous run 
+loadModel: False
+loadOptimizer: False
+#StateDictFileName: "GraphPotential-nn-2gcl-2fcl-05122023-135254.tar"
+
+# warmStart: "GraphPotential-nn-2gcl-2fcl-31102023-173821.tar"
+
+callbacks: 
+   earlyStopping:
+      patience: 10 #1000
+      min_delta: 1.0e-5 #5e-4
+   LRScheduler:
+      patience: 1
+      min_lr: 1.0e-8
+      factor: 0.1
+   UserStopping:
+
+descriptionText: 'No data transformation'
+
+# where the graph data-base resides
+
+database: '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/GraphDataBase_AMES'
+
+# transformData: std
+
