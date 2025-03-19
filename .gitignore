@@ -6,13 +6,12 @@ AMES/__pycache__/
 MTL_publication/
 AMES/runs/
 AMES/logs/
-AMES/__pycache__/
 AMES/data.csv
 AMES/.ipynb_checkpoints
 AMES/visualize_graphs.ipynb
-molecule_db-dev/
+moleculedb-dev/
 AMES/predictions_TF.csv
-AMES/predictions_pytorch.csv
+AMES/predictions_Torch.csv
 *.csv
 *.zip
 *.pyc
