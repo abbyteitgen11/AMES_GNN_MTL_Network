@@ -69,7 +69,7 @@ class XG(AtomicStructureGraphs):
             dihedral_angle_feature: bool = False,
             node_feature_list: List[str] = [],
             n_max_neighbours: int = 12,
-            alpha: float = 1.1
+            alpha: float = 1.2
     ) -> None:
 
         # initialise the base class

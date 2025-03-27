@@ -23,12 +23,12 @@ momentum_batch_norm: 0.9
 # Activation function
 activation: "ReLU"
 
-nEpochs: 10 #np.iinfo(np.int32).max
-nBatch: 3
+nEpochs: 100 #np.iinfo(np.int32).max
+nBatch: 30
 nCheckpoint: 10
 randomSeed: 42
-#nTrainMaxEntries: 8
-#nValMaxEntries: 2
+nTrainMaxEntries: 1000
+nValMaxEntries: 100
 
 # this only gives the starting learning rate iff loadModel = False; otherwise it is read from checkpoint file
 learningRate: 5e-4 #5e-4

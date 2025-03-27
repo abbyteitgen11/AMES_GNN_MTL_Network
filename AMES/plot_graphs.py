@@ -26,8 +26,9 @@ valDataset = GraphDataSet(valDir, nMaxEntries=None, seed=42, transform=None)
 testDataset = GraphDataSet(testDir, nMaxEntries=None, seed=42, transform=None)
 
 
+
 for idx, graph in enumerate(trainDataset): #3870
-    idx = idx + 400
+    idx = idx + 100
     filepath = trainDataset.filenames[idx]
 
 #filepath = '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL/GraphDataBase_AMES/train/2440_ames_mutagenicity_data_69.pkl'
@@ -95,7 +96,7 @@ for idx, graph in enumerate(trainDataset): #3870
     plt.tight_layout()
     plt.show()
 
-    if idx > 500:
+    if idx > 200:
         break
 
 """
@@ -147,6 +148,6 @@ def check_empty_graphs(dataset):
 #check_for_nans(trainDataset)
 #check_for_infs(trainDataset)
 #check_value_ranges(trainDataset)
-#check_empty_graphs(trainDataset)
+check_empty_graphs(trainDataset)
 
 """

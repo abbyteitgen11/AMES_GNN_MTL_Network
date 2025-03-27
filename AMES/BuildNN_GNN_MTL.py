@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch_geometric.nn import CGConv
 from torch_geometric.nn import global_mean_pool
+from torch_geometric.nn import global_add_pool
 
 
 class BuildNN_GNN_MTL(nn.Module):
@@ -142,7 +143,8 @@ class BuildNN_GNN_MTL(nn.Module):
         x = torch.tanh(x)
 
         # Pooling layer
-        x = global_mean_pool(x, batch)
+        #x = global_mean_pool(x, batch)
+        x = global_add_pool(x, batch)
 
         # Shared core
         x = self.dropout1(x)

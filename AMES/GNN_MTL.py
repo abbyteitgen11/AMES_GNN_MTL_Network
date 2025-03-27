@@ -318,22 +318,22 @@ for epoch in range(nEpochs):
     #    )
 
     # If there are any callbacks, act them if needed
-    for callback in callbacks:
-        callback(train_loss)
-        # check for early stopping; if true, we return to main function
-        if (
-                callback.early_stop
-        ):  # if we are to stop, make sure we save model/optimizer
-            torch.save(
-                {
-                     "epoch": n_epoch,
-                    "model_state_dict": model.state_dict(),
-                    "optimizer_state_dict": optimizer.state_dict(),
-                    "train_loss": train_loss,
-                    "val_loss": val_loss,
-                },
-                check_point_path,
-            )
+    #for callback in callbacks:
+    #    callback(train_loss)
+    #    # check for early stopping; if true, we return to main function
+    #    if (
+    #            callback.early_stop
+    #    ):  # if we are to stop, make sure we save model/optimizer
+    #        torch.save(
+    #            {
+    #                 "epoch": n_epoch,
+    #                "model_state_dict": model.state_dict(),
+    #                "optimizer_state_dict": optimizer.state_dict(),
+    #                "train_loss": train_loss,
+    #                "val_loss": val_loss,
+    #            },
+    #            check_point_path,
+    #        )
 
     # Tensorboard
     #model.eval()
