@@ -22,11 +22,16 @@ OutputFileExtension: '.pkl'
 
 nodeFeatures:   # the following are a list of mendeleev recognised keywords
    - 'atomic_number'
+   - 'atomic_radius'
+   - 'atomic_weight'
    - 'covalent_radius'
-   - 'vdw_radius'
-   #- 'electron_affinity'
+   - 'density'
    - 'en_pauling'
-   #- 'group'
+   - 'mass_number'
+   - 'period'
+   - 'vdw_radius'
+   - 'block'
+   - 'series'
 
 species: ["N", "C", "H", "O", "S", "Cl", "Be", "Br", "Pt", "P", 
           "F", "As", "Hg", "Zn", "Si", "V", "I", "B", "Sn", "Ge", 

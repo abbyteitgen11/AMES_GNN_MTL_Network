@@ -13,27 +13,21 @@ from torch.utils.data import random_split
 from torch_geometric.loader import DataLoader
 import yaml
 
-from distance_feature import set_up_features
 from generate_graphs import generate_graphs
 from set_up_atomic_structure_graphs import set_up_atomic_structure_graphs
 from load_data import load_data
 
 def write_node_features(features: List[str]) -> str:
-
     log_text = "---\n"
     log_text += "##        Node Features: \n"
     log_text += "---\n"
     
     for feature in features:
-
         if re.match("^gro|^per", feature):
-    
            n_features = " 25 (one-hot encoded)\n" # 7 period, 18 group = 25
 
         else:
-
            n_features = "       1 float\n"
-
         log_text += "- " + feature + "    " + n_features
 
     return log_text
@@ -111,7 +105,7 @@ else:
    if not target_validate: target_validate.mkdir()
    if not target_test: target_test.mkdir()
 
-# Gile extensions
+# File extensions
 input_file_ext = input_data.get("InputFileExtension", '.xyz')
 output_file_ext = input_data.get("OutputFileExtension", '.pkl')
 
@@ -144,7 +138,7 @@ else:
    val_files = (file for file in val_list)
    test_files = (file for file in test_list)
 
-graph_type = input_data.get("graphType", "ERH")  # default is ERH
+graph_type = input_data.get("graphType", "XG")  # default is XG
 
 log_text = "\n\n\n"
 log_text += "------------------------------------------------\n"
@@ -164,31 +158,6 @@ species = input_data.get("species", ["N", "C", "H", "O", "S", "Cl", "Be", "Br", 
           "Mn", "Fe", "Ga", "Pd", "Na", "Ti", "Bi", "Co", "Ni", 
           "Ce", "Ba", "Zr", "Rh"])
 
-# FOLLOWING COMMENTS NEED TO BE UPDATED!!!!!
-#
-# note that nNodeFeatures >= len(nodeFeatures); node features are 
-# of three types: 
-# 
-# 1) two one-hot encoded features, one for the species period (7 values)
-#    and one for the species group (18 values), i.e. a 25-long 
-#    one-hot encoded vector where only two values are non-zero
-#
-# 2) a number (possibly zero) of species properties given as Mendeleev
-#    recognized commands, e.g. "nodeFeatures = ["atomic_number", "covalent_radius"]"
-#    etc.
-# 
-# 3) "bond-angle geometric features", i.e., optionally it is possible to 
-#    append to the previous two a vector of bond-angle features; this is 
-#    a feature vector of length bond_angle.n_features() which is a histogram
-#    of bond-angle values centred on the particular node. Contrary to the previous
-#    two types, which are common to all atoms of the same species, the geometric
-#    features depend on the particular environment of each atom, and thus
-#    encode the local environment right from the beginning. 
-
-# read and set-up edge, bond-angle and dihedral-angle features
-
-features_dict = set_up_features(input_data)
-
 transformData = input_data.get("transformData", False)
 # transform = SetUpDataTransform( transformData, directories )
 transform = None
@@ -196,33 +165,20 @@ transform = None
 if transform:
     log_text += "- Using data transformation " + transformData + "   \n"
 
-Graphs, dGraphs = set_up_atomic_structure_graphs(
+bond_angle_features = input_data.get('BondAngleFeatures', False)
+dihedral_angle_features = input_data.get('DihedralAngleFeatures', False)
+
+Graphs = set_up_atomic_structure_graphs(
     graph_type = graph_type,
-    species = species, 
+    species = species,
+    bond_angle_feature = bond_angle_features,
+    dihedral_angle_feature = dihedral_angle_features,
     spec_features = node_features,
-    features = features_dict,
     n_max_neighbours = n_max_neighbours,
 )
 
 
-# edge_distance_cutoff = features_dict['DistanceFeatures'].cutoff
-bond_angle_features = features_dict['BondAngleFeatures']
-dihedral_angle_features = features_dict['DihedralAngleFeatures']
-
-# if bond_angle_features:
-#    bond_angle_parameters = \
-#         features_dict['bond_angle_features'].parameters()
-
-# if dihedral_angle_features:
-#    dihedral_angle_parameters = \
-#         features_dict['dihedral_angle_features'].parameters()
-
 nNodeFeatures = Graphs.n_node_features()
-
-# nTotalEdgeFeatures = features_dict['edge_features'].n_features()
-
-# if dihedral_angle_features:
-#    nTotalEdgeFeatures += dihedral_angle_features.n_features()
 
 if use_covalent_radii:
     log_text += "- Using Covalent Radii to find neighbours \n"
@@ -232,9 +188,6 @@ else:
 write_node_features(node_features)
 
 log_text += "- nNodeFeatures: " + repr(nNodeFeatures) + "  \n"
-
-# log_text += write_parameters( 'Edge Distance Cutoff', edge_distance_cutoff )
-# log_text += "Edge Distance_cutoff: " + repr(edge_distance_cutoff) + "\n"
 
 if bond_angle_features:
    log_text += "Using Bond Angle Features \n"
@@ -272,13 +225,9 @@ input_data['descriptionText'] = log_text
 # graph construction; this will be later read and employed by the 
 # graph fitting process
 description_file = target_directory + '/' + 'graph_description.yml'
-derivatives_file = target_directory + '/' + 'graph_derivatives.pkl'
 
 # we append to the input data information on the total number of node features
 input_data['nNodeFeatures'] = nNodeFeatures
 
 with open(description_file, 'w') as description:
     yaml.dump(input_data, description)
-
-with open(derivatives_file, 'wb') as derivatives:
-    pickle.dump(dGraphs, derivatives)

@@ -138,13 +138,13 @@ class BuildNN_GNN_MTL(nn.Module):
         edge_attr = self.GNNlinear2(edge_attr)
 
         x = self.conv1(x, edge_index, edge_attr)
-        x = torch.tanh(x)
+        x = self.activation_layer(x) #torch.tanh(x)
         x = self.conv2(x, edge_index, edge_attr)
-        x = torch.tanh(x)
+        x = self.activation_layer(x) #torch.tanh(x)
 
         # Pooling layer
-        #x = global_mean_pool(x, batch)
-        x = global_add_pool(x, batch)
+        #x = global_add_pool(x, batch)
+        x = global_mean_pool(x, batch)
 
         # Shared core
         x = self.dropout1(x)

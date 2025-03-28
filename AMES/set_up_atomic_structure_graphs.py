@@ -4,15 +4,12 @@ from typing import Dict, List, Tuple, Union
 
 from atomic_structure_graphs import AtomicStructureGraphs
 #from atomic_structure_heterographs import AtomicStructureHeteroGraphs
-from derivatives import Derivatives
-from distance_feature import set_up_features
 #from generalised_molecular_graphs import GeneralisedMolecularGraphs
 #from geometric_molecular_graphs import GeometricMolecularGraphs
 #from pbc_graphs import PBCGraphs
 #from QM9_ERH_graphs import QM9ERH
 #from QM9_ERH_graphs import QM9ERHDerivatives
 from XG_graphs import XG
-from XG_graphs import XGDerivatives
 #from QM9_XG_graphs import QM9XieGrossmanGraphs
 #from QM9_simple_XG_graphs import QM9SimpleXieGrossmanGraphs
 #from QM9_simple_XG_graphs import QM9SimpleXieGrossmanDerivatives
@@ -21,10 +18,11 @@ from XG_graphs import XGDerivatives
 def set_up_atomic_structure_graphs(
     graph_type: str,
     species: List[str],
+    bond_angle_feature: bool,
+    dihedral_angle_feature: bool,
     spec_features: List[str],
-    features: Dict,
     n_max_neighbours: int = 12,
-) -> Tuple[Union[AtomicStructureGraphs],Derivatives]:
+) -> Tuple[AtomicStructureGraphs]:
 
     r"""
 
@@ -143,19 +141,18 @@ def set_up_atomic_structure_graphs(
 
     graphs = XG(
         species_list=species,
-        distance_features=features['DistanceFeatures'],
-        bond_angle_feature=features['BondAngleFeatures'],
-        dihedral_angle_feature=features['DihedralAngleFeatures'],
+        bond_angle_feature=bond_angle_feature,
+        dihedral_angle_feature=dihedral_angle_feature,
         node_feature_list=spec_features,
         n_max_neighbours=n_max_neighbours,
     )
 
-    derivatives = XGDerivatives(
-        species_list=species,
-        distance_features=features['DistanceFeatures'],
-        bond_angle=features['BondAngleFeatures'],
-        dihedral_angle=features['DihedralAngleFeatures'],
-    )
+    #derivatives = XGDerivatives(
+    #    species_list=species,
+    #    distance_features=features['DistanceFeatures'],
+    #    bond_angle=features['BondAngleFeatures'],
+    #    dihedral_angle=features['DihedralAngleFeatures'],
+    #)
 
 
 
@@ -188,4 +185,4 @@ def set_up_atomic_structure_graphs(
 
 
 
-    return graphs, derivatives
+    return graphs

@@ -7,10 +7,8 @@ import torch
 from torch_geometric.data import Data
 
 from atomic_structure_graphs import AtomicStructureGraphs
-from derivatives import Derivatives
 from exceptions import IndexOutOfBounds
-from distance_feature import DistanceFeature
-from features import Features
+from features import *
 from ISSSTY_utils import read_ISSSTY_structure
 from structure_utils import get_dihedral_angle
 
@@ -31,40 +29,12 @@ class XG(AtomicStructureGraphs):
     are constructed in a chemically intuitive way: a node (atom) has edges
     only to other nodes that are up to a maximum distance away.
 
-    There are several key differences with the scheme of Xie-Grossmann and my
-    own earlier implementation:
-
-    1) There are no "geometrical" features of nodes; all the geometry is now
-    contained in edge features; this is essential if we want to have a workable
-    calculation of derivatives (forces).
-
-    2) Although graphs are undirected (if i has an edge to j, j has an edge to i),
-    this does not require that the i->j edge features be the same as those of j->i;
-    features that depend on distance will be obviously the same, but edge i->j can
-    have features depending on bond-angles with i as central atom, while j->i can
-    have features depending on bond-angles with j as the central atom.
-
-    3) The idea is to have only two-three edge features, the first feature depending
-    on distance i-j, the second (potentially different for i->j and j->i) is a
-    sum of cosines of bond angles, and the third is (optional) a sum of cosines
-    of dihedral angles k-i-j-l.
-
-    4) Input edge features, like input node features, will be expanded to any
-    desired dimention by a linear layer-plus-activation before entering the main
-    convolution loop in the graph NN, so the fact that we are using a relatively small
-    number of input features need not be a limitation.
-
-    5) We dump the Xie-Grossman edge-features in favour of a decaying function of
-    distance; it will be something similar to a Gaussian with a rate of decay that
-    depends on the covalent radii of the two species involved, and it will be
-    cut-off smoothly to zero at some maximum cutoff.
 
     """
 
     def __init__(
             self,
             species_list: List[str],
-            distance_features: Dict,
             bond_angle_feature: bool = False,
             dihedral_angle_feature: bool = False,
             node_feature_list: List[str] = [],
@@ -75,7 +45,6 @@ class XG(AtomicStructureGraphs):
         # initialise the base class
         super().__init__(
             species_list=species_list,
-            distance_features=distance_features,
             bond_angle_feature=bond_angle_feature,
             dihedral_angle_feature=dihedral_angle_feature,
             node_feature_list=node_feature_list,
@@ -238,7 +207,9 @@ class XG(AtomicStructureGraphs):
 
                     cosijk = np.dot(rij, rik) / (dij * dik)
                     # bond_features[n,1] += fij * fik * cosijk
-                    bond_features[n, 0] += cosijk #u_k(cosijk)
+                    features_instance = Features()
+                    #cosijk2 = features_instance.u_k(cosijk)
+                    bond_features[n, 0] += cosijk #cosijk2 #u_k(cosijk)
 
         if self.dihedral_angle_feature:  # include dihedral features
             for nk in range(n_neighbours[i]):
@@ -256,6 +227,7 @@ class XG(AtomicStructureGraphs):
                     # dihedral angles
 
                     coskijl = get_dihedral_angle(rki, rij, rjl)
+                    #coskijl2 =  features_instance.u_k(coskijl)
                     if coskijl: bond_features[n, 1] += coskijl
 
         spec_id = torch.zeros((n_atoms), dtype=int)
@@ -297,30 +269,3 @@ class XG(AtomicStructureGraphs):
 
 # register this derived class as subclass of AtomicStructureGraphs
 AtomicStructureGraphs.register(XG)
-
-
-# below create a class to calculate the derivatives of this model
-class XGDerivatives(Derivatives):
-
-    def __init__(
-            self,
-            species_list,
-            distance_features,
-            bond_angle,
-            dihedral_angle,
-    ) -> None:
-        super().__init__(
-            distance_features=distance_features,
-            bond_angle=bond_angle,
-            dihedral_angle=dihedral_angle,
-        )
-
-        self.species_list = species_list
-
-    def activate_derivatives(self, sample: Data) -> None:
-        """
-        In order to calculate forces we need the derivatives with
-        respect to edge attributes
-        """
-
-        sample.edge_attr.requires_grad_(requires_grad=True)

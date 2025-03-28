@@ -34,7 +34,6 @@ class AtomicStructureGraphs(ABC):
     def __init__(
         self,
         species_list: List[str],
-        distance_features: Dict,
         bond_angle_feature: bool = False,
         dihedral_angle_feature: bool = False,
         node_feature_list: List[str] = [],
@@ -79,7 +78,6 @@ class AtomicStructureGraphs(ABC):
         for n, spec in enumerate(self.species):
             self.species_dict[spec] = n 
 
-        self.distance_features = distance_features
         self.bond_angle_feature = bond_angle_feature
         self.dihedral_angle_feature = dihedral_angle_feature
 
@@ -130,7 +128,7 @@ class AtomicStructureGraphs(ABC):
         features = []
         for feature in self.node_feature_list:
 
-            if re.match("^period|^group",feature):
+            if re.match("^period|^group|^series|^block",feature):
 
                 use_groupperiod = True
 
@@ -179,14 +177,46 @@ class AtomicStructureGraphs(ABC):
         for n, spec in enumerate(spec_list):
 
             if use_groupperiod:
-                period = np.zeros(( 7 ), dtype = float )
+                period = np.zeros((7), dtype = float )
                 period[spec.period-1] = 1.0
 
-                group = np.zeros(( 18 ), dtype = float )
-                group[spec.group_id-1] = 1.0
+                block = np.zeros((4), dtype = float )
+                if spec.block == 's':
+                    block[0] = 1.0
+                elif spec.block == 'p':
+                    block[1] = 1.0
+                elif spec.block == 'd':
+                    block[2] = 1.0
+                elif spec.block == 'f':
+                    block[3] = 1.0
+
+                series = np.zeros((10), dtype = float )
+                if spec.series == 'Alkali metals':
+                    series[0] = 1.0
+                elif spec.series == 'Alkaline earth metals':
+                    series[1] = 1.0
+                elif spec.series == 'Transition metals':
+                    series[2] = 1.0
+                elif spec.series == 'Poor metals':
+                    series[3] = 1.0
+                elif spec.series == 'Metalloids':
+                    series[4] = 1.0
+                elif spec.series == 'Nonmetals':
+                    series[5] = 1.0
+                elif spec.series == 'Halogens':
+                    series[6] = 1.0
+                elif spec.series == 'Noble gases':
+                    series[7] = 1.0
+                elif spec.series == 'Lanthanides':
+                    series[8] = 1.0
+                elif spec.series == 'Actinides':
+                    series[9] = 1.0
+
+                #group = np.zeros(( 18 ), dtype = float )
+                #group[spec.group_id-1] = 1.0
 
                 spec_features[spec.symbol] = \
-                    np.concatenate((period, group, values[:, n]))
+                    np.concatenate((period, block, series, values[:, n]))
 
             else:
                 spec_features[spec.symbol] = values[:,n]

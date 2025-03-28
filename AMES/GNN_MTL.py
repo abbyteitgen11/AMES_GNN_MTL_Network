@@ -17,7 +17,7 @@ import pandas as pd
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-#from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader
 from torch.utils.data import TensorDataset
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import Dataset
@@ -82,7 +82,7 @@ n_node_features = database_data.get("nNodeFeatures")
 edge_parameters = database_data.get("EdgeFeatures")
 bond_angle_features = database_data.get("BondAngleFeatures", True)
 dihedral_angle_features = database_data.get("DihedralFeatures", True)
-n_edge_features = 0  # distance feature
+n_edge_features = 0  # 1 for distance features
 if bond_angle_features: n_edge_features += 1 # bond-angle feature
 if dihedral_angle_features: n_edge_features += 1 # dihedral-angle feature
 
@@ -248,7 +248,6 @@ else:
 # setup callbacks, if any
 anyCallBacks = input_data.get("callbacks", None)
 callbacks = set_up_callbacks(anyCallBacks, optimizer)
-
 
 # model to device (cuda or cpu)
 model.to(device)
