@@ -147,7 +147,7 @@ set_seed(seed_r)
 lb = 0.005
 
 # Learning rate
-l_rate = 0.0001 #0.0001
+l_rate = 0.0005 #0.0001
 
 # Early stopping
 min_delta_val = 0.0005

@@ -117,7 +117,13 @@ class BuildNN(nn.Module):
 
     def forward(self, x):
         # Shared core
+        #torch.manual_seed(42)  # Try resetting before dropout
+        #print(torch.get_rng_state()[:5])  # Print first few elements
         x = self.dropout1(x)
+        # Compute the dropout mask
+        #dropout_mask = (x != 0).float()  # 1 for kept, 0 for dropped
+        # Print or save mask
+        #print("Dropout Mask:", dropout_mask)
         x = self.linear1(x)
         x = self.activation_layer(self.bn1(x))
         x = self.dropout2(x)

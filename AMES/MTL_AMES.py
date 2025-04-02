@@ -22,7 +22,13 @@ from callbacks import EarlyStopping
 from callbacks import PrintPredictions
 from BuildNN import BuildNN
 
+torch.manual_seed(42)
+random.seed(42)
+np.random.seed(42)
 # --------------------------------------------------------------------------------
+
+#torch.use_deterministic_algorithms(True)
+
 
 def set_seed(s):
     seed_value = s
@@ -68,12 +74,12 @@ def masked_loss_function(y_true, y_pred):
     loss_final = loss.sum() / mask.sum() if mask.sum() > 0 else torch.tensor(0.0) # If NaN, set to 0
 
     return loss_final
-
+#
 
 # --------------------------------------------------------------------------------
 # Load data
-data_path = 'data.csv'
-train, internal = load_data(data_path, model="MTL", stage="GS")
+data_path = '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/data.csv'
+train, internal = load_data(data_path, model="MTL", stage="GS")#
 X_train, y_train = train
 X_internal, y_internal = internal
 
@@ -117,7 +123,7 @@ act = "ReLU"
 n_inputs = X_train.shape[1]
 
 # Number of epochs
-n_epochs = 1 #np.iinfo(np.int32).max
+n_epochs = 10 #np.iinfo(np.int32).max
 
 # Number of neurons in shared core (layers 1, 2, 3, 4)
 n0, n1, n2, n3 = (200, 100, 50, 10)
@@ -129,14 +135,14 @@ w = None
 spec_lay = 2
 
 # random seed
-seed_r = 0
-set_seed(seed_r)
+seed_r = 42
+#set_seed(seed_r)
 
 # L2 regularization coefficient
 lb = 0.005
 
 # Learning rate
-l_rate = 0.0001 #0.0001
+l_rate = 0.0005 #0.0001
 
 # Early stopping
 min_delta_val = 0.0005
@@ -184,8 +190,8 @@ model = BuildNN(n_inputs, n0, n1, n2, n3, act, momentum_batch_norm, spec_lay, pr
 optimizer = torch.optim.Adam(model.parameters(), lr=l_rate, weight_decay=lb) # replace l2 reg
 
 # Create DataLoader
-train_loader = DataLoader(train_dataset_final, batch_size=32, shuffle=True)
-val_loader = DataLoader(val_dataset_final, batch_size=32)
+train_loader = DataLoader(train_dataset_final, batch_size=32, shuffle = False) #, shuffle=True
+val_loader = DataLoader(val_dataset_final, batch_size=32, shuffle = False)
 
 for X, y in train_loader:
     print(f"Shape of X: {X.shape}, type of X: {type(X)}")
@@ -200,6 +206,9 @@ print(f"Length of test dataloader: {len(val_loader)} batches of 32")
 #writer = SummaryWriter('runs/MTL_pytorch')
 
 # Train model
+#print(model.linear1.weight[:5, :5])
+#print(torch.get_rng_state()[:5])
+
 for epoch in range(n_epochs):
     model.train()
     train_loss = 0
@@ -261,9 +270,9 @@ for epoch in range(n_epochs):
     print(f"Epoch {epoch+1}: Train Loss={train_loss:.4f}, Val Loss={val_loss:.4f}")
 
     # Check early stopping
-    if early_stop(val_loss):
-        print("Early stopping triggered.")
-        break
+    #if early_stop(val_loss):
+    #    print("Early stopping triggered.")
+    #    break
 
     # Callback
     #print_callback.on_epoch_end(epoch, model, train_loss, val_loss)

@@ -10,12 +10,16 @@ n0: 200 # Number of neurons layer 1 shared core
 n1: 100 # Number of neurons layer 2 shared core
 n2: 50 # Number of neurons layer 3 shared core
 n3: 10 # Number of neurons layer 4 shared core
+n4: 50 # Number of neurons layer 1 target specific core
+n5: 10 # Number of neurons layer 2 target specific core
 
 # Dropout
-prob_h1: 0.25
-prob_h2: 0.15
-prob_h3: 0.1
-prob_h4: 0.0001   
+prob_h1: 0.25 # Dropout layer 1 shared core
+prob_h2: 0.15 # Dropout layer 2 shared core
+prob_h3: 0.1 # Dropout layer 3 shared core
+prob_h4: 0.0001 # Dropout layer 4 shared core   
+prob_h5: 0.15 # Dropout layer 1 target specific core
+prob_h6: 0.1 # Dropout layer 1 target specific core
 
 # Batch normalization
 momentum_batch_norm: 0.9
@@ -31,7 +35,7 @@ randomSeed: 42
 #nValMaxEntries: 100
 
 # this only gives the starting learning rate iff loadModel = False; otherwise it is read from checkpoint file
-learningRate: 5e-4 #5e-4
+learningRate: 0.0005 #5e-4
 
 weightedCostFunction: "None" # Include weighted cost function
 L2Regularization: 0.005 # L2 regularization coefficient
@@ -43,6 +47,8 @@ loadOptimizer: False
 #StateDictFileName: "GraphPotential-nn-2gcl-2fcl-05122023-135254.tar"
 
 # warmStart: "GraphPotential-nn-2gcl-2fcl-31102023-173821.tar"
+
+useMolecularDescriptors: True # Use molecular features instead of graphs for comparison to original MTL paper
 
 callbacks: 
    earlyStopping:
