@@ -27,12 +27,12 @@ momentum_batch_norm: 0.9
 # Activation function
 activation: "ReLU"
 
-nEpochs: 10 #np.iinfo(np.int32).max
+nEpochs: 50 #np.iinfo(np.int32).max
 nBatch: 30
 nCheckpoint: 10
 randomSeed: 42
-#nTrainMaxEntries: 1000
-#nValMaxEntries: 100
+nTrainMaxEntries: 1000
+nValMaxEntries: 200
 
 # this only gives the starting learning rate iff loadModel = False; otherwise it is read from checkpoint file
 learningRate: 0.0005 #5e-4
@@ -48,7 +48,7 @@ loadOptimizer: False
 
 # warmStart: "GraphPotential-nn-2gcl-2fcl-31102023-173821.tar"
 
-useMolecularDescriptors: True # Use molecular features instead of graphs for comparison to original MTL paper
+useMolecularDescriptors: False # Use molecular features instead of graphs for comparison to original MTL paper
 
 callbacks: 
    earlyStopping:

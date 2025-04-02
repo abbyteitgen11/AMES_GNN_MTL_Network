@@ -33,8 +33,8 @@ from BuildNN_GNN_MTL import BuildNN_GNN_MTL
 from masked_loss_function import masked_loss_function
 from set_seed import set_seed
 from MTLDataset import MTLDataset
-from BuildNN import BuildNN
 
+# Set seed
 torch.manual_seed(42)
 random.seed(42)
 np.random.seed(42)
@@ -116,7 +116,6 @@ useMolecularDescriptors = input_data.get("useMolecularDescriptors", False) # Use
 # Set seeds for consistency
 #set_seed(seed)
 
-
 # Print out model information to log
 log_text = "\n# Model Description  \n"
 log_text += "- nGraphConvolutionLayers: " + repr(n_graph_convolution_layers) + "  \n"
@@ -157,22 +156,11 @@ if not useMolecularDescriptors:
     testDir = database_path + '/test/'
     directories = [trainDir, valDir, testDir]
 
-    transformData = input_data.get("transformData", False)
-    # transform = SetUpDataTransform( transformData, directories )
-    transform = None
-
-    if transform:
-        log_text += "- Using data transformation " + transformData + "   \n"
-
-    log_text = "\n### This calculation will run on " + repr(device) + " \n\n"
-
-    log_text += database_data.get("descriptionText"," ")
-
     n_inputs = 0
 
     # Read in graph data
     trainDataset = GraphDataSet(
-        trainDir, nMaxEntries=nTrainMaxEntries, seed=seed, transform=transform
+        trainDir, nMaxEntries=nTrainMaxEntries, seed=seed
     )
 
     if nTrainMaxEntries:
@@ -181,7 +169,7 @@ if not useMolecularDescriptors:
         nTrain = len(trainDataset)
 
     valDataset = GraphDataSet(
-        valDir, nMaxEntries=nValMaxEntries, seed=seed, transform=transform
+        valDir, nMaxEntries=nValMaxEntries, seed=seed
     )
 
     if nValMaxEntries:
@@ -190,7 +178,7 @@ if not useMolecularDescriptors:
         nValidation = len(valDataset)
 
     testDataset = GraphDataSet(
-        testDir, nMaxEntries=nValMaxEntries, seed=seed, transform=transform
+        testDir, nMaxEntries=nValMaxEntries, seed=seed
     )
 
 
@@ -198,8 +186,8 @@ if not useMolecularDescriptors:
     trainLoader = DataLoader(trainDataset, batch_size=nBatch, num_workers=num_workers)
     valLoader = DataLoader(valDataset, batch_size=nBatch, num_workers=num_workers)
 
-#for batch in trainLoader:
-#    print(batch.y.shape)
+    #for batch in trainLoader:
+    #    print(batch.y.shape)
 
 
 else:
@@ -244,8 +232,10 @@ fileName = (
     + "sl"
     + repr(n_target_specific_layers)
     + "tsl"
+    + timeString
+    + ".txt"
 )
-logFile = "./runs/" + fileName + "-" + timeString
+logFile = "/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/runs/" + fileName #+ "-" + timeString
 
 saveModelFileName = (
     "GraphPotential-"
@@ -260,8 +250,10 @@ saveModelFileName = (
     + ".tar"
 )
 
+check_point_path = "/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/runs/" + saveModelFileName # + "-" + timeString
+
 # Define a Tensorboard writer to monitor the fitting process
-#writer = SummaryWriter(logFile)
+writer = SummaryWriter(log_dir='/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/runs')
 #description = markdown.markdown(descriptionText)
 #writer.add_text("Description", description)
 
@@ -275,9 +267,7 @@ model = BuildNN_GNN_MTL(n0, n1, n2, n3, n4, n5, activation, momentum_batch_norm,
                         n_node_features, n_edge_features, n_node_neurons, n_edge_neurons, n_graph_convolution_layers, n_shared_layers,
                         n_target_specific_layers, useMolecularDescriptors, n_inputs)
 
-#model = BuildNN(n_inputs, n0, n1, n2, n3, activation, momentum_batch_norm, n_target_specific_layers, prob_h1, prob_h2, prob_h3, prob_h4)
-
-
+# Write out parameters
 nParameters = count_model_parameters(model)
 log_text += (
     "- This model contains a total of: "
@@ -333,12 +323,12 @@ if not useMolecularDescriptors:
 
             # Tensorboard
             #for name, param in model.named_parameters():
-            #    writer.add_histogram(f"weights/{name}", param, epoch)
-            ##    writer.add_histogram(f"grads/{name}", param.grad, epoch)
-            #    if param.grad is not None:  # Only log gradients if they exist
-            #        writer.add_histogram(f"grads/{name}", param.grad, epoch)
-            #    #else:
-            #        #print(f"Warning: No gradient for {name}")
+                #writer.add_histogram(f"weights/{name}", param, epoch)
+                #writer.add_histogram(f"grads/{name}", param.grad, epoch)
+                #if param.grad is not None:  # Only log gradients if they exist
+                #    writer.add_histogram(f"grads/{name}", param.grad, epoch)
+                #else:
+                #    print(f"Warning: No gradient for {name}")
 
         train_loss /= len(trainLoader)
 
@@ -358,37 +348,35 @@ if not useMolecularDescriptors:
         print(f"Epoch {epoch+1}: Train Loss={train_loss:.4f}, Val Loss={val_loss:.4f}")
 
         # Checkpoints
-        #if (
-        #        epoch + 1
-        #) % chkptFreq == 0:  # n_epoch + 1 to ensure saving at the last iteration too
-
-        #    torch.save(
-        #            "epoch": epoch,
-        #            "model_state_dict": model.state_dict(),
-        #            "optimizer_state_dict": optimizer.state_dict(),
-        #            "train_loss": train_loss,
-        #            "val_loss": val_loss,
-        #        },
-        #        check_point_path,
-        #    )
+        if (epoch + 1) % chkptFreq == 0:  # n_epoch + 1 to ensure saving at the last iteration too
+            torch.save(
+                {
+                    "epoch": epoch,
+                    "model_state_dict": model.state_dict(),
+                    "optimizer_state_dict": optimizer.state_dict(),
+                    "train_loss": train_loss,
+                    "val_loss": val_loss,
+                },
+                check_point_path,
+            )
 
         # If there are any callbacks, act them if needed
-        #for callback in callbacks:
-        #    callback(train_loss)
-        #    # check for early stopping; if true, we return to main function
-        #    if (
-        #            callback.early_stop
-        #    ):  # if we are to stop, make sure we save model/optimizer
-        #        torch.save(
-        #            {
-        #                 "epoch": n_epoch,
-        #                "model_state_dict": model.state_dict(),
-        #                "optimizer_state_dict": optimizer.state_dict(),
-        #                "train_loss": train_loss,
-        #                "val_loss": val_loss,
-        #            },
-        #            check_point_path,
-        #        )
+        for callback in callbacks:
+            callback(train_loss)
+            # check for early stopping; if true, we return to main function
+            if (
+                    callback.early_stop
+            ):  # if we are to stop, make sure we save model/optimizer
+                torch.save(
+                    {
+                         "epoch": n_epoch,
+                        "model_state_dict": model.state_dict(),
+                        "optimizer_state_dict": optimizer.state_dict(),
+                        "train_loss": train_loss,
+                        "val_loss": val_loss,
+                    },
+                    check_point_path,
+                )
 
         # Tensorboard
         #model.eval()
@@ -397,9 +385,9 @@ if not useMolecularDescriptors:
         #    y_pred = model(X_internal_tensor)
 
         #log_metrics(epoch, writer, y_internal, y_pred)
-
-        #writer.add_scalar('Loss/train', train_loss, epoch)
-        #writer.add_scalar('Loss/val', val_loss, epoch)
+        if epoch % 5 == 0:
+            writer.add_scalar('Loss/train', train_loss, epoch)
+            writer.add_scalar('Loss/val', val_loss, epoch)
 
     # Tensorboard
     #writer.add_histogram("Feature Maps/Layer1", layer1_activations, epoch)
@@ -412,7 +400,7 @@ if not useMolecularDescriptors:
     #images = x.view(x.size(0), -1)  # Flatten if needed
     #writer.add_graph(model, x[:1])  # Use a single sample from the batch
 
-    #writer.close()
+    writer.close()
 
     # Make predictions
     y_pred_logit = []
@@ -529,14 +517,35 @@ else:
         val_loss /= len(valLoader)
 
         print(f"Epoch {epoch + 1}: Train Loss={train_loss:.4f}, Val Loss={val_loss:.4f}")
+        if (epoch + 1) % chkptFreq == 0:  # n_epoch + 1 to ensure saving at the last iteration too
+            torch.save(
+                {
+                    "epoch": epoch,
+                    "model_state_dict": model.state_dict(),
+                    "optimizer_state_dict": optimizer.state_dict(),
+                    "train_loss": train_loss,
+                    "val_loss": val_loss,
+                },
+                check_point_path,
+            )
 
-        # Check early stopping
-        #if early_stop(val_loss):
-        #    print("Early stopping triggered.")
-        #    break
-
-        # Callback
-        # print_callback.on_epoch_end(epoch, model, train_loss, val_loss)
+        # If there are any callbacks, act them if needed
+        for callback in callbacks:
+            callback(train_loss)
+            # check for early stopping; if true, we return to main function
+            if (
+                    callback.early_stop
+            ):  # if we are to stop, make sure we save model/optimizer
+                torch.save(
+                    {
+                        "epoch": n_epoch,
+                        "model_state_dict": model.state_dict(),
+                        "optimizer_state_dict": optimizer.state_dict(),
+                        "train_loss": train_loss,
+                        "val_loss": val_loss,
+                    },
+                    check_point_path,
+                )
 
         # model.eval()
         # X_internal_tensor = torch.tensor(X_internal, dtype=torch.float32)  # .to(device)
@@ -544,6 +553,9 @@ else:
         #    y_pred = model(X_internal_tensor)
 
         # log_metrics(epoch, writer, y_internal, y_pred)
+        if epoch % 5 == 0:
+            writer.add_scalar('Loss/train', train_loss, epoch)
+            writer.add_scalar('Loss/val', val_loss, epoch)
 
         # writer.add_scalar('Loss/train', train_loss, epoch)
         # writer.add_scalar('Loss/val', val_loss, epoch)
@@ -559,7 +571,7 @@ else:
     # images = x.view(x.size(0), -1)  # Flatten if needed
     # writer.add_graph(model, x[:1])  # Use a single sample from the batch
 
-    # writer.close()
+    writer.close()
 
     # Make predictions
     model.eval()
@@ -608,4 +620,12 @@ else:
     _, new_real, new_y_pred, new_prob = filter_nan(y_internal[:, 4], y_pred_1537, y_pred[4])
     print(get_metrics(new_real, new_y_pred))
 
+# Write to log file
+with open(logFile, 'a') as f:
+    f.write(log_text)
+
 sys.stdout.flush()
+
+#writer.flush()
+
+# to visualize with tensorboard: tensorboard --logdir='/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/runs'
