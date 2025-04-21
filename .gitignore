@@ -9,6 +9,7 @@ AMES/logs/
 AMES/data.csv
 AMES/.ipynb_checkpoints
 AMES/visualize_graphs.ipynb
+AMES/output/
 moleculedb-dev/
 AMES/predictions_TF.csv
 AMES/predictions_Torch.csv
@@ -19,3 +20,4 @@ AMES/predictions_Torch.csv
 *.pyo
 *.log
 *.tar
+*.xlsx
