@@ -47,8 +47,6 @@ species: ["N", "C", "H", "O", "S", "Cl", "Be", "Br", "Pt", "P",
 # angles in which i-j is the central bond (contrary to bond-angle, this feature is the same
 # for both edges in the bond
 
-EdgeDistanceFeatures: True
-
 nMaxNeighbours: 850 # Needs to be adjusted based on max number of atoms in molecules
 
 # bond angle features
@@ -61,8 +59,6 @@ BondAngleFeatures: True
 # assigned to edge 2-3.
 
 DihedralAngleFeatures: True
-
-useCovalentRadii: True
 
 # transformData: std
 

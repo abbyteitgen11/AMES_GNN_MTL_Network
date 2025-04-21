@@ -150,7 +150,6 @@ log_text += "- graph construction style: " + graph_type + "  \n"
 
 # Specify the graph construction strategy
 n_max_neighbours = input_data.get("nMaxNeighbours", 6)
-use_covalent_radii = input_data.get("useCovalentRadii", False)
 node_features = input_data.get("nodeFeatures", [])
 species = input_data.get("species", ["N", "C", "H", "O", "S", "Cl", "Be", "Br", "Pt", "P", 
           "F", "As", "Hg", "Zn", "Si", "V", "I", "B", "Sn", "Ge", 
@@ -179,11 +178,6 @@ Graphs = set_up_atomic_structure_graphs(
 
 
 nNodeFeatures = Graphs.n_node_features()
-
-if use_covalent_radii:
-    log_text += "- Using Covalent Radii to find neighbours \n"
-else:
-    log_text += "- nMaxNeighbours: " + repr(n_max_neighbours) + "  \n"
 
 write_node_features(node_features)
 

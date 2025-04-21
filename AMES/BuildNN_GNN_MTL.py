@@ -23,7 +23,7 @@ class BuildNN_GNN_MTL(nn.Module):
                  prob_h5: float = 0.1,
                  prob_h6: float = 0.0001,
                  n_node_features: int = 29,
-                 n_edge_features: int = 2,
+                 n_edge_features: int = 3,
                  n_node_neurons: int = 0,
                  n_edge_neurons: int = 0,
                  n_gc_layers: int = 2,
@@ -67,6 +67,7 @@ class BuildNN_GNN_MTL(nn.Module):
 
             """
         self.activation_layer = eval("nn." + act + "()")
+        #self.activation_layer2 = nn.Tanh()
 
         # GNN
         if not use_molecular_descriptors:
@@ -95,29 +96,33 @@ class BuildNN_GNN_MTL(nn.Module):
             ni = n_inputs
 
         # Shared core
-        for i in range(n_s_layers):
-            if i == 0:
-                a = ni
-                b = n0
-                c = prob_h1
-            elif i == 1:
-                a = n0
-                b = n1
-                c = prob_h2
-            elif i == 2:
-                a = n1
-                b = n2
-                c = prob_h3
-            elif i == 3:
-                a = n2
-                b = n3
-                c = prob_h4
+        if n_s_layers > 0:
+            for i in range(n_s_layers):
+                if i == 0:
+                    a = ni
+                    b = n0
+                    c = prob_h1
+                elif i == 1:
+                    a = n0
+                    b = n1
+                    c = prob_h2
+                elif i == 2:
+                    a = n1
+                    b = n2
+                    c = prob_h3
+                elif i == 3:
+                    a = n2
+                    b = n3
+                    c = prob_h4
 
-            setattr(self, f"linear{i + 1}", nn.Linear(a, b))
-            setattr(self, f"bn{i + 1}", nn.BatchNorm1d(b, momentum=momentum_batch_norm))
-            setattr(self, f"dropout{i + 1}", nn.Dropout(c))
+                setattr(self, f"linear{i + 1}", nn.Linear(a, b))
+                setattr(self, f"bn{i + 1}", nn.BatchNorm1d(b, momentum=momentum_batch_norm))
+                setattr(self, f"dropout{i + 1}", nn.Dropout(c))
 
-        output_n = b
+
+            output_n = b
+        else:
+            output_n = ni
 
         #self.linear1 = nn.Linear(ni, n0)
         #self.bn1 = nn.BatchNorm1d(n0, momentum=momentum_batch_norm)
@@ -136,22 +141,27 @@ class BuildNN_GNN_MTL(nn.Module):
         #self.dropout4 = nn.Dropout(prob_h4)
 
         # Target specific core
-        for i in range(5):
-            for j in range(n_ts_layers):
-                if j == 0:
-                    a = output_n
-                    b = n4
-                    c = prob_h5
-                elif j == 1:
-                    a = n4
-                    b = n5
-                    c = prob_h6
+        if n_ts_layers > 0:
+            for i in range(5):
+                for j in range(n_ts_layers):
+                    if j == 0:
+                        a = output_n
+                        b = n4
+                        c = prob_h5
+                    elif j == 1:
+                        a = n4
+                        b = n5
+                        c = prob_h6
 
-                setattr(self, f"ts{i + 1}_linear{j + 1}", nn.Linear(a, b))
-                setattr(self, f"ts{i + 1}_bn{j + 1}", nn.BatchNorm1d(b, momentum=momentum_batch_norm))
-                setattr(self, f"ts{i + 1}_dropout{j + 1}", nn.Dropout(c))
+                    setattr(self, f"ts{i + 1}_linear{j + 1}", nn.Linear(a, b))
+                    setattr(self, f"ts{i + 1}_bn{j + 1}", nn.BatchNorm1d(b, momentum=momentum_batch_norm))
+                    setattr(self, f"ts{i + 1}_dropout{j + 1}", nn.Dropout(c))
 
-            setattr(self, f"ts{i + 1}_sig", nn.Linear(b, 1))
+                setattr(self, f"ts{i + 1}_sig", nn.Linear(b, 1))
+        else:
+            for i in range(5):
+                setattr(self, f"ts{i + 1}_sig", nn.Linear(output_n, 1))
+
 
 
         #self.ts1_linear1 = nn.Linear(n3, n2)  # x.size(1)
@@ -216,7 +226,7 @@ class BuildNN_GNN_MTL(nn.Module):
 
                 # Pooling layer
                 #x = global_add_pool(x, batch)
-            x = global_mean_pool(x, batch)
+            x = global_add_pool(x, batch)
 
         # Shared core
         for i in range(n_s_layers):
@@ -246,19 +256,27 @@ class BuildNN_GNN_MTL(nn.Module):
 
         # Target specific core
         y_outputs = []
-        for i in range(5):
-            y = x
-            for j in range(n_ts_layers):
-                dropout_layer = getattr(self, f"ts{i + 1}_dropout{j + 1}")
-                y = dropout_layer(y)
-                linear_layer = getattr(self, f"ts{i + 1}_linear{j + 1}")
-                y = linear_layer(y)
-                bn_layer = getattr(self, f"ts{i + 1}_bn{j + 1}")
-                y = self.activation_layer(bn_layer(y))
-            sig_layer = getattr(self, f"ts{i + 1}_sig")
-            y = sig_layer(y)
-            y = y.sigmoid()
-            y_outputs.append(y)
+        if n_ts_layers > 0:
+            for i in range(5):
+                y = x
+                for j in range(n_ts_layers):
+                    dropout_layer = getattr(self, f"ts{i + 1}_dropout{j + 1}")
+                    y = dropout_layer(y)
+                    linear_layer = getattr(self, f"ts{i + 1}_linear{j + 1}")
+                    y = linear_layer(y)
+                    bn_layer = getattr(self, f"ts{i + 1}_bn{j + 1}")
+                    y = self.activation_layer(bn_layer(y))
+                sig_layer = getattr(self, f"ts{i + 1}_sig")
+                y = sig_layer(y)
+                y = y.sigmoid()
+                y_outputs.append(y)
+        else:
+            for i in range(5):
+                y = x
+                sig_layer = getattr(self, f"ts{i + 1}_sig")
+                y = sig_layer(y)
+                y = y.sigmoid()
+                y_outputs.append(y)
 
         # Two layers
         # STRAIN 1

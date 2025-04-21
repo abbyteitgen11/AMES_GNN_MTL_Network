@@ -182,7 +182,7 @@ class XG(AtomicStructureGraphs):
 
         # now, based on the edge-index information, we can construct the edge attributes
 
-        n_bond_features = 0  # for distance
+        n_bond_features = 1  # for distance
 
         if self.bond_angle_feature: n_bond_features += 1  # for bond_angles
         if self.dihedral_angle_feature: n_bond_features += 1  # for dihedral
@@ -196,6 +196,7 @@ class XG(AtomicStructureGraphs):
             j = edge_index[1, n]
 
             dij = np.sqrt(dij2[i, j])
+            bond_features[n, 0] += dij
             rij = positions[j, :] - positions[i, :]
 
             if self.bond_angle_feature:  # include bond angle features
@@ -209,7 +210,8 @@ class XG(AtomicStructureGraphs):
                     # bond_features[n,1] += fij * fik * cosijk
                     features_instance = Features()
                     #cosijk2 = features_instance.u_k(cosijk)
-                    bond_features[n, 0] += cosijk #cosijk2 #u_k(cosijk)
+
+                    bond_features[n, 1] += cosijk #cosijk2 #u_k(cosijk)
 
         if self.dihedral_angle_feature:  # include dihedral features
             for nk in range(n_neighbours[i]):
@@ -228,7 +230,7 @@ class XG(AtomicStructureGraphs):
 
                     coskijl = get_dihedral_angle(rki, rij, rjl)
                     #coskijl2 =  features_instance.u_k(coskijl)
-                    if coskijl: bond_features[n, 1] += coskijl
+                    if coskijl: bond_features[n, 2] += coskijl
 
         spec_id = torch.zeros((n_atoms), dtype=int)
 

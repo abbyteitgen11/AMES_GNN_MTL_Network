@@ -8,6 +8,7 @@ import csv
 import h5py
 import random
 import markdown
+import csv
 
 import pickle
 import matplotlib.pyplot as plt
@@ -95,7 +96,7 @@ n_node_features = database_data.get("nNodeFeatures")
 edge_parameters = database_data.get("EdgeFeatures")
 bond_angle_features = database_data.get("BondAngleFeatures", True)
 dihedral_angle_features = database_data.get("DihedralFeatures", True)
-n_edge_features = 0  # 1 for distance features
+n_edge_features = 1  # 1 for distance features
 if bond_angle_features: n_edge_features += 1 # bond-angle feature
 if dihedral_angle_features: n_edge_features += 1 # dihedral-angle feature
 
@@ -183,8 +184,10 @@ if not useMolecularDescriptors:
 
 
     # Set up train and val loader
-    trainLoader = DataLoader(trainDataset, batch_size=nBatch, num_workers=num_workers)
-    valLoader = DataLoader(valDataset, batch_size=nBatch, num_workers=num_workers)
+    g = torch.Generator()
+    g.manual_seed(seed)
+    trainLoader = DataLoader(trainDataset, batch_size=nBatch, num_workers=num_workers, generator=g)
+    valLoader = DataLoader(valDataset, batch_size=nBatch, num_workers=num_workers, generator=g)
 
     #for batch in trainLoader:
     #    print(batch.y.shape)
@@ -192,36 +195,57 @@ if not useMolecularDescriptors:
 
 else:
     data_path = '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/data.csv'
-    train, internal = load_data(data_path, model="MTL", stage='GS')
+    train, internal, external = load_data(data_path, model="MTL", stage='GS')
     X_train, y_train = train
     X_internal, y_internal = internal
+    X_external, y_external = external
 
     # Reformat data
     X_train = X_train[:, 1:]  # Remove SMILES
     X_internal = X_internal[:, 1:]  # Remove SMILES
+    X_external = X_external[:, 1:]  # Remove SMILES
 
     y_train = np.transpose(y_train)
     y_internal = np.transpose(y_internal)
+    y_external = np.transpose(y_external)
 
     # Convert to float
     X_train = np.array(X_train, dtype=np.float32)
     X_internal = np.array(X_internal, dtype=np.float32)
+    X_external = np.array(X_external, dtype=np.float32)
     y_train = np.array(y_train, dtype=np.float32)
     y_internal = np.array(y_internal, dtype=np.float32)
+    y_external = np.array(y_external, dtype=np.float32)
+
+    if nTrainMaxEntries:
+        X_train = X_train[:nTrainMaxEntries]
+        Y_train = y_train[:nTrainMaxEntries]
+    if nValMaxEntries:
+        X_internal = X_internal[:nValMaxEntries]
+        y_internal = y_internal[:nValMaxEntries]
 
     # Convert to tensor
     train_dataset = torch.tensor(X_train, dtype=torch.float32)
     train_output = torch.tensor(y_train, dtype=torch.float32)
     val_dataset = torch.tensor(X_internal, dtype=torch.float32)
     val_output = torch.tensor(y_internal, dtype=torch.float32)
+    test_dataset = torch.tensor(X_external, dtype=torch.float32)
+    test_output = torch.tensor(y_external, dtype=torch.float32)
+
 
     # Convert to dataset
     train_dataset_final = MTLDataset(train_dataset, train_output)
     val_dataset_final = MTLDataset(val_dataset, val_output)
+    test_dataset_final = MTLDataset(test_dataset, test_output)
 
     n_inputs = X_train.shape[1]
-    trainLoader = DataLoader(train_dataset_final, batch_size=nBatch, shuffle = True) # , shuffle=True
-    valLoader = DataLoader(val_dataset_final, batch_size=nBatch)
+
+    g = torch.Generator()
+    g.manual_seed(seed)
+
+    trainLoader = DataLoader(train_dataset_final, batch_size=nBatch, shuffle = True, generator=g) # , shuffle=True
+    valLoader = DataLoader(val_dataset_final, batch_size=nBatch, generator=g)
+    testLoader = DataLoader(test_dataset_final, batch_size=nBatch, generator=g)
 
 # File paths for saving model and log
 timeString = datetime.now().strftime("%d%m%Y-%H%M%S")
@@ -369,7 +393,7 @@ if not useMolecularDescriptors:
             ):  # if we are to stop, make sure we save model/optimizer
                 torch.save(
                     {
-                         "epoch": n_epoch,
+                        "epoch": epoch,
                         "model_state_dict": model.state_dict(),
                         "optimizer_state_dict": optimizer.state_dict(),
                         "train_loss": train_loss,
@@ -456,6 +480,49 @@ if not useMolecularDescriptors:
     _, new_real, new_y_pred, new_prob = filter_nan(y_true_cat[:,4], y_pred_cat[:,4], y_logit_cat[:,4])
     print(get_metrics(new_real, new_y_pred))
 
+    # Print to csv
+    csv_file = '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/runs/performance.csv'
+    headers = ['Strain', 'TP', 'TN', 'FP', 'FN', 'Sp', 'Sn', 'Prec', 'Acc', 'Bal acc', 'F1 score', 'H score']
+
+    with open(csv_file, mode='w', newline='') as file:
+        writer = csv.writer(file)
+
+        # Write the header row
+        writer.writerow(headers)
+        _, new_real, new_y_pred, new_prob = filter_nan(y_true_cat[:, 0], y_pred_cat[:, 0], y_logit_cat[:, 0])
+        metrics = get_metrics(new_real, new_y_pred)
+        metrics1 = [int(m) for m in metrics[0]]
+        metrics2 = [round(float(m), 2) for m in metrics[1]]
+        writer.writerow(['Strain TA98'] + list(metrics1) + list(metrics2))
+
+        _, new_real, new_y_pred, new_prob = filter_nan(y_true_cat[:, 1], y_pred_cat[:, 1], y_logit_cat[:, 1])
+        metrics = get_metrics(new_real, new_y_pred)
+        metrics1 = [int(m) for m in metrics[0]]
+        metrics2 = [round(float(m), 2) for m in metrics[1]]
+        writer.writerow(['Strain TA100'] + list(metrics1) + list(metrics2))
+
+        _, new_real, new_y_pred, new_prob = filter_nan(y_true_cat[:, 2], y_pred_cat[:, 2], y_logit_cat[:, 2])
+        metrics = get_metrics(new_real, new_y_pred)
+        metrics1 = [int(m) for m in metrics[0]]
+        metrics2 = [round(float(m), 2) for m in metrics[1]]
+        writer.writerow(['Strain TA102'] + list(metrics1) + list(metrics2))
+
+        _, new_real, new_y_pred, new_prob = filter_nan(y_true_cat[:, 3], y_pred_cat[:, 3], y_logit_cat[:, 3])
+        metrics = get_metrics(new_real, new_y_pred)
+        metrics1 = [int(m) for m in metrics[0]]
+        metrics2 = [round(float(m), 2) for m in metrics[1]]
+        writer.writerow(['Strain TA1535'] + list(metrics1) + list(metrics2))
+
+        _, new_real, new_y_pred, new_prob = filter_nan(y_true_cat[:, 4], y_pred_cat[:, 4], y_logit_cat[:, 4])
+        metrics = get_metrics(new_real, new_y_pred)
+        metrics1 = [int(m) for m in metrics[0]]
+        metrics2 = [round(float(m), 2) for m in metrics[1]]
+        writer.writerow(['Strain TA1537'] + list(metrics1) + list(metrics2))
+
+        file.flush()
+        file.close()
+
+
 else:
     #print(model.linear1.weight[:5, :5])
     #print(torch.get_rng_state()[:5])
@@ -538,7 +605,7 @@ else:
             ):  # if we are to stop, make sure we save model/optimizer
                 torch.save(
                     {
-                        "epoch": n_epoch,
+                        "epoch": epoch,
                         "model_state_dict": model.state_dict(),
                         "optimizer_state_dict": optimizer.state_dict(),
                         "train_loss": train_loss,
@@ -546,6 +613,7 @@ else:
                     },
                     check_point_path,
                 )
+
 
         # model.eval()
         # X_internal_tensor = torch.tensor(X_internal, dtype=torch.float32)  # .to(device)
@@ -576,12 +644,13 @@ else:
     # Make predictions
     model.eval()
     X_internal_tensor = torch.tensor(X_internal, dtype=torch.float32)  # .to(device)
+    X_external_tensor = torch.tensor(X_external, dtype=torch.float32)
     with torch.no_grad():
         #y_pred = model(X_internal_tensor)
         y_pred = model(X_internal_tensor, 0, 0, 0, n_node_neurons, n_node_features, n_edge_neurons, n_edge_features, n_graph_convolution_layers, n_shared_layers, n_target_specific_layers, useMolecularDescriptors)
 
     # Convert predictions to numpy arrays
-    y_pred = [yp.cpu().numpy() for yp in y_pred]
+    y_pred = [yp.numpy() for yp in y_pred]
 
     y_pred_98 = np.where(y_pred[0] > 0.5, 1, 0)
     y_pred_100 = np.where(y_pred[1] > 0.5, 1, 0)
@@ -619,6 +688,48 @@ else:
         'internal validation: (TP, TN, FP, FN) (Sp --- Sn --- Prec --- Acc --- Bal acc --- F1 score --- H score --- AUC)')
     _, new_real, new_y_pred, new_prob = filter_nan(y_internal[:, 4], y_pred_1537, y_pred[4])
     print(get_metrics(new_real, new_y_pred))
+
+    # Print to csv
+    csv_file = '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/runs/performance.csv'
+    headers = ['Strain', 'TP', 'TN', 'FP', 'FN', 'Sp', 'Sn', 'Prec', 'Acc', 'Bal acc', 'F1 score', 'H score']
+
+    with open(csv_file, mode='w', newline='') as file:
+        writer = csv.writer(file)
+
+        # Write the header row
+        writer.writerow(headers)
+        _, new_real, new_y_pred, new_prob = filter_nan(y_internal[:, 0], y_pred_98, y_pred[0])
+        metrics = get_metrics(new_real, new_y_pred)
+        metrics1 = [int(m) for m in metrics[0]]
+        metrics2 = [round(float(m), 2) for m in metrics[1]]
+        writer.writerow(['Strain TA98'] + list(metrics1) + list(metrics2))
+
+        _, new_real, new_y_pred, new_prob = filter_nan(y_internal[:, 1], y_pred_100, y_pred[1])
+        metrics = get_metrics(new_real, new_y_pred)
+        metrics1 = [int(m) for m in metrics[0]]
+        metrics2 = [round(float(m), 2) for m in metrics[1]]
+        writer.writerow(['Strain TA100'] + list(metrics1) + list(metrics2))
+
+        _, new_real, new_y_pred, new_prob = filter_nan(y_internal[:, 2], y_pred_102, y_pred[2])
+        metrics = get_metrics(new_real, new_y_pred)
+        metrics1 = [int(m) for m in metrics[0]]
+        metrics2 = [round(float(m), 2) for m in metrics[1]]
+        writer.writerow(['Strain TA102'] + list(metrics1) + list(metrics2))
+
+        _, new_real, new_y_pred, new_prob = filter_nan(y_internal[:, 3], y_pred_1535, y_pred[3])
+        metrics = get_metrics(new_real, new_y_pred)
+        metrics1 = [int(m) for m in metrics[0]]
+        metrics2 = [round(float(m), 2) for m in metrics[1]]
+        writer.writerow(['Strain TA1535'] + list(metrics1) + list(metrics2))
+
+        _, new_real, new_y_pred, new_prob = filter_nan(y_internal[:, 4], y_pred_1537, y_pred[4])
+        metrics = get_metrics(new_real, new_y_pred)
+        metrics1 = [int(m) for m in metrics[0]]
+        metrics2 = [round(float(m), 2) for m in metrics[1]]
+        writer.writerow(['Strain TA1537'] + list(metrics1) + list(metrics2))
+
+        file.flush()
+        file.close()
 
 # Write to log file
 with open(logFile, 'a') as f:

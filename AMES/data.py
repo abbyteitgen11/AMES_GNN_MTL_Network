@@ -113,18 +113,25 @@ def load_data(data_path, model, stage):
                        y_internal_MTL.iloc[:,3].values, 
                        y_internal_MTL.iloc[:,4].values]
 
+        y_external_MTL = [y_external_MTL.iloc[:,0].values,
+                       y_external_MTL.iloc[:,1].values,
+                       y_external_MTL.iloc[:,2].values,
+                       y_external_MTL.iloc[:,3].values,
+                       y_external_MTL.iloc[:,4].values]
+
         
         labels_dict = {
-            'MTL':(y_train_MTL, y_internal_MTL),
-            'Overall':(y_train_overall.values , y_internal_overall.values)
+            'MTL':(y_train_MTL, y_internal_MTL, y_external_MTL),
+            'Overall':(y_train_overall.values , y_internal_overall.values, y_external_overall.values)
         }
         
         y = labels_dict.get(model)
         
         t = (X_train, y[0])
         v = (X_internal, y[1])
+        e = (X_external, y[2])
         # In this case, the output is a tuple containing the train and internal partitions
-        output =(t,v)
+        output =(t,v,e)
         
     # Else, if evaluating on the external validation, just provide the external partition
     elif (stage=="EVAL"):
