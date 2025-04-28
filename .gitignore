@@ -13,6 +13,7 @@ AMES/output/
 moleculedb-dev/
 AMES/predictions_TF.csv
 AMES/predictions_Torch.csv
+AMES/loss/
 *.csv
 *.zip
 *.pyc
