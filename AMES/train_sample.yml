@@ -1,11 +1,11 @@
 
 # Input file for model training
 
-nNodeNeurons: 200 # Number of node neurons for GNN
-nEdgeNeurons: 30 # Number of edge neurons for GNN
-nGraphConvolutionLayers: 0 # Number of graph convolutional layers
-nSharedLayers: 4 # Number of layers in shared core
-nTargetSpecificLayers: 2 # Number of layers in target specific core
+nNodeNeurons: 33 # Number of node neurons for GNN
+nEdgeNeurons: 167 # Number of edge neurons for GNN
+nGraphConvolutionLayers: 9 # Number of graph convolutional layers
+nSharedLayers: 0 # Number of layers in shared core
+nTargetSpecificLayers: 0 # Number of layers in target specific core
 n0: 200 # Number of neurons layer 1 shared core
 n1: 100 # Number of neurons layer 2 shared core
 n2: 50 # Number of neurons layer 3 shared core
@@ -25,19 +25,19 @@ prob_h6: 0.1 # Dropout layer 1 target specific core
 momentum_batch_norm: 0.9
 
 # Activation function
-ActivationFunction: "ReLU" #"Tanh"
+ActivationFunction: "Tanh" #"Tanh"
 
-nEpochs: 30 #np.iinfo(np.int32).max
+nEpochs: 50 #np.iinfo(np.int32).max
 nBatch: 32
 nCheckpoint: 10
 randomSeed: 42
-#nTrainMaxEntries: 1500
-#nValMaxEntries: 300
+nTrainMaxEntries: 1500
+nValMaxEntries: 300
 
 # this only gives the starting learning rate iff loadModel = False; otherwise it is read from checkpoint file
-learningRate: 0.0005 #5e-4
+learningRate: 0.002076754414106255 #0.0001 #5e-4
 
-weightedCostFunction: "None" # Include weighted cost function
+weightedCostFunction: True # Include weighted cost function
 L2Regularization: 0.005 # L2 regularization coefficient
 
 # the following command specifies if the model.state_dict() and optimizer.state_dict() are to be loaded
@@ -48,7 +48,7 @@ loadOptimizer: False
 
 # warmStart: "GraphPotential-nn-2gcl-2fcl-31102023-173821.tar"
 
-useMolecularDescriptors: True # Use molecular features instead of graphs for comparison to original MTL paper
+useMolecularDescriptors: False # Use molecular features instead of graphs for comparison to original MTL paper
 
 callbacks: 
    earlyStopping:
@@ -63,10 +63,10 @@ callbacks:
 descriptionText: 'No data transformation'
 
 # where the graph data-base resides
-database: '/lustre/home/cib/abiel/GraphDataBase_AMES' #'/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/GraphDataBase_AMES'
+database: '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/GraphDataBase_AMES'
 
 # file with molecular data
-data_file: '/lustre/home/cib/abiel/AMES/data.csv' #'/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/data.csv'
+data_file: '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/data.csv'
 
 # transformData: std
 

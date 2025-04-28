@@ -11,6 +11,8 @@ import markdown
 import csv
 import argparse
 import logging
+import optuna
+from optuna.trial import TrialState
 
 import pickle
 import matplotlib.pyplot as plt
@@ -32,7 +34,7 @@ from device import device, num_workers
 from graph_dataset import GraphDataSet
 from compute_metrics import *
 from data import load_data
-from BuildNN_GNN_MTL import BuildNN_GNN_MTL
+from BuildNN_GNN_MTL_HP import BuildNN_GNN_MTL
 from masked_loss_function import masked_loss_function
 from set_seed import set_seed
 from MTLDataset import MTLDataset
@@ -92,8 +94,7 @@ def log_metrics(epoch, writer, y_internal, y_pred):
 
     return metrics_cat
 
-
-def main():
+def objective(trial):
     args = get_args()
     output_dir = ''
     os.makedirs(args.output_dir, exist_ok=True)
@@ -105,10 +106,10 @@ def main():
     logging.info(f"Using device: {device}")
 
     # Read in input data
-    #input_file = sys.argv[1]  # input_file is a yaml compliant file
+    # input_file = sys.argv[1]  # input_file is a yaml compliant file
     input_file = args.input_file
 
-    with open( input_file, 'r' ) as input_stream:
+    with open(input_file, 'r') as input_stream:
         input_data = yaml.load(input_stream, Loader=yaml.Loader)
 
     # Set database path
@@ -117,41 +118,44 @@ def main():
     # The database is described with its own yaml file; so read it
     database_file = database_path + '/graph_description.yml'
 
-    with open( database_file, 'r' ) as database_stream:
+    with open(database_file, 'r') as database_stream:
         database_data = yaml.load(database_stream, Loader=yaml.Loader)
 
     # Model parameters
-    n_node_neurons = input_data.get("nNodeNeurons", 0) # Number of neurons in GNN
-    n_edge_neurons = input_data.get("nEdgeNeurons", 0) # Number of edges in GNN
-    n_graph_convolution_layers = input_data.get("nGraphConvolutionLayers", 2) # Number of graph convolutional layers
-    n_shared_layers = input_data.get("nSharedLayers", 4) # Number of layers in shared core
-    n_target_specific_layers = input_data.get("nTargetSpecificLayers", 2) # Number of layers in target specific core
-    n0 = input_data.get("n0", None) # Number of neurons in layer 1 shared core
-    n1 = input_data.get("n1", None) # Number of neurons in layer 2 shared core
-    n2 = input_data.get("n2", None) # Number of neurons in layer 3 shared core
-    n3 = input_data.get("n3", None) # Number of neurons in layer 4 shared core
-    n4 = input_data.get("n4", None) # Number of neurons in layer 1 target specific core
-    n5 = input_data.get("n5", None) # Number of neurons in layer 2 target specific core
-    prob_h1 = input_data.get("prob_h1", None) # Dropout layer 1 shared core
-    prob_h2 = input_data.get("prob_h2", None) # Dropout layer 2 shared core
-    prob_h3 = input_data.get("prob_h3", None) # Dropout layer 3 shared core
-    prob_h4 = input_data.get("prob_h4", None) # Dropout layer 4 shared core
-    prob_h5 = input_data.get("prob_h5", None) # Dropout layer 1 target specific core
-    prob_h6 = input_data.get("prob_h6", None) # Dropout layer 2 target specific core
-    momentum_batch_norm = input_data.get("momentum_batch_norm", None) # Batch normalization
-    activation = input_data.get("ActivationFunction", "ReLU") # Activation function
+    n_node_neurons = trial.suggest_int("n_node_neurons", 0,
+                                       500)  # input_data.get("nNodeNeurons", 0) # Number of neurons in GNN
+    n_edge_neurons = trial.suggest_int("n_edge_neurons", 0,
+                                       500)  # input_data.get("nEdgeNeurons", 0) # Number of edges in GNN
+    n_graph_convolution_layers = trial.suggest_int("nGraphConvolutionalLayers", 1,
+                                                   20)  # input_data.get("nGraphConvolutionLayers", 2) # Number of graph convolutional layers
+    n_shared_layers = input_data.get("nSharedLayers", 4)  # Number of layers in shared core
+    n_target_specific_layers = input_data.get("nTargetSpecificLayers", 2)  # Number of layers in target specific core
+    n0 = input_data.get("n0", None)  # Number of neurons in layer 1 shared core
+    n1 = input_data.get("n1", None)  # Number of neurons in layer 2 shared core
+    n2 = input_data.get("n2", None)  # Number of neurons in layer 3 shared core
+    n3 = input_data.get("n3", None)  # Number of neurons in layer 4 shared core
+    n4 = input_data.get("n4", None)  # Number of neurons in layer 1 target specific core
+    n5 = input_data.get("n5", None)  # Number of neurons in layer 2 target specific core
+    prob_h1 = input_data.get("prob_h1", None)  # Dropout layer 1 shared core
+    prob_h2 = input_data.get("prob_h2", None)  # Dropout layer 2 shared core
+    prob_h3 = input_data.get("prob_h3", None)  # Dropout layer 3 shared core
+    prob_h4 = input_data.get("prob_h4", None)  # Dropout layer 4 shared core
+    prob_h5 = input_data.get("prob_h5", None)  # Dropout layer 1 target specific core
+    prob_h6 = input_data.get("prob_h6", None)  # Dropout layer 2 target specific core
+    momentum_batch_norm = input_data.get("momentum_batch_norm", None)  # Batch normalization
+    activation = input_data.get("ActivationFunction", "ReLU")  # Activation function
     weighted_loss_function = input_data.get("weightedCostFunction", False)
     if weighted_loss_function:
-        # w1 = 1.90
-        # w2 = 1.56
-        # w3 = 3.31
-        # w4 = 5.09
-        # w5 = 5.11
-        w1 = 6.0053794085409065
-        w2 = 9.3137641959351
-        w3 = 7.788971397226669
-        w4 = 1.0357078359984786
-        w5 = 1.7686334216574249
+        w1 = trial.suggest_float("w1", 1.0, 10.0)
+        w2 = trial.suggest_float("w2", 1.0, 10.0)
+        w3 = trial.suggest_float("w3", 1.0, 10.0)
+        w4 = trial.suggest_float("w4", 1.0, 10.0)
+        w5 = trial.suggest_float("w5", 1.0, 10.0)
+        #w1 = 1.90
+        #w2 = 1.56
+        #w3 = 3.31
+        #w4 = 5.09
+        #w5 = 5.11
         class_weights = {
             '98': {0: 1.0, 1: w1, -1: 0},
             '100': {0: 1.0, 1: w2, -1: 0},
@@ -176,25 +180,28 @@ def main():
     bond_angle_features = database_data.get("BondAngleFeatures", True)
     dihedral_angle_features = database_data.get("DihedralFeatures", True)
     n_edge_features = 1  # 1 for distance features
-    if bond_angle_features: n_edge_features += 1 # bond-angle feature
-    if dihedral_angle_features: n_edge_features += 1 # dihedral-angle feature
+    if bond_angle_features: n_edge_features += 1  # bond-angle feature
+    if dihedral_angle_features: n_edge_features += 1  # dihedral-angle feature
 
     # Training parameters
-    nEpochs = input_data.get("nEpochs", 10) # Number of epochs
-    nBatch = input_data.get("nBatch", 50) # Batch size
-    chkptFreq = input_data.get("nCheckpoint", 10) # Checkpoint frequency
-    seed = input_data.get("randomSeed", 42) # Random seed
-    nTrainMaxEntries = input_data.get("nTrainMaxEntries", None) # Number of training examples to use (if not using whole dataset)
-    nValMaxEntries = input_data.get("nValMaxEntries", None) # Number of validation examples to use (if not using whole dataset)
-    learningRate = input_data.get("learningRate", 0.0001) # Learning rate
-    weightedCostFunction = input_data.get("weightedCostFunction", None) # Use weighted  cost function
-    L2Regularization = input_data.get("L2Regularization", 0.005) # L2 regularization coefficient
+    nEpochs = input_data.get("nEpochs", 10)  # Number of epochs
+    nBatch = input_data.get("nBatch", 50)  # Batch size
+    chkptFreq = input_data.get("nCheckpoint", 10)  # Checkpoint frequency
+    seed = input_data.get("randomSeed", 42)  # Random seed
+    nTrainMaxEntries = input_data.get("nTrainMaxEntries",
+                                      None)  # Number of training examples to use (if not using whole dataset)
+    nValMaxEntries = input_data.get("nValMaxEntries",
+                                    None)  # Number of validation examples to use (if not using whole dataset)
+    learningRate = trial.suggest_float("learningRate", 1e-5, 1e-1, log=True) #input_data.get("learningRate", 0.0001)  # Learning rate
+    weightedCostFunction = input_data.get("weightedCostFunction", None)  # Use weighted  cost function
+    L2Regularization = input_data.get("L2Regularization", 0.005)  # L2 regularization coefficient
     loadModel = input_data.get("loadModel", False)
     loadOptimizer = input_data.get("loadOptimizer", False)
-    useMolecularDescriptors = input_data.get("useMolecularDescriptors", False) # Use molecular descriptors instead of graphs for comparison to original MTL paper
+    useMolecularDescriptors = input_data.get("useMolecularDescriptors",
+                                             False)  # Use molecular descriptors instead of graphs for comparison to original MTL paper
 
     # Set seeds for consistency
-    #set_seed(seed)
+    # set_seed(seed)
 
     # Print out model information to log
     log_text = "\n# Model Description  \n"
@@ -205,7 +212,7 @@ def main():
     log_text += "- nEpochs: " + repr(nEpochs) + "  \n"
     log_text += "- nBatch: " + repr(nBatch) + "  \n"
     log_text += (
-        "- Checkpointing model and optimizer every " + repr(chkptFreq) + " epochs  \n"
+            "- Checkpointing model and optimizer every " + repr(chkptFreq) + " epochs  \n"
     )
     log_text += "- learningRate: " + repr(learningRate) + "  \n"
     log_text += "- random seed: " + repr(seed) + "  \n"
@@ -268,7 +275,7 @@ def main():
         trainLoader = DataLoader(trainDataset, batch_size=nBatch, generator=g)
         valLoader = DataLoader(valDataset, batch_size=nBatch, generator=g)
 
-        #for batch in trainLoader:
+        # for batch in trainLoader:
         #    print(batch.y.shape)
 
 
@@ -311,7 +318,6 @@ def main():
         test_dataset = torch.tensor(X_external, dtype=torch.float32)
         test_output = torch.tensor(y_external, dtype=torch.float32)
 
-
         # Convert to dataset
         train_dataset_final = MTLDataset(train_dataset, train_output)
         val_dataset_final = MTLDataset(val_dataset, val_output)
@@ -322,26 +328,27 @@ def main():
         g = torch.Generator()
         g.manual_seed(seed)
 
-        trainLoader = DataLoader(train_dataset_final, batch_size=nBatch, shuffle = True, generator=g)
+        trainLoader = DataLoader(train_dataset_final, batch_size=nBatch, shuffle=True, generator=g)
         valLoader = DataLoader(val_dataset_final, batch_size=nBatch, generator=g)
         testLoader = DataLoader(test_dataset_final, batch_size=nBatch, generator=g)
 
-
     # Build model
-    model = BuildNN_GNN_MTL(n0, n1, n2, n3, n4, n5, activation, momentum_batch_norm, prob_h1, prob_h2, prob_h3, prob_h4, prob_h5, prob_h6,
-                            n_node_features, n_edge_features, n_node_neurons, n_edge_neurons, n_graph_convolution_layers, n_shared_layers,
+    model = BuildNN_GNN_MTL(trial, n0, n1, n2, n3, n4, n5, activation, momentum_batch_norm, prob_h1, prob_h2, prob_h3, prob_h4,
+                            prob_h5, prob_h6,
+                            n_node_features, n_edge_features, n_node_neurons, n_edge_neurons,
+                            n_graph_convolution_layers, n_shared_layers,
                             n_target_specific_layers, useMolecularDescriptors, n_inputs)
 
     # Write out parameters
     nParameters = count_model_parameters(model)
     log_text += (
-        "- This model contains a total of: "
-        + repr(nParameters)
-        + " adjustable parameters  \n"
+            "- This model contains a total of: "
+            + repr(nParameters)
+            + " adjustable parameters  \n"
     )
 
     # Define optimizer
-    optimizer = torch.optim.Adam(model.parameters(), lr=learningRate, weight_decay=L2Regularization) # l2 reg
+    optimizer = torch.optim.Adam(model.parameters(), lr=learningRate, weight_decay=L2Regularization)  # l2 reg
 
     # If we are to use a pre-saved model and optimizer, load their parameters here
     if loadModel:
@@ -349,7 +356,7 @@ def main():
         model.load_state_dict(checkpoint["model_state_dict"])
 
         if loadOptimizer:
-           optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+            optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         n_start = checkpoint["epoch"]
 
     else:
@@ -363,14 +370,17 @@ def main():
     model = model.to(device)
 
     # Train model
-    #factor = float(n_train) / float(n_validation)
+    # factor = float(n_train) / float(n_validation)
     if not useMolecularDescriptors:
         for epoch in range(nEpochs):
             model.train()
             train_loss = 0
             for sample in trainLoader:
                 # Compute prediction
-                pred = model(sample.x.to(device), sample.edge_index.to(device), sample.edge_attr.to(device), sample.batch.to(device), n_node_neurons, n_node_features, n_edge_neurons, n_edge_features, n_graph_convolution_layers, n_shared_layers, n_target_specific_layers, useMolecularDescriptors)
+                pred = model(sample.x.to(device), sample.edge_index.to(device), sample.edge_attr.to(device),
+                             sample.batch.to(device), n_node_neurons, n_node_features, n_edge_neurons, n_edge_features,
+                             n_graph_convolution_layers, n_shared_layers, n_target_specific_layers,
+                             useMolecularDescriptors)
                 losses = 0
 
                 for i in range(5):
@@ -393,7 +403,10 @@ def main():
             val_loss = 0
             with torch.no_grad():
                 for sample in valLoader:
-                    pred = model(sample.x.to(device), sample.edge_index.to(device), sample.edge_attr.to(device), sample.batch.to(device), n_node_neurons, n_node_features, n_edge_neurons, n_edge_features, n_graph_convolution_layers, n_shared_layers, n_target_specific_layers, useMolecularDescriptors)
+                    pred = model(sample.x.to(device), sample.edge_index.to(device), sample.edge_attr.to(device),
+                                 sample.batch.to(device), n_node_neurons, n_node_features, n_edge_neurons,
+                                 n_edge_features, n_graph_convolution_layers, n_shared_layers, n_target_specific_layers,
+                                 useMolecularDescriptors)
                     losses = 0
                     for i in range(5):
                         output_key = output_keys[i]
@@ -403,9 +416,15 @@ def main():
                     val_loss += loss_final.item()
             val_loss /= len(valLoader)
 
+            trial.report(val_loss, epoch)
+
+            # Handle pruning based on the intermediate value
+            if trial.should_prune():
+                raise optuna.exceptions.TrialPruned()
+
             # Checkpoints
             if (epoch + 1) % chkptFreq == 0:  # n_epoch + 1 to ensure saving at the last iteration too
-                check_point_path = os.path.join(args.output_dir, f"checkpoint_epoch_{epoch+1}.pt")
+                check_point_path = os.path.join(args.output_dir, f"checkpoint_epoch_{epoch + 1}.pt")
                 torch.save(
                     {
                         "epoch": epoch,
@@ -424,7 +443,7 @@ def main():
                 if (
                         callback.early_stop
                 ):  # if we are to stop, make sure we save model/optimizer
-                    check_point_path = os.path.join(args.output_dir, f"checkpoint_epoch_{epoch+1}.pt")
+                    check_point_path = os.path.join(args.output_dir, f"checkpoint_epoch_{epoch + 1}.pt")
                     torch.save(
                         {
                             "epoch": epoch,
@@ -437,7 +456,7 @@ def main():
                     )
 
             # Tensorboard
-            #if epoch % 10 == 0:
+            # if epoch % 10 == 0:
             #    model.eval()
             #    X_internal_tensor = torch.tensor(X_internal, dtype=torch.float32)
             #    with torch.no_grad():
@@ -451,7 +470,6 @@ def main():
                 writer.add_scalar('Loss/train', train_loss, epoch)
                 writer.add_scalar('Loss/val', val_loss, epoch)
 
-
         writer.close()
 
         # Make predictions
@@ -462,21 +480,26 @@ def main():
         model.eval()
         with torch.no_grad():
             for sample in valLoader:
-                pred = model(sample.x.to(device), sample.edge_index.to(device), sample.edge_attr.to(device), sample.batch.to(device), n_node_neurons, n_node_features, n_edge_neurons, n_edge_features, n_graph_convolution_layers, n_shared_layers, n_target_specific_layers, useMolecularDescriptors)
-                y_pred_t = tuple(torch.where(tensor > 0.5, torch.tensor(1), torch.tensor(0)) for tensor in pred) # convert to 0 or 1
+                pred = model(sample.x.to(device), sample.edge_index.to(device), sample.edge_attr.to(device),
+                             sample.batch.to(device), n_node_neurons, n_node_features, n_edge_neurons, n_edge_features,
+                             n_graph_convolution_layers, n_shared_layers, n_target_specific_layers,
+                             useMolecularDescriptors)
+                y_pred_t = tuple(
+                    torch.where(tensor > 0.5, torch.tensor(1), torch.tensor(0)) for tensor in pred)  # convert to 0 or 1
                 y_pred.append(y_pred_t)
                 y_pred_logit.append(pred)
                 y_true.append(sample.y)
 
-        y_logit_cat = [np.concatenate([t.numpy() for t in tensors], axis=0) for tensors in zip(*y_pred_logit)] #concatenate predictions for all examples into single array
+        y_logit_cat = [np.concatenate([t.numpy() for t in tensors], axis=0) for tensors in
+                       zip(*y_pred_logit)]  # concatenate predictions for all examples into single array
         y_logit_cat = np.hstack(y_logit_cat)
 
-        y_pred_cat = [np.concatenate([t.numpy() for t in tensors], axis=0) for tensors in zip(*y_pred)] #concatenate predictions for all examples into single array
+        y_pred_cat = [np.concatenate([t.numpy() for t in tensors], axis=0) for tensors in
+                      zip(*y_pred)]  # concatenate predictions for all examples into single array
         y_pred_cat = np.hstack(y_pred_cat)
 
         y_true_cat = torch.cat(y_true)
         y_true_cat = y_true_cat.numpy()
-
 
         # Print to csv
         csv_file = os.path.join(args.output_dir, "metrics.csv")
@@ -528,8 +551,10 @@ def main():
             for X, y in trainLoader:
                 # X, y = X.to(device), y.to(device)
                 # Compute prediction
-                pred = model(X.to(device), 0, 0, 0, n_node_neurons, n_node_features, n_edge_neurons, n_edge_features, n_graph_convolution_layers, n_shared_layers, n_target_specific_layers, useMolecularDescriptors)
-                #pred = model(X)
+                pred = model(X.to(device), 0, 0, 0, n_node_neurons, n_node_features, n_edge_neurons, n_edge_features,
+                             n_graph_convolution_layers, n_shared_layers, n_target_specific_layers,
+                             useMolecularDescriptors)
+                # pred = model(X)
                 losses = 0
 
                 # print(model.parameters())
@@ -557,8 +582,10 @@ def main():
             with torch.no_grad():
                 for X, y in valLoader:
                     # X, y = X.to(device), y.to(device)
-                    pred = model(X.to(device), 0, 0, 0, n_node_neurons, n_node_features, n_edge_neurons, n_edge_features, n_graph_convolution_layers, n_shared_layers, n_target_specific_layers, useMolecularDescriptors)
-                    #pred = model(X)
+                    pred = model(X.to(device), 0, 0, 0, n_node_neurons, n_node_features, n_edge_neurons,
+                                 n_edge_features, n_graph_convolution_layers, n_shared_layers, n_target_specific_layers,
+                                 useMolecularDescriptors)
+                    # pred = model(X)
                     losses = 0
 
                     for i in range(5):
@@ -573,8 +600,14 @@ def main():
 
             val_loss /= len(valLoader)
 
+            trial.report(val_loss, epoch)
+
+            # Handle pruning based on the intermediate value
+            if trial.should_prune():
+                raise optuna.exceptions.TrialPruned()
+
             if (epoch + 1) % chkptFreq == 0:  # n_epoch + 1 to ensure saving at the last iteration too
-                check_point_path = os.path.join(args.output_dir, f"checkpoint_epoch_{epoch+1}.pt")
+                check_point_path = os.path.join(args.output_dir, f"checkpoint_epoch_{epoch + 1}.pt")
                 torch.save(
                     {
                         "epoch": epoch,
@@ -593,7 +626,7 @@ def main():
                 if (
                         callback.early_stop
                 ):  # if we are to stop, make sure we save model/optimizer
-                    check_point_path = os.path.join(args.output_dir, f"checkpoint_epoch_{epoch+1}.pt")
+                    check_point_path = os.path.join(args.output_dir, f"checkpoint_epoch_{epoch + 1}.pt")
                     torch.save(
                         {
                             "epoch": epoch,
@@ -605,7 +638,7 @@ def main():
                         check_point_path,
                     )
 
-            #if epoch % 10 == 0:
+            # if epoch % 10 == 0:
             #    model.eval()
             #    X_internal_tensor = torch.tensor(X_internal, dtype=torch.float32)
             #    with torch.no_grad():
@@ -626,11 +659,13 @@ def main():
         X_internal_tensor = torch.tensor(X_internal, dtype=torch.float32)  # .to(device)
         X_external_tensor = torch.tensor(X_external, dtype=torch.float32)
         with torch.no_grad():
-            #y_pred = model(X_internal_tensor)
-            y_pred = model(X_internal_tensor.to(device), 0, 0, 0, n_node_neurons, n_node_features, n_edge_neurons, n_edge_features, n_graph_convolution_layers, n_shared_layers, n_target_specific_layers, useMolecularDescriptors)
+            # y_pred = model(X_internal_tensor)
+            y_pred = model(X_internal_tensor.to(device), 0, 0, 0, n_node_neurons, n_node_features, n_edge_neurons,
+                           n_edge_features, n_graph_convolution_layers, n_shared_layers, n_target_specific_layers,
+                           useMolecularDescriptors)
 
         # Convert predictions to numpy arrays
-        #y_pred = [yp.cpu().numpy() for yp in y_pred]
+        # y_pred = [yp.cpu().numpy() for yp in y_pred]
         y_pred = [yp.numpy() for yp in y_pred]
 
         y_pred_98 = np.where(y_pred[0] > 0.5, 1, 0)
@@ -638,7 +673,6 @@ def main():
         y_pred_102 = np.where(y_pred[2] > 0.5, 1, 0)
         y_pred_1535 = np.where(y_pred[3] > 0.5, 1, 0)
         y_pred_1537 = np.where(y_pred[4] > 0.5, 1, 0)
-
 
         # Print to csv
         csv_file = os.path.join(args.output_dir, "metrics.csv")
@@ -682,13 +716,35 @@ def main():
             file.flush()
             file.close()
 
+    return val_loss
+
     # Write to log file
     logging.info(log_text)
 
     sys.stdout.flush()
 
+
+
+
 #writer.flush()
 
 if __name__ == "__main__":
-    main()
+    study = optuna.create_study(direction="minimize")
+    study.optimize(objective, n_trials=5, timeout=600)
 
+    pruned_trials = study.get_trials(deepcopy=False, states=[TrialState.PRUNED])
+    complete_trials = study.get_trials(deepcopy=False, states=[TrialState.COMPLETE])
+
+    print("Study statistics: ")
+    print("  Number of finished trials: ", len(study.trials))
+    print("  Number of pruned trials: ", len(pruned_trials))
+    print("  Number of complete trials: ", len(complete_trials))
+
+    print("Best trial:")
+    trial = study.best_trial
+
+    print("  Value: ", trial.value)
+
+    print("  Params: ")
+    for key, value in trial.params.items():
+        print("    {}: {}".format(key, value))

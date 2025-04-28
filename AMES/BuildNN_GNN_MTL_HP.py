@@ -1,0 +1,329 @@
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from torch_geometric.nn import CGConv
+from torch_geometric.nn import global_mean_pool
+from torch_geometric.nn import global_add_pool
+
+
+class BuildNN_GNN_MTL(nn.Module):
+    def __init__(self,
+                 trial,
+                 n0: int = 200,
+                 n1: int = 100,
+                 n2: int = 50,
+                 n3: int = 10,
+                 n4: int = 50,
+                 n5: int = 10,
+                 act: str = "ReLu",
+                 momentum_batch_norm: float = 0.9,
+                 prob_h1: float = 0.25,
+                 prob_h2: float = 0.15,
+                 prob_h3: float = 0.1,
+                 prob_h4: float = 0.0001,
+                 prob_h5: float = 0.1,
+                 prob_h6: float = 0.0001,
+                 n_node_features: int = 29,
+                 n_edge_features: int = 3,
+                 n_node_neurons: int = 0,
+                 n_edge_neurons: int = 0,
+                 n_gc_layers: int = 2,
+                 n_s_layers: int = 4,
+                 n_ts_layers: int = 2,
+                 use_molecular_descriptors: bool = False,
+                 n_inputs: int = 0,
+                 ):
+        super(BuildNN_GNN_MTL, self).__init__()
+
+        """
+            A class that creates a model with the desired number of shared core
+            layers (fully connected) + target specific core layers (fully connected)
+            + Graph-Convolutional (n_gc_layers) + fully-connected (n_fc_layers)
+            linear layers for GNN, using the specified non-linear activation layers
+            interspaced between them.
+
+            Args:
+            :param int ni: number of input features; default: 4
+            :param int n0: number of neurons in first layer of shared core; default: 200
+            :param int n1: number of neurons in second layer of shared core; default: 100
+            :param int n2: number of neurons in third layer of shared core; default: 50
+            :param int n3: number of neurons in fourth layer of shared core; default: 10
+            :param str act: activation function; can be any activation available in torch; default: relu
+            :param float momentum_batch_norm: momentum for batch normalization; default: 0.9
+            :param int prob_h1: dropout in first layer of shared core; default: 0.25
+            :param int prob_h2: dropout in first layer of shared core; default: 0.15
+            :param int prob_h3: dropout in first layer of shared core; default: 0.1
+            :param int prob_h4: dropout in first layer of shared core; default: 0.0001
+            :param int n_node_features: length of node feature vectors for GNN; default: 4
+            :param int n_edge_features: length of edge feature vectors for GNN; default: 3
+            :param int n_node_neurons: number of neurons in deep layers (if they exist)
+                    in the densely-connected network if set to None, it is internally
+                    set to n_node_features
+            :param int n_edge_neurons: edges might have on input relatively few features (2,3);
+                    this parameter allows the user to use a linear layer to expand the number
+                    of edge features in the graph-convolution part.
+            :param int n_gc_layers: number of Graph-Convolution layers (CGConv); default: 2
+            :param int n_s_layers: number of layers in shared core; default: 4
+            :param int n_ts_layers: number of layers in target specific core; default: 2
+
+            """
+        self.activation_layer = eval("nn." + act + "()")
+        #self.activation_layer2 = nn.Tanh()
+
+        # GNN
+        if not use_molecular_descriptors:
+            if n_node_neurons > n_node_features: # Expand node features if desired
+                self.GNNlinear1 = nn.Linear(n_node_features, n_node_neurons)
+            if n_edge_neurons > n_edge_features: # Expand edge features if desired
+                self.GNNlinear2 = nn.Linear(n_edge_features, n_edge_neurons)
+
+            if n_node_neurons > n_node_features:
+                ni = n_node_neurons
+            else:
+                ni = n_node_features
+
+            if n_edge_neurons > n_edge_features:
+                ne = n_edge_neurons
+            else:
+                ne = n_edge_features
+
+            for i in range(n_gc_layers):
+                setattr(self, f"conv{i + 1}", CGConv(ni, dim=ne))
+
+            #self.conv1 = CGConv(ni, dim=ne)
+            #self.conv2 = CGConv(ni, dim=ne)
+
+        else:
+            ni = n_inputs
+
+        # Shared core
+        if n_s_layers > 0:
+            for i in range(n_s_layers):
+                if i == 0:
+                    a = ni
+                    b = n0
+                    c = prob_h1
+                elif i == 1:
+                    a = n0
+                    b = n1
+                    c = prob_h2
+                elif i == 2:
+                    a = n1
+                    b = n2
+                    c = prob_h3
+                elif i == 3:
+                    a = n2
+                    b = n3
+                    c = prob_h4
+
+                setattr(self, f"linear{i + 1}", nn.Linear(a, b))
+                setattr(self, f"bn{i + 1}", nn.BatchNorm1d(b, momentum=momentum_batch_norm))
+                setattr(self, f"dropout{i + 1}", nn.Dropout(c))
+
+
+            output_n = b
+        else:
+            output_n = ni
+
+        #self.linear1 = nn.Linear(ni, n0)
+        #self.bn1 = nn.BatchNorm1d(n0, momentum=momentum_batch_norm)
+        #self.dropout1 = nn.Dropout(prob_h1)
+
+        #self.linear2 = nn.Linear(n0, n1)
+        #self.bn2 = nn.BatchNorm1d(n1, momentum=momentum_batch_norm)
+        #self.dropout2 = nn.Dropout(prob_h2)
+
+        #self.linear3 = nn.Linear(n1, n2)
+        #self.bn3 = nn.BatchNorm1d(n2, momentum=momentum_batch_norm)
+        #self.dropout3 = nn.Dropout(prob_h3)
+
+        #self.linear4 = nn.Linear(n2, n3)
+        #self.bn4 = nn.BatchNorm1d(n3, momentum=momentum_batch_norm)
+        #self.dropout4 = nn.Dropout(prob_h4)
+
+        # Target specific core
+        if n_ts_layers > 0:
+            for i in range(5):
+                for j in range(n_ts_layers):
+                    if j == 0:
+                        a = output_n
+                        b = n4
+                        c = prob_h5
+                    elif j == 1:
+                        a = n4
+                        b = n5
+                        c = prob_h6
+
+                    setattr(self, f"ts{i + 1}_linear{j + 1}", nn.Linear(a, b))
+                    setattr(self, f"ts{i + 1}_bn{j + 1}", nn.BatchNorm1d(b, momentum=momentum_batch_norm))
+                    setattr(self, f"ts{i + 1}_dropout{j + 1}", nn.Dropout(c))
+
+                setattr(self, f"ts{i + 1}_sig", nn.Linear(b, 1))
+        else:
+            for i in range(5):
+                setattr(self, f"ts{i + 1}_sig", nn.Linear(output_n, 1))
+
+
+
+        #self.ts1_linear1 = nn.Linear(n3, n2)  # x.size(1)
+        #self.ts1_bn1 = nn.BatchNorm1d(n2, momentum=momentum_batch_norm)
+        #self.ts1_dropout1 = nn.Dropout(prob_h2)
+        #self.ts1_linear2 = nn.Linear(n2, n3)
+        #self.ts1_bn2 = nn.BatchNorm1d(n3, momentum=momentum_batch_norm)
+        #self.ts1_dropout2 = nn.Dropout(prob_h3)
+        #self.ts1_sig = nn.Linear(n3, 1)
+
+        #self.ts2_linear1 = nn.Linear(n3, n2)  # x.size(1)
+        #self.ts2_bn1 = nn.BatchNorm1d(n2, momentum=momentum_batch_norm)
+        #self.ts2_dropout1 = nn.Dropout(prob_h2)
+        #self.ts2_linear2 = nn.Linear(n2, n3)
+        #self.ts2_bn2 = nn.BatchNorm1d(n3, momentum=momentum_batch_norm)
+        #self.ts2_dropout2 = nn.Dropout(prob_h3)
+        #self.ts2_sig = nn.Linear(n3, 1)
+
+        #self.ts3_linear1 = nn.Linear(n3, n2)  # x.size(1)
+        #self.ts3_bn1 = nn.BatchNorm1d(n2, momentum=momentum_batch_norm)
+        #self.ts3_dropout1 = nn.Dropout(prob_h2)
+        #self.ts3_linear2 = nn.Linear(n2, n3)
+        #self.ts3_bn2 = nn.BatchNorm1d(n3, momentum=momentum_batch_norm)
+        #self.ts3_dropout2 = nn.Dropout(prob_h3)
+        #self.ts3_sig = nn.Linear(n3, 1)
+
+        #self.ts4_linear1 = nn.Linear(n3, n2)  # x.size(1)
+        #self.ts4_bn1 = nn.BatchNorm1d(n2, momentum=momentum_batch_norm)
+        #self.ts4_dropout1 = nn.Dropout(prob_h2)
+        #self.ts4_linear2 = nn.Linear(n2, n3)
+        #self.ts4_bn2 = nn.BatchNorm1d(n3, momentum=momentum_batch_norm)
+        #self.ts4_dropout2 = nn.Dropout(prob_h3)
+        #self.ts4_sig = nn.Linear(n3, 1)
+
+        #self.ts5_linear1 = nn.Linear(n3, n2)  # x.size(1)
+        #self.ts5_bn1 = nn.BatchNorm1d(n2, momentum=momentum_batch_norm)
+        #self.ts5_dropout1 = nn.Dropout(prob_h2)
+        #self.ts5_linear2 = nn.Linear(n2, n3)
+        #self.ts5_bn2 = nn.BatchNorm1d(n3, momentum=momentum_batch_norm)
+        #self.ts5_dropout2 = nn.Dropout(prob_h3)
+        #self.ts5_sig = nn.Linear(n3, 1)
+
+    def forward(self, x, edge_index, edge_attr, batch, n_node_neurons, n_node_features, n_edge_neurons, n_edge_features, n_gc_layers, n_s_layers, n_ts_layers, use_molecular_descriptors):
+        # GNN
+        if not use_molecular_descriptors:
+            if n_node_neurons > n_node_features:
+                x = self.GNNlinear1(x)
+
+            if n_edge_neurons > n_edge_features:
+                edge_attr = self.GNNlinear2(edge_attr)
+
+            for i in range(n_gc_layers):
+                conv_layer = getattr(self, f"conv{i + 1}")
+                x = conv_layer(x, edge_index, edge_attr)
+                x = self.activation_layer(x)
+
+
+        #x = self.conv1(x, edge_index, edge_attr)
+        #x = self.activation_layer(x) #torch.tanh(x)
+        #x = self.conv2(x, edge_index, edge_attr)
+        #x = self.activation_layer(x) #torch.tanh(x)
+
+                # Pooling layer
+                #x = global_add_pool(x, batch)
+            x = global_add_pool(x, batch)
+
+        # Shared core
+        for i in range(n_s_layers):
+            dropout_layer = getattr(self, f"dropout{i + 1}")
+            x = dropout_layer(x)
+            #x = getattr(self, f"dropout{i + 1}")(x)
+            #print(getattr(self, f"dropout{i+1}"))
+            #print(self.dropout1)
+            linear_layer = getattr(self, f"linear{i + 1}")
+            x = linear_layer(x)
+            bn_layer = getattr(self, f"bn{i + 1}")
+            x = self.activation_layer(bn_layer(x))
+
+
+        #x = self.dropout1(x)
+        #x = self.linear1(x)
+        #x = self.activation_layer(self.bn1(x))
+        #x = self.dropout2(x)
+        #x = self.linear2(x)
+        #x = self.activation_layer(self.bn2(x))
+        #x = self.dropout3(x)
+        #x = self.linear3(x)
+        #x = self.activation_layer(self.bn3(x))
+        #x = self.dropout4(x)
+        #x = self.linear4(x)
+        #x = self.activation_layer(self.bn4(x))
+
+        # Target specific core
+        y_outputs = []
+        if n_ts_layers > 0:
+            for i in range(5):
+                y = x
+                for j in range(n_ts_layers):
+                    dropout_layer = getattr(self, f"ts{i + 1}_dropout{j + 1}")
+                    y = dropout_layer(y)
+                    linear_layer = getattr(self, f"ts{i + 1}_linear{j + 1}")
+                    y = linear_layer(y)
+                    bn_layer = getattr(self, f"ts{i + 1}_bn{j + 1}")
+                    y = self.activation_layer(bn_layer(y))
+                sig_layer = getattr(self, f"ts{i + 1}_sig")
+                y = sig_layer(y)
+                y = y.sigmoid()
+                y_outputs.append(y)
+        else:
+            for i in range(5):
+                y = x
+                sig_layer = getattr(self, f"ts{i + 1}_sig")
+                y = sig_layer(y)
+                y = y.sigmoid()
+                y_outputs.append(y)
+
+        # Two layers
+        # STRAIN 1
+        #y1 = self.ts1_dropout1(x)
+        #y1 = self.ts1_linear1(y1)
+        #y1 = self.activation_layer(self.ts1_bn1(y1))
+        #y1 = self.ts1_dropout2(y1)
+        #y1 = self.ts1_linear2(y1)
+        #y1 = self.activation_layer(self.ts1_bn2(y1))
+        #y1 = self.ts1_sig(y1)
+        #y1 = y1.sigmoid()
+
+        #y2 = self.ts2_dropout1(x)
+        #y2 = self.ts2_linear1(y2)
+        #y2 = self.activation_layer(self.ts2_bn1(y2))
+        #y2 = self.ts2_dropout2(y2)
+        #y2 = self.ts2_linear2(y2)
+        #y2 = self.activation_layer(self.ts2_bn2(y2))
+        #y2 = self.ts2_sig(y2)
+        #y2 = y2.sigmoid()
+
+        #y3 = self.ts3_dropout1(x)
+        #y3 = self.ts3_linear1(y3)
+        #y3 = self.activation_layer(self.ts3_bn1(y3))
+        #y3 = self.ts3_dropout2(y3)
+        #y3 = self.ts3_linear2(y3)
+        #y3 = self.activation_layer(self.ts3_bn2(y3))
+        #y3 = self.ts3_sig(y3)
+        #y3 = y3.sigmoid()
+
+        #y4 = self.ts4_dropout1(x)
+        #y4 = self.ts4_linear1(y4)
+        #y4 = self.activation_layer(self.ts4_bn1(y4))
+        #y4 = self.ts4_dropout2(y4)
+        #y4 = self.ts4_linear2(y4)
+        #y4 = self.activation_layer(self.ts4_bn2(y4))
+        #y4 = self.ts4_sig(y4)
+        #y4 = y4.sigmoid()
+
+        #y5 = self.ts5_dropout1(x)
+        #y5 = self.ts5_linear1(y5)
+        #y5 = self.activation_layer(self.ts5_bn1(y5))
+        #y5 = self.ts5_dropout2(y5)
+        #y5 = self.ts5_linear2(y5)
+        #y5 = self.activation_layer(self.ts5_bn2(y5))
+        #y5 = self.ts5_sig(y5)
+        #y5 = y5.sigmoid()
+
+        return y_outputs[0], y_outputs[1], y_outputs[2], y_outputs[3], y_outputs[4]
