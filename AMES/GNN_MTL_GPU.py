@@ -25,6 +25,14 @@ from torch.utils.data import TensorDataset
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import Dataset
 from torch_geometric.loader import DataLoader
+from torch_geometric.explain import GNNExplainer, PGExplainer, Explainer
+from torch_geometric.utils import to_networkx
+import networkx as nx
+from networkx.drawing import nx_agraph
+from rdkit import Chem
+from rdkit.Chem import Draw
+from rdkit.Chem import AllChem
+from torch_geometric.utils import to_networkx
 
 from callbacks import set_up_callbacks
 from count_model_parameters import count_model_parameters
@@ -36,6 +44,8 @@ from BuildNN_GNN_MTL import BuildNN_GNN_MTL
 from masked_loss_function import masked_loss_function
 from set_seed import set_seed
 from MTLDataset import MTLDataset
+from TaskSpecificGNN import TaskSpecificGNN
+
 
 # Set seed
 torch.manual_seed(42)
@@ -126,32 +136,29 @@ def main():
     n_graph_convolution_layers = input_data.get("nGraphConvolutionLayers", 2) # Number of graph convolutional layers
     n_shared_layers = input_data.get("nSharedLayers", 4) # Number of layers in shared core
     n_target_specific_layers = input_data.get("nTargetSpecificLayers", 2) # Number of layers in target specific core
-    n0 = input_data.get("n0", None) # Number of neurons in layer 1 shared core
-    n1 = input_data.get("n1", None) # Number of neurons in layer 2 shared core
-    n2 = input_data.get("n2", None) # Number of neurons in layer 3 shared core
-    n3 = input_data.get("n3", None) # Number of neurons in layer 4 shared core
-    n4 = input_data.get("n4", None) # Number of neurons in layer 1 target specific core
-    n5 = input_data.get("n5", None) # Number of neurons in layer 2 target specific core
-    prob_h1 = input_data.get("prob_h1", None) # Dropout layer 1 shared core
-    prob_h2 = input_data.get("prob_h2", None) # Dropout layer 2 shared core
-    prob_h3 = input_data.get("prob_h3", None) # Dropout layer 3 shared core
-    prob_h4 = input_data.get("prob_h4", None) # Dropout layer 4 shared core
-    prob_h5 = input_data.get("prob_h5", None) # Dropout layer 1 target specific core
-    prob_h6 = input_data.get("prob_h6", None) # Dropout layer 2 target specific core
+    n_shared = input_data.get("nShared", None)
+    n_target = input_data.get("nTarget", None)
+    #n0 = input_data.get("n0", None) # Number of neurons in layer 1 shared core
+    #n1 = input_data.get("n1", None) # Number of neurons in layer 2 shared core
+    #n2 = input_data.get("n2", None) # Number of neurons in layer 3 shared core
+    #n3 = input_data.get("n3", None) # Number of neurons in layer 4 shared core
+    #n4 = input_data.get("n4", None) # Number of neurons in layer 1 target specific core
+    #n5 = input_data.get("n5", None) # Number of neurons in layer 2 target specific core
+    #prob_h1 = input_data.get("prob_h1", None) # Dropout layer 1 shared core
+    #prob_h2 = input_data.get("prob_h2", None) # Dropout layer 2 shared core
+    #prob_h3 = input_data.get("prob_h3", None) # Dropout layer 3 shared core
+    #prob_h4 = input_data.get("prob_h4", None) # Dropout layer 4 shared core
+    #prob_h5 = input_data.get("prob_h5", None) # Dropout layer 1 target specific core
+    #prob_h6 = input_data.get("prob_h6", None) # Dropout layer 2 target specific core
     momentum_batch_norm = input_data.get("momentum_batch_norm", None) # Batch normalization
     activation = input_data.get("ActivationFunction", "ReLU") # Activation function
     weighted_loss_function = input_data.get("weightedCostFunction", False)
+    w1 = input_data.get("w1", 1.0)
+    w2 = input_data.get("w2", 1.0)
+    w3 = input_data.get("w3", 1.0)
+    w4 = input_data.get("w4", 1.0)
+    w5 = input_data.get("w5", 1.0)
     if weighted_loss_function:
-        # w1 = 1.90
-        # w2 = 1.56
-        # w3 = 3.31
-        # w4 = 5.09
-        # w5 = 5.11
-        w1 = 6.0053794085409065
-        w2 = 9.3137641959351
-        w3 = 7.788971397226669
-        w4 = 1.0357078359984786
-        w5 = 1.7686334216574249
         class_weights = {
             '98': {0: 1.0, 1: w1, -1: 0},
             '100': {0: 1.0, 1: w2, -1: 0},
@@ -267,6 +274,7 @@ def main():
         # Set up train and val loader
         trainLoader = DataLoader(trainDataset, batch_size=nBatch, generator=g)
         valLoader = DataLoader(valDataset, batch_size=nBatch, generator=g)
+        testLoader = DataLoader(valDataset, batch_size=nBatch, generator=g)
 
         #for batch in trainLoader:
         #    print(batch.y.shape)
@@ -328,8 +336,9 @@ def main():
 
 
     # Build model
-    model = BuildNN_GNN_MTL(n0, n1, n2, n3, n4, n5, activation, momentum_batch_norm, prob_h1, prob_h2, prob_h3, prob_h4, prob_h5, prob_h6,
-                            n_node_features, n_edge_features, n_node_neurons, n_edge_neurons, n_graph_convolution_layers, n_shared_layers,
+    model = BuildNN_GNN_MTL(n_shared, n_target, activation, momentum_batch_norm,
+                            n_node_features, n_edge_features, n_node_neurons, n_edge_neurons,
+                            n_graph_convolution_layers, n_shared_layers,
                             n_target_specific_layers, useMolecularDescriptors, n_inputs)
 
     # Write out parameters
@@ -520,6 +529,152 @@ def main():
             file.flush()
             file.close()
 
+        # Wrap model for task 0
+        model_args = (
+            n_node_neurons,
+            n_node_features,
+            n_edge_neurons,
+            n_edge_features,
+            n_graph_convolution_layers,
+            n_shared_layers,
+            n_target_specific_layers,
+            useMolecularDescriptors
+        )
+
+        task_model = TaskSpecificGNN(model, task_idx=2, model_args=model_args)
+
+        explainer = Explainer(
+            model=task_model,
+            algorithm=GNNExplainer(epochs=50),
+            explanation_type='model',
+            node_mask_type='attributes',
+            edge_mask_type='object',
+            model_config=dict(
+                mode='regression',
+                task_level='graph',
+                return_type='raw',
+            ),
+        )
+
+        # Single graph
+        data = trainDataset[0]
+        data.batch = torch.zeros(data.x.size(0), dtype=torch.long)
+
+        # Explain the prediction
+        explanation = explainer(data.x, data.edge_index, edge_attr=data.edge_attr, batch=data.batch)
+
+        # Visualize/analyze masks
+        node_feat_mask = explanation.node_mask
+        edge_mask = explanation.edge_mask
+
+        #explanation.visualize_feature_importance()
+        #explanation.visualize_graph()
+
+        feature_names = ["Period 1", "Period 2", "Period 3", "Period 4", "Period 5", "Period 6", "Period 7", "s block", "p block", "d block", "f block",
+                         "Alkali metals", "Alkaline earth metals", "Transition metals", "Poor metals", "Metalloids", "Nonmetals", "Halogens", "Noble gases",
+                         "Lanthanides","Actinides", "Atomic number", "Atomic radius", "Atomic weight", "Covalent radius", "Density", "Pauling electronegativity",
+                         "Mass number", "Van der Waals radius"]
+
+        # Aggregate importance per feature (mean over all nodes)
+        feature_importance = node_feat_mask.mean(dim=0).detach().cpu().numpy()
+
+        # Optional: normalize to [0, 1]
+        feature_importance = feature_importance / feature_importance.max()
+
+        # Plot
+        plt.figure(figsize=(12, 6))
+        plt.bar(range(len(feature_names)), feature_importance, tick_label=feature_names)
+        plt.xticks(rotation=45, ha='right')
+        plt.ylabel("Importance")
+        #plt.title("Node Feature Importance")
+        plt.tight_layout()
+        plt.show()
+
+        filepath = trainDataset.filenames[0]
+        G = to_networkx(data, to_undirected=True)
+
+        # Map edge importance to the NetworkX edge list
+        edge_imp = edge_mask.detach().numpy()
+        edge_list = list(G.edges())
+        edge_colors = [edge_imp[i] for i in range(len(edge_list))]
+
+        # Node importance (optional)
+        node_imp = node_feat_mask.sum(dim=1).detach().numpy()
+
+        # Plot
+        #pos = nx.spring_layout(G)
+        #nx.draw(G, pos, with_labels=True, node_color=node_imp, edge_color=edge_colors,
+        #        node_size=300, width=2.0, edge_cmap=plt.cm.Reds, cmap=plt.cm.Blues)
+        #plt.show()
+
+        #highlight_atoms = [i for i, score in enumerate(node_importance) if score > threshold]
+        #highlight_bonds = [i for i, score in enumerate(edge_mask) if score > threshold]
+
+        #Draw.MolToImage(mol, highlightAtoms=highlight_atoms, highlightBonds=highlight_bonds)
+
+        # Convert to networkx for visualization
+        nx_graph = G
+        graph = data
+
+        # Elements
+        element_mapping = {0: "N", 1: "C", 2: "H", 3: "O", 4: "S", 5: "Cl", 6: "Be",
+                           7: "Br", 8: "Pt", 9: "P", 10: "F", 11: "As", 12: "Hg",
+                           13: "Zn", 14: "Si", 15: "V", 16: "I", 17: "B", 18: "Sn",
+                           19: "Ge", 20: "Ag", 21: "Sb", 22: "Cu", 23: "Cr", 24: "Pb",
+                           25: "Mo", 26: "Se", 27: "Al", 28: "Cd", 29: "Mn", 30: "Fe",
+                           31: "Ga", 32: "Pd", 33: "Na", 34: "Ti", 35: "Bi", 36: "Co",
+                           37: "Ni", 38: "Ce", 39: "Ba", 40: "Zr", 41: "Rh"}
+        element_types = [element_mapping[spec_id.item()] for spec_id in graph.spec_id]
+
+        # CSV file with structure data
+        csv_file = '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/DataBase_AMES/FILES/ames_mutagenicity_data.csv'
+
+        df = pd.read_csv(csv_file)
+
+        molecule_index = molecule_index = int(
+            re.search(r'(\d+)_', filepath).group(1))  # get molecule number from input file name
+        smiles_column_index = 3
+
+        # Extract the SMILES string from the specific row and column
+        smiles_string = df.iloc[molecule_index - 1, smiles_column_index]
+
+        # Convert the SMILES string to an RDKit molecule
+        molecule = Chem.MolFromSmiles(smiles_string)
+
+        # Add hydrogens
+        molecule = Chem.AddHs(molecule)
+
+        num_atoms_in_smiles = molecule.GetNumAtoms()
+
+        # Generate the molecule's 2D coordinates (needed for drawing in a graph)
+        AllChem.Compute2DCoords(molecule)
+
+        # Plot chemical structure with graph
+        # Plot chemical structure
+        pos = {i: (molecule.GetConformer().GetAtomPosition(i).x, molecule.GetConformer().GetAtomPosition(i).y)
+               for i in range(molecule.GetNumAtoms())}
+
+        fig, ax = plt.subplots(1, 2, figsize=(15, 7))
+
+        # Draw the chemical structure using RDKit
+        img = Draw.MolToImage(molecule, size=(300, 300))
+        ax[0].imshow(img)
+        ax[0].axis('off')  # Hide axes
+        #ax[0].set_title('Chemical Structure')
+        ax[0].set_title(filepath)
+
+        # Plot graph (using RDKit for node positions)
+        node_labels = nx.get_node_attributes(nx_graph, 'label')
+        #nx.draw(nx_graph, pos, with_labels=True, labels=node_labels, node_size=700, font_size=10, font_weight='bold', ax=ax[1], node_color='lightblue')
+        nx.draw(G, pos, with_labels=False, node_color=node_imp, edge_color=edge_colors,
+                node_size=700, width=2.0, edge_cmap=plt.cm.Reds, cmap=plt.cm.Blues)
+        #ax[1].set_title('Graph Representation')
+
+        #plt.title(filepath)
+        plt.tight_layout()
+        plt.show()
+
+
 
     else:
         for epoch in range(nEpochs):
@@ -692,3 +847,4 @@ def main():
 if __name__ == "__main__":
     main()
 
+# to visualize with tensorboard: tensorboard --logdir='/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/output/tensorboard'

@@ -1,28 +1,31 @@
 
 # Input file for model training
 
-nNodeNeurons: 33 # Number of node neurons for GNN
-nEdgeNeurons: 167 # Number of edge neurons for GNN
-nGraphConvolutionLayers: 9 # Number of graph convolutional layers
+nNodeNeurons: 78 # Number of node neurons for GNN
+nEdgeNeurons: 107 # Number of edge neurons for GNN
+nGraphConvolutionLayers: 2 # Number of graph convolutional layers
 nSharedLayers: 0 # Number of layers in shared core
 nTargetSpecificLayers: 0 # Number of layers in target specific core
-n0: 200 # Number of neurons layer 1 shared core
-n1: 100 # Number of neurons layer 2 shared core
-n2: 50 # Number of neurons layer 3 shared core
-n3: 10 # Number of neurons layer 4 shared core
-n4: 50 # Number of neurons layer 1 target specific core
-n5: 10 # Number of neurons layer 2 target specific core
+
+#nShared: [200, 100, 50, 10]
+#nTarget: [50, 10]
 
 # Dropout
-prob_h1: 0.25 # Dropout layer 1 shared core
-prob_h2: 0.15 # Dropout layer 2 shared core
-prob_h3: 0.1 # Dropout layer 3 shared core
-prob_h4: 0.0001 # Dropout layer 4 shared core   
-prob_h5: 0.15 # Dropout layer 1 target specific core
-prob_h6: 0.1 # Dropout layer 1 target specific core
+#prob_h1: 0.25 # Dropout layer 1 shared core
+#prob_h2: 0.15 # Dropout layer 2 shared core
+#prob_h3: 0.1 # Dropout layer 3 shared core
+#prob_h4: 0.0001 # Dropout layer 4 shared core   
+#prob_h5: 0.15 # Dropout layer 1 target specific core
+#prob_h6: 0.1 # Dropout layer 1 target specific core
+
+w1: 1.9
+w2: 1.56
+w3: 3.31
+w4: 5.09
+w5: 5.11
 
 # Batch normalization
-momentum_batch_norm: 0.9
+momentum_batch_norm: 0.1
 
 # Activation function
 ActivationFunction: "Tanh" #"Tanh"
@@ -35,7 +38,7 @@ nTrainMaxEntries: 1500
 nValMaxEntries: 300
 
 # this only gives the starting learning rate iff loadModel = False; otherwise it is read from checkpoint file
-learningRate: 0.002076754414106255 #0.0001 #5e-4
+learningRate: 0.0000924993113995373 #0.0001 #5e-4
 
 weightedCostFunction: True # Include weighted cost function
 L2Regularization: 0.005 # L2 regularization coefficient

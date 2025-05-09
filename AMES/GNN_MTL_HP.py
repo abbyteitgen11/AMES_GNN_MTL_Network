@@ -95,6 +95,7 @@ def log_metrics(epoch, writer, y_internal, y_pred):
     return metrics_cat
 
 def objective(trial):
+    print(f"Starting trial {trial.number}")
     args = get_args()
     output_dir = ''
     os.makedirs(args.output_dir, exist_ok=True)
@@ -128,21 +129,30 @@ def objective(trial):
                                        500)  # input_data.get("nEdgeNeurons", 0) # Number of edges in GNN
     n_graph_convolution_layers = trial.suggest_int("nGraphConvolutionalLayers", 1,
                                                    20)  # input_data.get("nGraphConvolutionLayers", 2) # Number of graph convolutional layers
-    n_shared_layers = input_data.get("nSharedLayers", 4)  # Number of layers in shared core
-    n_target_specific_layers = input_data.get("nTargetSpecificLayers", 2)  # Number of layers in target specific core
-    n0 = input_data.get("n0", None)  # Number of neurons in layer 1 shared core
-    n1 = input_data.get("n1", None)  # Number of neurons in layer 2 shared core
-    n2 = input_data.get("n2", None)  # Number of neurons in layer 3 shared core
-    n3 = input_data.get("n3", None)  # Number of neurons in layer 4 shared core
-    n4 = input_data.get("n4", None)  # Number of neurons in layer 1 target specific core
-    n5 = input_data.get("n5", None)  # Number of neurons in layer 2 target specific core
-    prob_h1 = input_data.get("prob_h1", None)  # Dropout layer 1 shared core
-    prob_h2 = input_data.get("prob_h2", None)  # Dropout layer 2 shared core
-    prob_h3 = input_data.get("prob_h3", None)  # Dropout layer 3 shared core
-    prob_h4 = input_data.get("prob_h4", None)  # Dropout layer 4 shared core
-    prob_h5 = input_data.get("prob_h5", None)  # Dropout layer 1 target specific core
-    prob_h6 = input_data.get("prob_h6", None)  # Dropout layer 2 target specific core
-    momentum_batch_norm = input_data.get("momentum_batch_norm", None)  # Batch normalization
+    n_shared_layers = trial.suggest_int("nSharedLayers", 1, 20) #input_data.get("nSharedLayers", 4)  # Number of layers in shared core
+    n_target_specific_layers = trial.suggest_int("nTargetSpecificLayers", 1, 20) #input_data.get("nTargetSpecificLayers", 2)  # Number of layers in target specific core
+    n_shared = [
+        trial.suggest_int(f"n_shared_{i}", 1, 500)
+        for i in range(n_shared_layers)
+    ]
+    n_target = [
+        trial.suggest_int(f"n_target_{i}", 1, 500)
+        for i in range(n_target_specific_layers)
+    ]
+
+            #n0 = input_data.get("n0", None)  # Number of neurons in layer 1 shared core
+    #n1 = input_data.get("n1", None)  # Number of neurons in layer 2 shared core
+    #n2 = input_data.get("n2", None)  # Number of neurons in layer 3 shared core
+    #n3 = input_data.get("n3", None)  # Number of neurons in layer 4 shared core
+    #n4 = input_data.get("n4", None)  # Number of neurons in layer 1 target specific core
+    #n5 = input_data.get("n5", None)  # Number of neurons in layer 2 target specific core
+    #prob_h1 = input_data.get("prob_h1", None)  # Dropout layer 1 shared core
+    #prob_h2 = input_data.get("prob_h2", None)  # Dropout layer 2 shared core
+    #prob_h3 = input_data.get("prob_h3", None)  # Dropout layer 3 shared core
+    #prob_h4 = input_data.get("prob_h4", None)  # Dropout layer 4 shared core
+    #prob_h5 = input_data.get("prob_h5", None)  # Dropout layer 1 target specific core
+    #prob_h6 = input_data.get("prob_h6", None)  # Dropout layer 2 target specific core
+    #momentum_batch_norm = input_data.get("momentum_batch_norm", None)  # Batch normalization
     activation = input_data.get("ActivationFunction", "ReLU")  # Activation function
     weighted_loss_function = input_data.get("weightedCostFunction", False)
     if weighted_loss_function:
@@ -333,8 +343,7 @@ def objective(trial):
         testLoader = DataLoader(test_dataset_final, batch_size=nBatch, generator=g)
 
     # Build model
-    model = BuildNN_GNN_MTL(trial, n0, n1, n2, n3, n4, n5, activation, momentum_batch_norm, prob_h1, prob_h2, prob_h3, prob_h4,
-                            prob_h5, prob_h6,
+    model = BuildNN_GNN_MTL(trial, n_shared, n_target, activation,
                             n_node_features, n_edge_features, n_node_neurons, n_edge_neurons,
                             n_graph_convolution_layers, n_shared_layers,
                             n_target_specific_layers, useMolecularDescriptors, n_inputs)
@@ -419,8 +428,8 @@ def objective(trial):
             trial.report(val_loss, epoch)
 
             # Handle pruning based on the intermediate value
-            if trial.should_prune():
-                raise optuna.exceptions.TrialPruned()
+            #if trial.should_prune():
+            #    raise optuna.exceptions.TrialPruned()
 
             # Checkpoints
             if (epoch + 1) % chkptFreq == 0:  # n_epoch + 1 to ensure saving at the last iteration too
@@ -603,8 +612,8 @@ def objective(trial):
             trial.report(val_loss, epoch)
 
             # Handle pruning based on the intermediate value
-            if trial.should_prune():
-                raise optuna.exceptions.TrialPruned()
+            #if trial.should_prune():
+            #    raise optuna.exceptions.TrialPruned()
 
             if (epoch + 1) % chkptFreq == 0:  # n_epoch + 1 to ensure saving at the last iteration too
                 check_point_path = os.path.join(args.output_dir, f"checkpoint_epoch_{epoch + 1}.pt")
@@ -730,14 +739,14 @@ def objective(trial):
 
 if __name__ == "__main__":
     study = optuna.create_study(direction="minimize")
-    study.optimize(objective, n_trials=5, timeout=600)
+    study.optimize(objective, n_trials=5)
 
-    pruned_trials = study.get_trials(deepcopy=False, states=[TrialState.PRUNED])
+    #pruned_trials = study.get_trials(deepcopy=False, states=[TrialState.PRUNED])
     complete_trials = study.get_trials(deepcopy=False, states=[TrialState.COMPLETE])
 
     print("Study statistics: ")
     print("  Number of finished trials: ", len(study.trials))
-    print("  Number of pruned trials: ", len(pruned_trials))
+    #print("  Number of pruned trials: ", len(pruned_trials))
     print("  Number of complete trials: ", len(complete_trials))
 
     print("Best trial:")

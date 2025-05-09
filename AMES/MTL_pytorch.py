@@ -70,7 +70,7 @@ def masked_loss_function(y_true, y_pred):
 # --------------------------------------------------------------------------------
 # Load data
 data_path = 'data.csv'
-train, internal = load_data(data_path, model="MTL", stage="GS")
+train, internal, external = load_data(data_path, model="MTL", stage="GS")
 X_train, y_train = train
 X_internal, y_internal = internal
 
