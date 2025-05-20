@@ -123,44 +123,43 @@ def objective(trial):
         database_data = yaml.load(database_stream, Loader=yaml.Loader)
 
     # Model parameters
-    n_node_neurons = trial.suggest_int("n_node_neurons", 0,
-                                       500)  # input_data.get("nNodeNeurons", 0) # Number of neurons in GNN
-    n_edge_neurons = trial.suggest_int("n_edge_neurons", 0,
-                                       500)  # input_data.get("nEdgeNeurons", 0) # Number of edges in GNN
     n_graph_convolution_layers = trial.suggest_int("nGraphConvolutionalLayers", 1,
-                                                   20)  # input_data.get("nGraphConvolutionLayers", 2) # Number of graph convolutional layers
-    n_shared_layers = trial.suggest_int("nSharedLayers", 1, 20) #input_data.get("nSharedLayers", 4)  # Number of layers in shared core
-    n_target_specific_layers = trial.suggest_int("nTargetSpecificLayers", 1, 20) #input_data.get("nTargetSpecificLayers", 2)  # Number of layers in target specific core
+                                                   5)  # Number of graph convolutional layers
+    n_node_neurons = trial.suggest_int("n_node_neurons", 1,
+                                       300)  # Number of neurons in GNN
+    n_edge_neurons = trial.suggest_int("n_edge_neurons", 1,
+                                       300)  # Number of edges in GNN
+    dropout_GNN = trial.suggest_float("DropoutGNN", 0.0, 0.5)
+    momentum_batch_norm = trial.suggest_float("momentumBatchNorm", 0.0, 1.0)
+    n_shared_layers = trial.suggest_int("nSharedLayers", 1, 4) #input_data.get("nSharedLayers", 4)  # Number of layers in shared core
+    n_target_specific_layers = trial.suggest_int("nTargetSpecificLayers", 1, 3) #input_data.get("nTargetSpecificLayers", 2)  # Number of layers in target specific core
     n_shared = [
-        trial.suggest_int(f"n_shared_{i}", 1, 500)
+        trial.suggest_int(f"n_shared_{i}", 1, 300)
         for i in range(n_shared_layers)
     ]
     n_target = [
-        trial.suggest_int(f"n_target_{i}", 1, 500)
+        trial.suggest_int(f"n_target_{i}", 1, 300)
         for i in range(n_target_specific_layers)
     ]
+    dropout_shared = [
+        trial.suggest_float(f"DropoutShared_{i}", 0.0, 0.5)
+        for i in range(n_shared_layers)
+    ]
+    dropout_target = [
+        trial.suggest_float(f"DropoutTarget_{i}", 0.0, 0.5)
+        for i in range(n_target_specific_layers)
+    ]
+    #momentum_batch_norm_shared = trial.suggest_float("momentumBatchNormShared", 0.0, 1.0)
+    #momentum_batch_norm_target = trial.suggest_float("momentumBatchNormTarget", 0.0, 1.0)
 
-            #n0 = input_data.get("n0", None)  # Number of neurons in layer 1 shared core
-    #n1 = input_data.get("n1", None)  # Number of neurons in layer 2 shared core
-    #n2 = input_data.get("n2", None)  # Number of neurons in layer 3 shared core
-    #n3 = input_data.get("n3", None)  # Number of neurons in layer 4 shared core
-    #n4 = input_data.get("n4", None)  # Number of neurons in layer 1 target specific core
-    #n5 = input_data.get("n5", None)  # Number of neurons in layer 2 target specific core
-    #prob_h1 = input_data.get("prob_h1", None)  # Dropout layer 1 shared core
-    #prob_h2 = input_data.get("prob_h2", None)  # Dropout layer 2 shared core
-    #prob_h3 = input_data.get("prob_h3", None)  # Dropout layer 3 shared core
-    #prob_h4 = input_data.get("prob_h4", None)  # Dropout layer 4 shared core
-    #prob_h5 = input_data.get("prob_h5", None)  # Dropout layer 1 target specific core
-    #prob_h6 = input_data.get("prob_h6", None)  # Dropout layer 2 target specific core
-    #momentum_batch_norm = input_data.get("momentum_batch_norm", None)  # Batch normalization
     activation = input_data.get("ActivationFunction", "ReLU")  # Activation function
     weighted_loss_function = input_data.get("weightedCostFunction", False)
     if weighted_loss_function:
-        w1 = trial.suggest_float("w1", 1.0, 10.0)
-        w2 = trial.suggest_float("w2", 1.0, 10.0)
-        w3 = trial.suggest_float("w3", 1.0, 10.0)
-        w4 = trial.suggest_float("w4", 1.0, 10.0)
-        w5 = trial.suggest_float("w5", 1.0, 10.0)
+        w1 = trial.suggest_float("w1", 1.0, 6.0)
+        w2 = trial.suggest_float("w2", 1.0, 6.0)
+        w3 = trial.suggest_float("w3", 1.0, 6.0)
+        w4 = trial.suggest_float("w4", 1.0, 6.0)
+        w5 = trial.suggest_float("w5", 1.0, 6.0)
         #w1 = 1.90
         #w2 = 1.56
         #w3 = 3.31
@@ -343,10 +342,8 @@ def objective(trial):
         testLoader = DataLoader(test_dataset_final, batch_size=nBatch, generator=g)
 
     # Build model
-    model = BuildNN_GNN_MTL(trial, n_shared, n_target, activation,
-                            n_node_features, n_edge_features, n_node_neurons, n_edge_neurons,
-                            n_graph_convolution_layers, n_shared_layers,
-                            n_target_specific_layers, useMolecularDescriptors, n_inputs)
+    model = BuildNN_GNN_MTL(trial, n_graph_convolution_layers, n_node_neurons, n_edge_neurons, n_node_features, n_edge_features, dropout_GNN, momentum_batch_norm,
+                            n_shared_layers, n_target_specific_layers, n_shared, n_target, dropout_shared, dropout_target, activation, useMolecularDescriptors, n_inputs)
 
     # Write out parameters
     nParameters = count_model_parameters(model)
@@ -737,9 +734,54 @@ def objective(trial):
 
 #writer.flush()
 
+def save_study(study, path):
+    with open(path, "wb") as f:
+        pickle.dump(study, f)
+
+def load_study(path):
+    with open(path, "rb") as f:
+        return pickle.load(f)
+
 if __name__ == "__main__":
-    study = optuna.create_study(direction="minimize")
-    study.optimize(objective, n_trials=5)
+    try:
+        study = load_study('/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/optuna/study.pkl')
+        print("Loaded existing study.")
+    except FileNotFoundError:
+        study = optuna.create_study(direction="minimize")
+        print("Created new study.")
+
+    study.enqueue_trial({
+        "nGraphConvolutionalLayers": 2,
+        "n_node_neurons": 78,
+        "n_edge_neurons": 107,
+        "DropoutGNN": 0.001,
+        "momentumBatchNorm": 0.1,
+        "nSharedLayers": 4,
+        "nTargetSpecificLayers": 2,
+        "n_shared_0": 200,
+        "n_shared_1": 100,
+        "n_shared_2": 50,
+        "n_shared_3": 10,
+        "n_target_0": 50,
+        "n_target_1": 10,
+        "DropoutShared_1": 0.25,
+        "DropoutShared_2": 0.15,
+        "DropoutShared_3": 0.1,
+        "DropoutShared_4": 0.0001,
+        "DropoutTarget_1": 0.15,
+        "DropoutTarget_2": 0.1,
+        "w1": 1.90,
+        "w2": 1.56,
+        "w3": 3.31,
+        "w4": 5.09,
+        "w5": 5.11,
+        "learningRate": 0.0001,
+    })
+
+    #study = optuna.create_study(direction="minimize")
+    study.optimize(objective, n_trials=1)
+
+    save_study(study, '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/optuna/study.pkl')
 
     #pruned_trials = study.get_trials(deepcopy=False, states=[TrialState.PRUNED])
     complete_trials = study.get_trials(deepcopy=False, states=[TrialState.COMPLETE])

@@ -1,44 +1,39 @@
 
 # Input file for model training
 
+nGraphConvolutionLayers: 0 # Number of graph convolutional layers
 nNodeNeurons: 78 # Number of node neurons for GNN
 nEdgeNeurons: 107 # Number of edge neurons for GNN
-nGraphConvolutionLayers: 2 # Number of graph convolutional layers
-nSharedLayers: 0 # Number of layers in shared core
-nTargetSpecificLayers: 0 # Number of layers in target specific core
+dropoutGNN: 0.01 # Dropout in graph convolutional layers
+momentumBatchNormGNN: 0.1 # Batch normalization in graph convolutional layers
 
-#nShared: [200, 100, 50, 10]
-#nTarget: [50, 10]
+nSharedLayers: 4 # Number of layers in shared core
+nTargetSpecificLayers: 2 # Number of layers in target specific core
+nShared: [200, 100, 50, 10] # Number of neurons in shared core
+nTarget: [50, 10] # Number of neurons in target specific core
+dropoutShared: [0.25, 0.15, 0.1, 0.0001] # Dropout in shared core
+dropoutTarget: [0.15, 0.1] # Dropout in target specific core
+momentumBatchNormShared: 0.9 # Batch normalization in shared core
+momentumBatchNormTarget: 0.9 # Batch normalization in target specific core
 
-# Dropout
-#prob_h1: 0.25 # Dropout layer 1 shared core
-#prob_h2: 0.15 # Dropout layer 2 shared core
-#prob_h3: 0.1 # Dropout layer 3 shared core
-#prob_h4: 0.0001 # Dropout layer 4 shared core   
-#prob_h5: 0.15 # Dropout layer 1 target specific core
-#prob_h6: 0.1 # Dropout layer 1 target specific core
-
+# Weights for weighted cost function
 w1: 1.9
 w2: 1.56
 w3: 3.31
 w4: 5.09
 w5: 5.11
 
-# Batch normalization
-momentum_batch_norm: 0.1
-
 # Activation function
-ActivationFunction: "Tanh" #"Tanh"
+ActivationFunction: "ReLU" #"Tanh"
 
-nEpochs: 50 #np.iinfo(np.int32).max
-nBatch: 32
-nCheckpoint: 10
-randomSeed: 42
-nTrainMaxEntries: 1500
-nValMaxEntries: 300
+nEpochs: 5 #np.iinfo(np.int32). # Number of epochs
+nBatch: 32 # Batch size
+nCheckpoint: 10 # Checkpoint frequency
+randomSeed: 42 # Random seed
+#nTrainMaxEntries: 1500 # Number of training samples to use
+#nValMaxEntries: 300 # Number of validation examples to  use
 
-# this only gives the starting learning rate iff loadModel = False; otherwise it is read from checkpoint file
-learningRate: 0.0000924993113995373 #0.0001 #5e-4
+learningRate: 0.0001 #0.0000924993113995373 #0.0001 #5e-4
 
 weightedCostFunction: True # Include weighted cost function
 L2Regularization: 0.005 # L2 regularization coefficient
@@ -51,7 +46,9 @@ loadOptimizer: False
 
 # warmStart: "GraphPotential-nn-2gcl-2fcl-31102023-173821.tar"
 
-useMolecularDescriptors: False # Use molecular features instead of graphs for comparison to original MTL paper
+useMolecularDescriptors: True # Use molecular features instead of graphs for comparison to original MTL paper
+
+GNNExplainerAnalysis: False # Run GNNExplainer analysis after training
 
 callbacks: 
    earlyStopping:

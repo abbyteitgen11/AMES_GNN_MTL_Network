@@ -9,32 +9,25 @@ from torch_geometric.nn import BatchNorm
 
 class BuildNN_GNN_MTL(nn.Module):
     def __init__(self,
+                 n_gc_layers,
+                 n_node_neurons,
+                 n_edge_neurons,
+                 n_node_features,
+                 n_edge_features,
+                 dropout_GNN,
+                 momentum_batch_norm_GNN,
+                 n_s_layers,
+                 n_ts_layers,
                  n_shared,
                  n_target,
-                 #n0: int = 200,
-                 #n1: int = 100,
-                 #n2: int = 50,
-                 #n3: int = 10,
-                 #n4: int = 50,
-                 #n5: int = 10,
-                 act: str = "ReLu",
-                 momentum_batch_norm: float = 0.9,
-                 #prob_h1: float = 0.25,
-                 #prob_h2: float = 0.15,
-                 #prob_h3: float = 0.1,
-                 #prob_h4: float = 0.0001,
-                 #prob_h5: float = 0.1,
-                 #prob_h6: float = 0.0001,
-                 n_node_features: int = 29,
-                 n_edge_features: int = 3,
-                 n_node_neurons: int = 0,
-                 n_edge_neurons: int = 0,
-                 n_gc_layers: int = 2,
-                 n_s_layers: int = 4,
-                 n_ts_layers: int = 2,
-                 use_molecular_descriptors: bool = False,
-                 n_inputs: int = 0,
-                 ):
+                 dropout_shared,
+                 dropout_target,
+                 momentum_batch_norm_shared,
+                 momentum_batch_norm_target,
+                 act,
+                 use_molecular_descriptors,
+                 n_inputs):
+
         super(BuildNN_GNN_MTL, self).__init__()
 
         """
@@ -90,49 +83,36 @@ class BuildNN_GNN_MTL(nn.Module):
                 ne = n_edge_features
 
             for i in range(n_gc_layers):
-                setattr(self, f"conv{i + 1}", CGConv(ni, dim=ne))
-                setattr(self, f"dropout{i + 1}", nn.Dropout(0.001))
-                setattr(self, f"bn{i + 1}", BatchNorm(ni, momentum=momentum_batch_norm))
-
-            #self.conv1 = CGConv(ni, dim=ne)
-            #self.conv2 = CGConv(ni, dim=ne)
+                setattr(self, f"conv_GNN{i + 1}", CGConv(ni, dim=ne))
+                setattr(self, f"dropout_GNN{i + 1}", nn.Dropout(dropout_GNN))
+                setattr(self, f"bn_GNN{i + 1}", BatchNorm(ni, momentum=momentum_batch_norm_GNN))
 
         else:
             ni = n_inputs
 
-        # Shared core
+        #Shared core
         if n_s_layers > 0:
             prev_dim = ni
-            for i, n_units in enumerate(n_shared):
-                setattr(self, f"linear{i + 1}", nn.Linear(prev_dim, n_units))
+            for i, (n_units, dropout) in enumerate(zip(n_shared, dropout_shared)):
+                setattr(self, f"linear_shared{i + 1}", nn.Linear(prev_dim, n_units))
+                setattr(self, f"bn_shared{i + 1}", nn.BatchNorm1d(n_units, momentum=momentum_batch_norm_shared))
+                setattr(self, f"dropout_shared{i + 1}", nn.Dropout(dropout))
                 prev_dim = n_units
+
             output_n = prev_dim
 
         else:
             output_n = ni
 
-        #self.linear1 = nn.Linear(ni, n0)
-        #self.bn1 = nn.BatchNorm1d(n0, momentum=momentum_batch_norm)
-        #self.dropout1 = nn.Dropout(prob_h1)
 
-        #self.linear2 = nn.Linear(n0, n1)
-        #self.bn2 = nn.BatchNorm1d(n1, momentum=momentum_batch_norm)
-        #self.dropout2 = nn.Dropout(prob_h2)
-
-        #self.linear3 = nn.Linear(n1, n2)
-        #self.bn3 = nn.BatchNorm1d(n2, momentum=momentum_batch_norm)
-        #self.dropout3 = nn.Dropout(prob_h3)
-
-        #self.linear4 = nn.Linear(n2, n3)
-        #self.bn4 = nn.BatchNorm1d(n3, momentum=momentum_batch_norm)
-        #self.dropout4 = nn.Dropout(prob_h4)
-
-        # Target specific core
+        #Target specific core
         if n_ts_layers > 0:
             for i in range(5):
                 prev_dim = output_n
-                for j, n_units in enumerate(n_target):
-                    setattr(self, f"ts{i + 1}_linear{j + 1}", nn.Linear(prev_dim, n_units))
+                for j, (n_units, dropout) in enumerate(zip(n_target, dropout_target)):
+                    setattr(self, f"ts{i + 1}_linear_target{j + 1}", nn.Linear(prev_dim, n_units))
+                    setattr(self, f"ts{i + 1}_bn_target{j + 1}", nn.BatchNorm1d(n_units, momentum=momentum_batch_norm_target))
+                    setattr(self, f"ts{i + 1}_dropout_target{j + 1}", nn.Dropout(dropout))
                     prev_dim = n_units
                 setattr(self, f"ts{i + 1}_sig", nn.Linear(prev_dim, 1))
 
@@ -142,45 +122,6 @@ class BuildNN_GNN_MTL(nn.Module):
 
 
 
-        #self.ts1_linear1 = nn.Linear(n3, n2)  # x.size(1)
-        #self.ts1_bn1 = nn.BatchNorm1d(n2, momentum=momentum_batch_norm)
-        #self.ts1_dropout1 = nn.Dropout(prob_h2)
-        #self.ts1_linear2 = nn.Linear(n2, n3)
-        #self.ts1_bn2 = nn.BatchNorm1d(n3, momentum=momentum_batch_norm)
-        #self.ts1_dropout2 = nn.Dropout(prob_h3)
-        #self.ts1_sig = nn.Linear(n3, 1)
-
-        #self.ts2_linear1 = nn.Linear(n3, n2)  # x.size(1)
-        #self.ts2_bn1 = nn.BatchNorm1d(n2, momentum=momentum_batch_norm)
-        #self.ts2_dropout1 = nn.Dropout(prob_h2)
-        #self.ts2_linear2 = nn.Linear(n2, n3)
-        #self.ts2_bn2 = nn.BatchNorm1d(n3, momentum=momentum_batch_norm)
-        #self.ts2_dropout2 = nn.Dropout(prob_h3)
-        #self.ts2_sig = nn.Linear(n3, 1)
-
-        #self.ts3_linear1 = nn.Linear(n3, n2)  # x.size(1)
-        #self.ts3_bn1 = nn.BatchNorm1d(n2, momentum=momentum_batch_norm)
-        #self.ts3_dropout1 = nn.Dropout(prob_h2)
-        #self.ts3_linear2 = nn.Linear(n2, n3)
-        #self.ts3_bn2 = nn.BatchNorm1d(n3, momentum=momentum_batch_norm)
-        #self.ts3_dropout2 = nn.Dropout(prob_h3)
-        #self.ts3_sig = nn.Linear(n3, 1)
-
-        #self.ts4_linear1 = nn.Linear(n3, n2)  # x.size(1)
-        #self.ts4_bn1 = nn.BatchNorm1d(n2, momentum=momentum_batch_norm)
-        #self.ts4_dropout1 = nn.Dropout(prob_h2)
-        #self.ts4_linear2 = nn.Linear(n2, n3)
-        #self.ts4_bn2 = nn.BatchNorm1d(n3, momentum=momentum_batch_norm)
-        #self.ts4_dropout2 = nn.Dropout(prob_h3)
-        #self.ts4_sig = nn.Linear(n3, 1)
-
-        #self.ts5_linear1 = nn.Linear(n3, n2)  # x.size(1)
-        #self.ts5_bn1 = nn.BatchNorm1d(n2, momentum=momentum_batch_norm)
-        #self.ts5_dropout1 = nn.Dropout(prob_h2)
-        #self.ts5_linear2 = nn.Linear(n2, n3)
-        #self.ts5_bn2 = nn.BatchNorm1d(n3, momentum=momentum_batch_norm)
-        #self.ts5_dropout2 = nn.Dropout(prob_h3)
-        #self.ts5_sig = nn.Linear(n3, 1)
 
     def forward(self, x, edge_index, edge_attr, batch, n_node_neurons, n_node_features, n_edge_neurons, n_edge_features, n_gc_layers, n_s_layers, n_ts_layers, use_molecular_descriptors):
         # GNN
@@ -192,64 +133,41 @@ class BuildNN_GNN_MTL(nn.Module):
                 edge_attr = self.GNNlinear2(edge_attr)
 
             for i in range(n_gc_layers):
-                dropout_layer = getattr(self, f"dropout{i + 1}")
-                bn_layer = getattr(self, f"bn{i + 1}")
-                conv_layer = getattr(self, f"conv{i + 1}")
+                dropout_layer = getattr(self, f"dropout_GNN{i + 1}")
+                bn_layer = getattr(self, f"bn_GNN{i + 1}")
+                conv_layer = getattr(self, f"conv_GNN{i + 1}")
                 x = conv_layer(x, edge_index, edge_attr)
                 x = bn_layer(x)
                 x = self.activation_layer(x)
                 x = dropout_layer(x)
 
 
-        #x = self.conv1(x, edge_index, edge_attr)
-        #x = self.activation_layer(x) #torch.tanh(x)
-        #x = self.conv2(x, edge_index, edge_attr)
-        #x = self.activation_layer(x) #torch.tanh(x)
-
-                # Pooling layer
-                #x = global_add_pool(x, batch)
+            # Pooling layer
             x = global_add_pool(x, batch)
 
-        # Shared core
+        #Shared core
         for i in range(n_s_layers):
-            #dropout_layer = getattr(self, f"dropout{i + 1}")
-            #x = dropout_layer(x)
-            #x = getattr(self, f"dropout{i + 1}")(x)
-            #print(getattr(self, f"dropout{i+1}"))
-            #print(self.dropout1)
-            linear_layer = getattr(self, f"linear{i + 1}")
+            dropout_layer = getattr(self, f"dropout_shared{i + 1}")
+            x = dropout_layer(x)
+            linear_layer = getattr(self, f"linear_shared{i + 1}")
             x = linear_layer(x)
-            #bn_layer = getattr(self, f"bn{i + 1}")
-            #x = self.activation_layer(bn_layer(x))
-            x = self.activation_layer(x)
+            bn_layer = getattr(self, f"bn_shared{i + 1}")
+            x = self.activation_layer(bn_layer(x))
 
 
-        #x = self.dropout1(x)
-        #x = self.linear1(x)
-        #x = self.activation_layer(self.bn1(x))
-        #x = self.dropout2(x)
-        #x = self.linear2(x)
-        #x = self.activation_layer(self.bn2(x))
-        #x = self.dropout3(x)
-        #x = self.linear3(x)
-        #x = self.activation_layer(self.bn3(x))
-        #x = self.dropout4(x)
-        #x = self.linear4(x)
-        #x = self.activation_layer(self.bn4(x))
-
-        # Target specific core
+        #Target specific core
         y_outputs = []
         if n_ts_layers > 0:
             for i in range(5):
                 y = x
                 for j in range(n_ts_layers):
-                    #dropout_layer = getattr(self, f"ts{i + 1}_dropout{j + 1}")
-                    #y = dropout_layer(y)
-                    linear_layer = getattr(self, f"ts{i + 1}_linear{j + 1}")
+                    dropout_layer = getattr(self, f"ts{i + 1}_dropout_target{j + 1}")
+                    y = dropout_layer(y)
+                    linear_layer = getattr(self, f"ts{i + 1}_linear_target{j + 1}")
                     y = linear_layer(y)
-                    #bn_layer = getattr(self, f"ts{i + 1}_bn{j + 1}")
-                    #y = self.activation_layer(bn_layer(y))
-                    y = self.activation_layer(y)
+                    bn_layer = getattr(self, f"ts{i + 1}_bn_target{j + 1}")
+                    y = self.activation_layer(bn_layer(y))
+                    #y = self.activation_layer(y)
                 sig_layer = getattr(self, f"ts{i + 1}_sig")
                 y = sig_layer(y)
                 y = y.sigmoid()
@@ -262,52 +180,4 @@ class BuildNN_GNN_MTL(nn.Module):
                 y = y.sigmoid()
                 y_outputs.append(y)
 
-        # Two layers
-        # STRAIN 1
-        #y1 = self.ts1_dropout1(x)
-        #y1 = self.ts1_linear1(y1)
-        #y1 = self.activation_layer(self.ts1_bn1(y1))
-        #y1 = self.ts1_dropout2(y1)
-        #y1 = self.ts1_linear2(y1)
-        #y1 = self.activation_layer(self.ts1_bn2(y1))
-        #y1 = self.ts1_sig(y1)
-        #y1 = y1.sigmoid()
-
-        #y2 = self.ts2_dropout1(x)
-        #y2 = self.ts2_linear1(y2)
-        #y2 = self.activation_layer(self.ts2_bn1(y2))
-        #y2 = self.ts2_dropout2(y2)
-        #y2 = self.ts2_linear2(y2)
-        #y2 = self.activation_layer(self.ts2_bn2(y2))
-        #y2 = self.ts2_sig(y2)
-        #y2 = y2.sigmoid()
-
-        #y3 = self.ts3_dropout1(x)
-        #y3 = self.ts3_linear1(y3)
-        #y3 = self.activation_layer(self.ts3_bn1(y3))
-        #y3 = self.ts3_dropout2(y3)
-        #y3 = self.ts3_linear2(y3)
-        #y3 = self.activation_layer(self.ts3_bn2(y3))
-        #y3 = self.ts3_sig(y3)
-        #y3 = y3.sigmoid()
-
-        #y4 = self.ts4_dropout1(x)
-        #y4 = self.ts4_linear1(y4)
-        #y4 = self.activation_layer(self.ts4_bn1(y4))
-        #y4 = self.ts4_dropout2(y4)
-        #y4 = self.ts4_linear2(y4)
-        #y4 = self.activation_layer(self.ts4_bn2(y4))
-        #y4 = self.ts4_sig(y4)
-        #y4 = y4.sigmoid()
-
-        #y5 = self.ts5_dropout1(x)
-        #y5 = self.ts5_linear1(y5)
-        #y5 = self.activation_layer(self.ts5_bn1(y5))
-        #y5 = self.ts5_dropout2(y5)
-        #y5 = self.ts5_linear2(y5)
-        #y5 = self.activation_layer(self.ts5_bn2(y5))
-        #y5 = self.ts5_sig(y5)
-        #y5 = y5.sigmoid()
-
         return y_outputs[0], y_outputs[1], y_outputs[2], y_outputs[3], y_outputs[4]
-        #return y1, y2, y3, y4, y5
