@@ -14,6 +14,7 @@ moleculedb-dev/
 AMES/predictions_TF.csv
 AMES/predictions_Torch.csv
 AMES/loss/
+AMES/optuna/
 *.csv
 *.zip
 *.pyc
