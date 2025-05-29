@@ -779,7 +779,7 @@ if __name__ == "__main__":
     })
 
     #study = optuna.create_study(direction="minimize")
-    study.optimize(objective, n_trials=1)
+    study.optimize(objective, n_trials=2)
 
     save_study(study, '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/optuna/study.pkl')
 

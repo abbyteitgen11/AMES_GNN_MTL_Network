@@ -1,39 +1,39 @@
 
 # Input file for model training
 
-nGraphConvolutionLayers: 0 # Number of graph convolutional layers
+nGraphConvolutionLayers: 2 # Number of graph convolutional layers
 nNodeNeurons: 78 # Number of node neurons for GNN
 nEdgeNeurons: 107 # Number of edge neurons for GNN
-dropoutGNN: 0.01 # Dropout in graph convolutional layers
-momentumBatchNormGNN: 0.1 # Batch normalization in graph convolutional layers
+dropoutGNN: 0.0366 # Dropout in graph convolutional layers
+momentumBatchNormGNN: 0.0776 # Batch normalization in graph convolutional layers
 
 nSharedLayers: 4 # Number of layers in shared core
 nTargetSpecificLayers: 2 # Number of layers in target specific core
 nShared: [200, 100, 50, 10] # Number of neurons in shared core
 nTarget: [50, 10] # Number of neurons in target specific core
-dropoutShared: [0.25, 0.15, 0.1, 0.0001] # Dropout in shared core
-dropoutTarget: [0.15, 0.1] # Dropout in target specific core
-momentumBatchNormShared: 0.9 # Batch normalization in shared core
-momentumBatchNormTarget: 0.9 # Batch normalization in target specific core
+dropoutShared: [0.4221, 0.1147, 0.5, 0.5] # Dropout in shared core
+dropoutTarget: [0.3156, 0.5] # Dropout in target specific core
+momentumBatchNormShared: 0.0776 # Batch normalization in shared core
+momentumBatchNormTarget: 0.0776 # Batch normalization in target specific core
 
 # Weights for weighted cost function
-w1: 1.9
-w2: 1.56
-w3: 3.31
-w4: 5.09
-w5: 5.11
+w1: 3.394
+w2: 5.988
+w3: 5.476
+w4: 1.008
+w5: 1.080
 
 # Activation function
-ActivationFunction: "ReLU" #"Tanh"
+ActivationFunction: "Tanh" #"Tanh"
 
-nEpochs: 5 #np.iinfo(np.int32). # Number of epochs
+nEpochs: 1 #np.iinfo(np.int32). # Number of epochs
 nBatch: 32 # Batch size
 nCheckpoint: 10 # Checkpoint frequency
 randomSeed: 42 # Random seed
 #nTrainMaxEntries: 1500 # Number of training samples to use
 #nValMaxEntries: 300 # Number of validation examples to  use
 
-learningRate: 0.0001 #0.0000924993113995373 #0.0001 #5e-4
+learningRate: 0.0011 #0.0000924993113995373 #0.0001 #5e-4
 
 weightedCostFunction: True # Include weighted cost function
 L2Regularization: 0.005 # L2 regularization coefficient
@@ -46,7 +46,7 @@ loadOptimizer: False
 
 # warmStart: "GraphPotential-nn-2gcl-2fcl-31102023-173821.tar"
 
-useMolecularDescriptors: True # Use molecular features instead of graphs for comparison to original MTL paper
+useMolecularDescriptors: False # Use molecular features instead of graphs for comparison to original MTL paper
 
 GNNExplainerAnalysis: False # Run GNNExplainer analysis after training
 
