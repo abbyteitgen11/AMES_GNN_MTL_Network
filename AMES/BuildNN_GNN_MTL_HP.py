@@ -147,11 +147,16 @@ class BuildNN_GNN_MTL(nn.Module):
         #Shared core
         for i in range(n_s_layers):
             dropout_layer = getattr(self, f"dropout_shared{i + 1}")
-            x = dropout_layer(x)
+            #x = dropout_layer(x)
             linear_layer = getattr(self, f"linear_shared{i + 1}")
-            x = linear_layer(x)
+            #x = linear_layer(x)
             bn_layer = getattr(self, f"bn_shared{i + 1}")
-            x = self.activation_layer(bn_layer(x))
+            #x = self.activation_layer(bn_layer(x))
+
+            x = linear_layer(x)
+            x = bn_layer(x)
+            x = self.activation_layer(x)
+            x = dropout_layer(x)
 
 
         #Target specific core
@@ -161,12 +166,18 @@ class BuildNN_GNN_MTL(nn.Module):
                 y = x
                 for j in range(n_ts_layers):
                     dropout_layer = getattr(self, f"ts{i + 1}_dropout_target{j + 1}")
-                    y = dropout_layer(y)
+                    #y = dropout_layer(y)
                     linear_layer = getattr(self, f"ts{i + 1}_linear_target{j + 1}")
-                    y = linear_layer(y)
+                    #y = linear_layer(y)
                     bn_layer = getattr(self, f"ts{i + 1}_bn_target{j + 1}")
-                    y = self.activation_layer(bn_layer(y))
+                    #y = self.activation_layer(bn_layer(y))
                     #y = self.activation_layer(y)
+
+                    y = linear_layer(y)
+                    y = bn_layer(y)
+                    y = self.activation_layer(y)
+                    y = dropout_layer(y)
+
                 sig_layer = getattr(self, f"ts{i + 1}_sig")
                 y = sig_layer(y)
                 y = y.sigmoid()

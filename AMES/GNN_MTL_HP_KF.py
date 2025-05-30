@@ -340,6 +340,7 @@ def objective(trial):
             val_loss /= len(valLoader)
             #print(f"Trial {trial.number} | Fold {fold + 1} | Epoch {epoch + 1} | Val Loss: {val_loss:.4f}")
 
+
             val_loss_log.append({
                 "fold": fold,
                 "epoch": epoch,
@@ -356,6 +357,13 @@ def objective(trial):
             trial.set_user_attr("best_fold", fold)
 
     avg_val_loss = sum(val_losses) / len(val_losses)
+
+    trial.report(avg_val_loss, epoch)
+    if trial.should_prune():
+        raise optuna.TrialPruned()
+
+    if trial.number % 10 == 0:
+        save_study(study, '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/optuna/study.pkl')
 
     return avg_val_loss
 
@@ -405,7 +413,7 @@ if __name__ == "__main__":
     })
 
     #study = optuna.create_study(direction="minimize")
-    study.optimize(objective, n_trials=2)
+    study.optimize(objective, n_trials=11, n_jobs=4)
 
     save_study(study, '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/optuna/study.pkl')
 
