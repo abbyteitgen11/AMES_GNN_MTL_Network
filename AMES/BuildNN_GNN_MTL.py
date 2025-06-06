@@ -15,15 +15,13 @@ class BuildNN_GNN_MTL(nn.Module):
                  n_node_features,
                  n_edge_features,
                  dropout_GNN,
-                 momentum_batch_norm_GNN,
+                 momentum_batch_norm,
                  n_s_layers,
                  n_ts_layers,
                  n_shared,
                  n_target,
                  dropout_shared,
                  dropout_target,
-                 momentum_batch_norm_shared,
-                 momentum_batch_norm_target,
                  act,
                  use_molecular_descriptors,
                  n_inputs):
@@ -85,7 +83,7 @@ class BuildNN_GNN_MTL(nn.Module):
             for i in range(n_gc_layers):
                 setattr(self, f"conv_GNN{i + 1}", CGConv(ni, dim=ne))
                 setattr(self, f"dropout_GNN{i + 1}", nn.Dropout(dropout_GNN))
-                setattr(self, f"bn_GNN{i + 1}", BatchNorm(ni, momentum=momentum_batch_norm_GNN))
+                setattr(self, f"bn_GNN{i + 1}", BatchNorm(ni, momentum=momentum_batch_norm))
 
         else:
             ni = n_inputs
@@ -95,7 +93,7 @@ class BuildNN_GNN_MTL(nn.Module):
             prev_dim = ni
             for i, (n_units, dropout) in enumerate(zip(n_shared, dropout_shared)):
                 setattr(self, f"linear_shared{i + 1}", nn.Linear(prev_dim, n_units))
-                setattr(self, f"bn_shared{i + 1}", nn.BatchNorm1d(n_units, momentum=momentum_batch_norm_shared))
+                setattr(self, f"bn_shared{i + 1}", nn.BatchNorm1d(n_units, momentum=momentum_batch_norm))
                 setattr(self, f"dropout_shared{i + 1}", nn.Dropout(dropout))
                 prev_dim = n_units
 
@@ -111,7 +109,7 @@ class BuildNN_GNN_MTL(nn.Module):
                 prev_dim = output_n
                 for j, (n_units, dropout) in enumerate(zip(n_target, dropout_target)):
                     setattr(self, f"ts{i + 1}_linear_target{j + 1}", nn.Linear(prev_dim, n_units))
-                    setattr(self, f"ts{i + 1}_bn_target{j + 1}", nn.BatchNorm1d(n_units, momentum=momentum_batch_norm_target))
+                    setattr(self, f"ts{i + 1}_bn_target{j + 1}", nn.BatchNorm1d(n_units, momentum=momentum_batch_norm))
                     setattr(self, f"ts{i + 1}_dropout_target{j + 1}", nn.Dropout(dropout))
                     prev_dim = n_units
                 setattr(self, f"ts{i + 1}_sig", nn.Linear(prev_dim, 1))

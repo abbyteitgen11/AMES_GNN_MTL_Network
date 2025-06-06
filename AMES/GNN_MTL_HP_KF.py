@@ -31,7 +31,7 @@ from torch_geometric.loader import DataLoader
 
 from callbacks import set_up_callbacks
 from count_model_parameters import count_model_parameters
-from device import device, num_workers
+from device import device
 from graph_dataset import GraphDataSet
 from compute_metrics import *
 from data import load_data

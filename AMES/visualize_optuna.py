@@ -5,8 +5,10 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 
+
+# SINGLE
 # Load the study
-study = joblib.load('/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/optuna/study.pkl')
+study = joblib.load('/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/optuna/study10.pkl')
 
 # Plot optimization history
 vis.plot_optimization_history(study).show()
@@ -51,3 +53,46 @@ plt.title("Best Fold Validation Loss Across Trials")
 plt.xlabel("Loss")
 plt.show()
 
+"""
+# Load multiple studies
+study_paths = [
+    '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/optuna/study_5_28_25.pkl',
+    '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/optuna/study6.pkl'
+]
+
+all_trials = []
+
+for path in study_paths:
+    study = joblib.load(path)
+    all_trials.extend([t for t in study.trials if t.state.name == "COMPLETE"])
+
+combined_data = []
+
+for trial in all_trials:
+    entry = {
+        "trial_number": trial.number,
+        "value": trial.value,
+        "study_source": trial.study_name if hasattr(trial, 'study_name') else path
+    }
+    entry.update(trial.user_attrs)
+    combined_data.append(entry)
+
+df_combined = pd.DataFrame(combined_data)
+
+sns.histplot(df_combined["best_fold_loss"], bins=20)
+plt.title("Best Fold Validation Loss Across All Studies")
+plt.xlabel("Loss")
+plt.show()
+
+df_combined_sorted = df_combined.sort_values("value", ascending=False).reset_index(drop=True)
+plt.plot(df_combined_sorted.index, df_combined_sorted["value"])
+plt.title("Combined Optimization History")
+plt.xlabel("Global Trial Number")
+plt.ylabel("Objective Value")
+plt.grid(True)
+plt.show()
+
+sns.boxplot(data=df_combined, x="study_source", y="best_fold_loss")
+plt.title("Validation Loss by Study")
+plt.show()
+"""

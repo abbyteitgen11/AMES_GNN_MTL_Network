@@ -30,7 +30,7 @@ from torch_geometric.loader import DataLoader
 
 from callbacks import set_up_callbacks
 from count_model_parameters import count_model_parameters
-from device import device, num_workers
+from device import device
 from graph_dataset import GraphDataSet
 from compute_metrics import *
 from data import load_data
@@ -496,11 +496,11 @@ def objective(trial):
                 y_pred_logit.append(pred)
                 y_true.append(sample.y)
 
-        y_logit_cat = [np.concatenate([t.numpy() for t in tensors], axis=0) for tensors in
+        y_logit_cat = [np.concatenate([t.cpu().numpy() for t in tensors], axis=0) for tensors in
                        zip(*y_pred_logit)]  # concatenate predictions for all examples into single array
         y_logit_cat = np.hstack(y_logit_cat)
 
-        y_pred_cat = [np.concatenate([t.numpy() for t in tensors], axis=0) for tensors in
+        y_pred_cat = [np.concatenate([t.cpu().numpy() for t in tensors], axis=0) for tensors in
                       zip(*y_pred)]  # concatenate predictions for all examples into single array
         y_pred_cat = np.hstack(y_pred_cat)
 

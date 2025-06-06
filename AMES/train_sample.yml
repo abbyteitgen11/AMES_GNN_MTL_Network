@@ -5,7 +5,7 @@ nGraphConvolutionLayers: 2 # Number of graph convolutional layers
 nNodeNeurons: 278 # Number of node neurons for GNN
 nEdgeNeurons: 300 # Number of edge neurons for GNN
 dropoutGNN: 0.0366 # Dropout in graph convolutional layers
-momentumBatchNormGNN: 0.0776 # Batch normalization in graph convolutional layers
+momentumBatchNorm: 0.0776 # Batch normalization in graph convolutional layers
 
 nSharedLayers: 2 # Number of layers in shared core
 nTargetSpecificLayers: 1 # Number of layers in target specific core
@@ -13,8 +13,6 @@ nShared: [271, 87] # Number of neurons in shared core
 nTarget: [107] # Number of neurons in target specific core
 dropoutShared: [0.4221, 0.1147] # Dropout in shared core
 dropoutTarget: [0.3156] # Dropout in target specific core
-momentumBatchNormShared: 0.0776 # Batch normalization in shared core
-momentumBatchNormTarget: 0.0776 # Batch normalization in target specific core
 
 # Weights for weighted cost function
 w1: 3.394

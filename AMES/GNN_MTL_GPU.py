@@ -36,7 +36,7 @@ from torch_geometric.utils import to_networkx
 
 from callbacks import set_up_callbacks
 from count_model_parameters import count_model_parameters
-from device import device, num_workers
+from device import device
 from graph_dataset import GraphDataSet
 from compute_metrics import *
 from data import load_data
@@ -135,7 +135,7 @@ def main():
     n_node_neurons = input_data.get("nNodeNeurons", None) # Number of neurons in GNN
     n_edge_neurons = input_data.get("nEdgeNeurons", None) # Number of edges in GNN
     dropout_GNN = input_data.get("dropoutGNN", None) # Dropout GNN
-    momentum_batch_norm_GNN = input_data.get("momentumBatchNormGNN", None) # Batch norm GNN
+    momentum_batch_norm = input_data.get("momentumBatchNorm", None) # Batch norm GNN
 
     n_shared_layers = input_data.get("nSharedLayers", 4) # Number of layers in shared core
     n_target_specific_layers = input_data.get("nTargetSpecificLayers", 2) # Number of layers in target specific core
@@ -143,8 +143,6 @@ def main():
     n_target = input_data.get("nTarget", None)  # Number of neurons in target specific core
     dropout_shared = input_data.get("dropoutShared", None) # Dropout in shared core
     dropout_target = input_data.get("dropoutTarget", None) # Dropout in target specific core
-    momentum_batch_norm_shared = input_data.get("momentumBatchNormShared", None)
-    momentum_batch_norm_target = input_data.get("momentumBatchNormTarget", None)
 
     activation = input_data.get("ActivationFunction", "ReLU") # Activation function
     weighted_loss_function = input_data.get("weightedCostFunction", False)
@@ -332,9 +330,9 @@ def main():
 
 
     # Build model
-    model = BuildNN_GNN_MTL(n_graph_convolution_layers, n_node_neurons, n_edge_neurons, n_node_features, n_edge_features, dropout_GNN, momentum_batch_norm_GNN,
+    model = BuildNN_GNN_MTL(n_graph_convolution_layers, n_node_neurons, n_edge_neurons, n_node_features, n_edge_features, dropout_GNN, momentum_batch_norm,
                             n_shared_layers, n_target_specific_layers, n_shared, n_target, dropout_shared, dropout_target,
-                            momentum_batch_norm_shared, momentum_batch_norm_target, activation, useMolecularDescriptors, n_inputs)
+                            activation, useMolecularDescriptors, n_inputs)
 
     # Write out parameters
     nParameters = count_model_parameters(model)
@@ -472,10 +470,10 @@ def main():
                 y_pred_logit.append(pred)
                 y_true.append(sample.y)
 
-        y_logit_cat = [np.concatenate([t.numpy() for t in tensors], axis=0) for tensors in zip(*y_pred_logit)] #concatenate predictions for all examples into single array
+        y_logit_cat = [np.concatenate([t.cpu()(.numpy() for t in tensors], axis=0) for tensors in zip(*y_pred_logit)] #concatenate predictions for all examples into single array
         y_logit_cat = np.hstack(y_logit_cat)
 
-        y_pred_cat = [np.concatenate([t.numpy() for t in tensors], axis=0) for tensors in zip(*y_pred)] #concatenate predictions for all examples into single array
+        y_pred_cat = [np.concatenate([t.cpu().numpy() for t in tensors], axis=0) for tensors in zip(*y_pred)] #concatenate predictions for all examples into single array
         y_pred_cat = np.hstack(y_pred_cat)
 
         y_true_cat = torch.cat(y_true)
