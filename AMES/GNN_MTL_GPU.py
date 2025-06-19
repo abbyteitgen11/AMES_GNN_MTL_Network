@@ -81,6 +81,9 @@ def setup_logging(log_file):
         ]
     )
 
+def count_trainable_parameters(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
 
 # Function to compute and log metrics
 def log_metrics(epoch, writer, y_internal, y_pred):
@@ -102,6 +105,34 @@ def log_metrics(epoch, writer, y_internal, y_pred):
 
     return metrics_cat
 
+
+def visualize_model_parameters(model):
+    # Collect parameter info
+    param_data = []
+    for name, param in model.named_parameters():
+        if param.requires_grad:
+            module = name.split('.')[0]  # top-level module name
+            param_data.append((module, param.numel()))
+
+    # Create DataFrame
+    df = pd.DataFrame(param_data, columns=["Module", "Count"])
+    summary = df.groupby("Module")["Count"].sum().sort_values()
+
+    # Plot
+    plt.figure(figsize=(10, 8))
+    bars = plt.barh(summary.index, summary.values)
+    plt.xlabel("Number of Parameters")
+
+    # Add labels
+    for bar in bars:
+        width = bar.get_width()
+        plt.text(width + max(summary.values) * 0.01,
+                 bar.get_y() + bar.get_height() / 2,
+                 f'{width:,}',
+                 va='center')
+
+    plt.tight_layout()
+    plt.show()
 
 def main():
     args = get_args()
@@ -275,7 +306,7 @@ def main():
 
 
     else:
-        data_path = input_data.get("data_file", "./AMES/data.py")
+        data_path = input_data.get("data_file", "./AMES/data.csv")
         train, internal, external = load_data(data_path, model="MTL", stage='GS')
         X_train, y_train = train
         X_internal, y_internal = internal
@@ -341,6 +372,14 @@ def main():
         + repr(nParameters)
         + " adjustable parameters  \n"
     )
+
+    # Example usage:
+    print("Total trainable parameters:", count_trainable_parameters(model))
+    for name, param in model.named_parameters():
+        if param.requires_grad:
+            print(f"'{name}': {param.numel()},")
+
+    visualize_model_parameters(model)
 
     # Define optimizer
     optimizer = torch.optim.Adam(model.parameters(), lr=learningRate, weight_decay=L2Regularization) # l2 reg
@@ -438,6 +477,85 @@ def main():
                         check_point_path,
                     )
 
+                    y_pred_logit = []
+                    y_pred = []
+                    y_true = []
+
+                    model.eval()
+                    with torch.no_grad():
+                        for sample in valLoader:
+                            pred = model(sample.x.to(device), sample.edge_index.to(device), sample.edge_attr.to(device),
+                                         sample.batch.to(device), n_node_neurons, n_node_features, n_edge_neurons,
+                                         n_edge_features, n_graph_convolution_layers, n_shared_layers,
+                                         n_target_specific_layers, useMolecularDescriptors)
+                            y_pred_t = tuple(torch.where(tensor > 0.5, torch.tensor(1), torch.tensor(0)) for tensor in
+                                             pred)  # convert to 0 or 1
+                            y_pred.append(y_pred_t)
+                            y_pred_logit.append(pred)
+                            y_true.append(sample.y)
+
+                    y_logit_cat = [np.concatenate([t.cpu().numpy() for t in tensors], axis=0) for tensors in
+                                   zip(*y_pred_logit)]  # concatenate predictions for all examples into single array
+                    y_logit_cat = np.hstack(y_logit_cat)
+
+                    y_pred_cat = [np.concatenate([t.cpu().numpy() for t in tensors], axis=0) for tensors in
+                                  zip(*y_pred)]  # concatenate predictions for all examples into single array
+                    y_pred_cat = np.hstack(y_pred_cat)
+
+                    y_true_cat = torch.cat(y_true)
+                    y_true_cat = y_true_cat.numpy()
+
+                    # Print to csv
+                    csv_file = os.path.join(args.output_dir, "metrics_early.csv")
+                    headers = ['Strain', 'TP', 'TN', 'FP', 'FN', 'Sp', 'Sn', 'Prec', 'Acc', 'Bal acc', 'F1 score',
+                               'H score']
+
+                    with open(csv_file, mode='w', newline='') as file:
+                        writer = csv.writer(file)
+
+                        # Write the header row
+                        writer.writerow(headers)
+                        _, new_real, new_y_pred, new_prob = filter_nan(y_true_cat[:, 0], y_pred_cat[:, 0],
+                                                                       y_logit_cat[:, 0])
+                        metrics = get_metrics(new_real, new_y_pred)
+                        metrics1 = [int(m) for m in metrics[0]]
+                        metrics2 = [round(float(m), 2) for m in metrics[1]]
+                        writer.writerow(['Strain TA98'] + list(metrics1) + list(metrics2))
+
+                        _, new_real, new_y_pred, new_prob = filter_nan(y_true_cat[:, 1], y_pred_cat[:, 1],
+                                                                       y_logit_cat[:, 1])
+                        metrics = get_metrics(new_real, new_y_pred)
+                        metrics1 = [int(m) for m in metrics[0]]
+                        metrics2 = [round(float(m), 2) for m in metrics[1]]
+                        writer.writerow(['Strain TA100'] + list(metrics1) + list(metrics2))
+
+                        _, new_real, new_y_pred, new_prob = filter_nan(y_true_cat[:, 2], y_pred_cat[:, 2],
+                                                                       y_logit_cat[:, 2])
+                        metrics = get_metrics(new_real, new_y_pred)
+                        metrics1 = [int(m) for m in metrics[0]]
+                        metrics2 = [round(float(m), 2) for m in metrics[1]]
+                        writer.writerow(['Strain TA102'] + list(metrics1) + list(metrics2))
+
+                        _, new_real, new_y_pred, new_prob = filter_nan(y_true_cat[:, 3], y_pred_cat[:, 3],
+                                                                       y_logit_cat[:, 3])
+                        metrics = get_metrics(new_real, new_y_pred)
+                        metrics1 = [int(m) for m in metrics[0]]
+                        metrics2 = [round(float(m), 2) for m in metrics[1]]
+                        writer.writerow(['Strain TA1535'] + list(metrics1) + list(metrics2))
+
+                        _, new_real, new_y_pred, new_prob = filter_nan(y_true_cat[:, 4], y_pred_cat[:, 4],
+                                                                       y_logit_cat[:, 4])
+                        metrics = get_metrics(new_real, new_y_pred)
+                        metrics1 = [int(m) for m in metrics[0]]
+                        metrics2 = [round(float(m), 2) for m in metrics[1]]
+                        writer.writerow(['Strain TA1537'] + list(metrics1) + list(metrics2))
+
+                        file.flush()
+                        file.close()
+
+                        break
+
+
             # Tensorboard
             #if epoch % 10 == 0:
             #    model.eval()
@@ -470,7 +588,7 @@ def main():
                 y_pred_logit.append(pred)
                 y_true.append(sample.y)
 
-        y_logit_cat = [np.concatenate([t.cpu()(.numpy() for t in tensors], axis=0) for tensors in zip(*y_pred_logit)] #concatenate predictions for all examples into single array
+        y_logit_cat = [np.concatenate([t.cpu().numpy() for t in tensors], axis=0) for tensors in zip(*y_pred_logit)] #concatenate predictions for all examples into single array
         y_logit_cat = np.hstack(y_logit_cat)
 
         y_pred_cat = [np.concatenate([t.cpu().numpy() for t in tensors], axis=0) for tensors in zip(*y_pred)] #concatenate predictions for all examples into single array

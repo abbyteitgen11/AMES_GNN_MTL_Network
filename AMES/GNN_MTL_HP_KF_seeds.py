@@ -86,7 +86,7 @@ def count_label_distribution(dataset, indices):
 
 
 def main():
-    random_seeds = [3,7,15,24,42,45,62,77,79,88,90]
+    random_seeds = [3, 7, 15] #[3,7,15,24,42,45,62,77,79,88,90]
 
     val_losses = []
     avg_val_losses = []
@@ -176,7 +176,7 @@ def main():
         nEpochs = input_data.get("nEpochs", 10)  # Number of epochs
         nBatch = input_data.get("nBatch", 50)  # Batch size
         chkptFreq = input_data.get("nCheckpoint", 10)  # Checkpoint frequency
-        seed = input_data.get("randomSeed", 42)  # Random seed
+        #seed = input_data.get("randomSeed", 42)  # Random seed
         nTrainMaxEntries = input_data.get("nTrainMaxEntries",
                                           None)  # Number of training examples to use (if not using whole dataset)
         nValMaxEntries = input_data.get("nValMaxEntries",
@@ -262,8 +262,8 @@ def main():
             train_subset = Subset(full_dataset, train_idx)
             val_subset = Subset(full_dataset, val_idx)
 
-            #train_counts = count_label_distribution(trainDataset, train_idx)
-            #val_counts = count_label_distribution(trainDataset, val_idx)
+            #train_counts = count_label_distribution(full_dataset, train_idx)
+            #val_counts = count_label_distribution(full_dataset, val_idx)
 
             #for task_idx in range(5):
             #    print(f"  Task {task_idx + 1}:")
@@ -275,6 +275,7 @@ def main():
 
             trainLoader = DataLoader(train_subset, batch_size=nBatch, generator=g)
             valLoader = DataLoader(val_subset, batch_size=nBatch, generator=g)
+            valLoaderEND = DataLoader(valDataset, batch_size=nBatch, generator=g)
 
             #print(f"Fold {fold + 1}: {len(train_idx)} train / {len(val_idx)} val")
 
@@ -334,10 +335,102 @@ def main():
                 val_loss /= len(valLoader)
                 #print(f"Trial {trial.number} | Fold {fold + 1} | Epoch {epoch + 1} | Val Loss: {val_loss:.4f}")
             val_losses.append(val_loss)
+
+            # Make predictions
+            y_pred_logit = []
+            y_pred = []
+            y_true = []
+
+            model.eval()
+            with torch.no_grad():
+                for sample in valLoaderEND:
+                    pred = model(sample.x.to(device), sample.edge_index.to(device), sample.edge_attr.to(device),
+                                 sample.batch.to(device), n_node_neurons, n_node_features, n_edge_neurons,
+                                 n_edge_features,
+                                 n_graph_convolution_layers, n_shared_layers, n_target_specific_layers,
+                                 useMolecularDescriptors)
+                    y_pred_t = tuple(
+                        torch.where(tensor > 0.5, torch.tensor(1), torch.tensor(0)) for tensor in
+                        pred)  # convert to 0 or 1
+                    y_pred.append(y_pred_t)
+                    y_pred_logit.append(pred)
+                    y_true.append(sample.y)
+
+            y_logit_cat = [np.concatenate([t.cpu().numpy() for t in tensors], axis=0) for tensors in
+                           zip(*y_pred_logit)]  # concatenate predictions for all examples into single array
+            y_logit_cat = np.hstack(y_logit_cat)
+
+            y_pred_cat = [np.concatenate([t.cpu().numpy() for t in tensors], axis=0) for tensors in
+                          zip(*y_pred)]  # concatenate predictions for all examples into single array
+            y_pred_cat = np.hstack(y_pred_cat)
+
+            y_true_cat = torch.cat(y_true)
+            y_true_cat = y_true_cat.numpy()
+
+            csv_file = os.path.join(args.output_dir, f"metrics_{seed}_{fold}.csv")
+            headers = ['Strain', 'TP', 'TN', 'FP', 'FN', 'Sp', 'Sn', 'Prec', 'Acc', 'Bal acc', 'F1 score', 'H score']
+
+            with open(csv_file, mode='w', newline='') as file:
+                writer = csv.writer(file)
+
+                # Write the header row
+                writer.writerow(headers)
+                _, new_real, new_y_pred, new_prob = filter_nan(y_true_cat[:, 0], y_pred_cat[:, 0], y_logit_cat[:, 0])
+                metrics = get_metrics(new_real, new_y_pred)
+                metrics1 = [int(m) for m in metrics[0]]
+                metrics2 = [round(float(m), 2) for m in metrics[1]]
+                writer.writerow(['Strain TA98'] + list(metrics1) + list(metrics2))
+
+                _, new_real, new_y_pred, new_prob = filter_nan(y_true_cat[:, 1], y_pred_cat[:, 1], y_logit_cat[:, 1])
+                metrics = get_metrics(new_real, new_y_pred)
+                metrics1 = [int(m) for m in metrics[0]]
+                metrics2 = [round(float(m), 2) for m in metrics[1]]
+                writer.writerow(['Strain TA100'] + list(metrics1) + list(metrics2))
+
+                _, new_real, new_y_pred, new_prob = filter_nan(y_true_cat[:, 2], y_pred_cat[:, 2], y_logit_cat[:, 2])
+                metrics = get_metrics(new_real, new_y_pred)
+                metrics1 = [int(m) for m in metrics[0]]
+                metrics2 = [round(float(m), 2) for m in metrics[1]]
+                writer.writerow(['Strain TA102'] + list(metrics1) + list(metrics2))
+
+                _, new_real, new_y_pred, new_prob = filter_nan(y_true_cat[:, 3], y_pred_cat[:, 3], y_logit_cat[:, 3])
+                metrics = get_metrics(new_real, new_y_pred)
+                metrics1 = [int(m) for m in metrics[0]]
+                metrics2 = [round(float(m), 2) for m in metrics[1]]
+                writer.writerow(['Strain TA1535'] + list(metrics1) + list(metrics2))
+
+                _, new_real, new_y_pred, new_prob = filter_nan(y_true_cat[:, 4], y_pred_cat[:, 4], y_logit_cat[:, 4])
+                metrics = get_metrics(new_real, new_y_pred)
+                metrics1 = [int(m) for m in metrics[0]]
+                metrics2 = [round(float(m), 2) for m in metrics[1]]
+                writer.writerow(['Strain TA1537'] + list(metrics1) + list(metrics2))
+
+                file.flush()
+                file.close()
+
         avg_val_loss = sum(val_losses) / len(val_losses)
         avg_val_losses.append(avg_val_loss)
 
     print(val_losses)
     print(avg_val_losses)
+
+    # Print to csv
+    csv_file = os.path.join(args.output_dir, "avg_val_losses.csv")
+    headers = ['3','7','15','24','42','45','62','77','79','88','90']
+
+    with open(csv_file, mode='w', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow(headers)
+        writer.writerow(list(avg_val_losses))
+
+    # Print to csv
+    csv_file = os.path.join(args.output_dir, "val_losses.csv")
+    headers = ['3','7','15','24','42','45','62','77','79','88','90']
+
+    with open(csv_file, mode='w', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow(headers)
+        writer.writerow(list(val_losses))
+
 if __name__ == "__main__":
     main()
