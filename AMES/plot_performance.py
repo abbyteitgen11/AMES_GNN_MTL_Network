@@ -2,7 +2,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 # Read CSV file
-df = pd.read_excel('/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/performance/performance_full_val_GNN_MTL_3.xlsx', index_col=0)
+df = pd.read_excel('/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/performance/performance_full_val_GNN_MTL_4.xlsx', index_col=0)
 
 # Transpose so metrics are on x-axis and trials are grouped
 df_T = df.transpose()
@@ -16,7 +16,7 @@ plt.legend(title="Model", loc='upper right')
 plt.tight_layout()
 plt.show()
 
-df2 = pd.read_excel('/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/performance/performance2_full_val_GNN_MTL_3.xlsx', index_col=0)
+df2 = pd.read_excel('/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/performance/performance2_full_val_GNN_MTL_4.xlsx', index_col=0)
 
 # Transpose so metrics are on x-axis and trials are grouped
 df_T2 = df2.transpose()

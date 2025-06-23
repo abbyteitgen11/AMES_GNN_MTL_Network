@@ -90,6 +90,19 @@ plt.legend(title="Fold", bbox_to_anchor=(1.05, 1), loc='upper left')
 plt.tight_layout()
 plt.show()
 
+# ---------- TOP 5 PERFORMING SEED-FOLD COMBINATIONS ----------
+
+# Step 1: Average metrics over all strains for each (Seed, Fold, Weight)
+grouped_scores = full_df.groupby(["Seed", "Fold", "Weight"])[metrics].mean()
+
+# Step 2: Calculate an overall mean score across all metrics
+grouped_scores["OverallScore"] = grouped_scores.mean(axis=1)
+
+# Step 3: Sort by overall score and show top 5
+top_5 = grouped_scores.sort_values("OverallScore", ascending=False).head(5).reset_index()
+
+print("\n🏆 Top 5 Fold/Seed Combinations by Overall Average Metric Score:")
+print(top_5[["Seed", "Fold", "Weight", "OverallScore"]])
 
 
 

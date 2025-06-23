@@ -1,7 +1,7 @@
 
 # Input file for model training
 
-nGraphConvolutionLayers: 0 # Number of graph convolutional layers
+nGraphConvolutionLayers: 2 # Number of graph convolutional layers
 nNodeNeurons: 78 # Number of node neurons for GNN
 nEdgeNeurons: 107 # Number of edge neurons for GNN
 dropoutGNN: 0.001 # Dropout in graph convolutional layers
@@ -45,7 +45,7 @@ StateDictFileName: '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/A
 
 # warmStart: "GraphPotential-nn-2gcl-2fcl-31102023-173821.tar"
 
-useMolecularDescriptors: True # Use molecular features instead of graphs for comparison to original MTL paper
+useMolecularDescriptors: False # Use molecular features instead of graphs for comparison to original MTL paper
 
 GNNExplainerAnalysis: False # Run GNNExplainer analysis after training
 

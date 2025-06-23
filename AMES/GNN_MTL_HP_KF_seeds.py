@@ -275,7 +275,7 @@ def main():
 
             trainLoader = DataLoader(train_subset, batch_size=nBatch, generator=g)
             valLoader = DataLoader(val_subset, batch_size=nBatch, generator=g)
-            valLoaderEND = DataLoader(valDataset, batch_size=nBatch, generator=g)
+            #valLoaderEND = DataLoader(valDataset, batch_size=nBatch, generator=g)
 
             #print(f"Fold {fold + 1}: {len(train_idx)} train / {len(val_idx)} val")
 
@@ -336,6 +336,14 @@ def main():
                 #print(f"Trial {trial.number} | Fold {fold + 1} | Epoch {epoch + 1} | Val Loss: {val_loss:.4f}")
             val_losses.append(val_loss)
 
+            ckpt_path = os.path.join(args.output_dir, f"metrics_{seed}_{fold}.pt")
+            torch.save({
+                'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'loss': val_loss,
+            }, ckpt_path)
+
             # Make predictions
             y_pred_logit = []
             y_pred = []
@@ -343,7 +351,7 @@ def main():
 
             model.eval()
             with torch.no_grad():
-                for sample in valLoaderEND:
+                for sample in valLoader:
                     pred = model(sample.x.to(device), sample.edge_index.to(device), sample.edge_attr.to(device),
                                  sample.batch.to(device), n_node_neurons, n_node_features, n_edge_neurons,
                                  n_edge_features,
