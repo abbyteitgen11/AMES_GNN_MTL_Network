@@ -40,6 +40,7 @@ from device import device
 from graph_dataset import GraphDataSet
 from compute_metrics import *
 from data import load_data
+#from BuildNN_GNN_MTL import BuildNN_GNN_MTL
 from BuildNN_GNN_MTL import BuildNN_GNN_MTL
 from masked_loss_function import masked_loss_function
 from set_seed import set_seed
@@ -379,7 +380,7 @@ def main():
         if param.requires_grad:
             print(f"'{name}': {param.numel()},")
 
-    visualize_model_parameters(model)
+    #visualize_model_parameters(model)
 
     # Define optimizer
     optimizer = torch.optim.Adam(model.parameters(), lr=learningRate, weight_decay=L2Regularization) # l2 reg

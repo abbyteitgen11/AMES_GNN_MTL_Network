@@ -7,11 +7,11 @@ nEdgeNeurons: 107 # Number of edge neurons for GNN
 dropoutGNN: 0.001 # Dropout in graph convolutional layers
 momentumBatchNorm: 0.1 # Batch normalization in graph convolutional layers
 
-nSharedLayers: 3  # Number of layers in shared core
+nSharedLayers: 2  # Number of layers in shared core
 nTargetSpecificLayers: 2 # Number of layers in target specific core
-nShared: [200, 100, 50] # Number of neurons in shared core
+nShared: [100, 50] # Number of neurons in shared core
 nTarget: [50, 10] # Number of neurons in target specific core
-dropoutShared: [0.25, 0.15, 0.1] # Dropout in shared core
+dropoutShared: [0.25, 0.15] # Dropout in shared core
 dropoutTarget: [0.15, 0.15]
  # Dropout in target specific core
 
@@ -28,9 +28,9 @@ ActivationFunction: "Tanh" #"Tanh"
 nEpochs: 1 #np.iinfo(np.int32). # Number of epochs
 nBatch: 32 # Batch size
 nCheckpoint: 1 # Checkpoint frequency
-randomSeed: 42 # Random seed
-nTrainMaxEntries: 1500 # Number of training samples to use
-nValMaxEntries: 300 # Number of validation examples to  use
+randomSeed: 15 # Random seed
+#nTrainMaxEntries: 1500 # Number of training samples to use
+#nValMaxEntries: 300 # Number of validation examples to  use
 
 learningRate: 0.0000925 #0.0000924993113995373 #0.0001 #5e-4
 

@@ -8,8 +8,9 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from glob import glob
 
+"""
 # Load all CSVs from a directory
-csv_dir = "/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/MTL_publication/logits_MTL"  # Change this to your folder
+csv_dir = "/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/MTL_publication/output_crossfold_val/outputs"  # Change this to your folder
 csv_files = glob(os.path.join(csv_dir, "seed_*_fold_*_w_*.csv"))
 
 pattern = re.compile(r"seed_(\d+)_fold_(\d+)_w_(\w+).csv")
@@ -103,7 +104,109 @@ top_5 = grouped_scores.sort_values("OverallScore", ascending=False).head(5).rese
 
 print("\n🏆 Top 5 Fold/Seed Combinations by Overall Average Metric Score:")
 print(top_5[["Seed", "Fold", "Weight", "OverallScore"]])
+"""
 
+
+
+# Load all CSVs from a directory
+#csv_dir = "/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/output_seed_NEW_SAVE/outputs"
+#csv_files = glob(os.path.join(csv_dir, "metrics_seed_*_fold_*.csv"))
+
+csv_dir = "/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/MTL_publication/output_crossfold_val/outputs/only_weighted"  # Change this to your folder
+csv_files = glob(os.path.join(csv_dir, "seed_*_fold_*.csv"))
+
+pattern = re.compile(r"seed_(\d+)_fold_(\d+).csv")
+
+# Load and tag each file
+all_data = []
+for file in csv_files:
+    match = pattern.search(os.path.basename(file))
+    if match:
+        seed, fold = match.groups()
+        df = pd.read_csv(file)
+        df["Seed"] = int(seed)
+        df["Fold"] = int(fold)
+        all_data.append(df)
+
+# Combine all data
+full_df = pd.concat(all_data, ignore_index=True)
+
+# Metrics to analyze
+metrics = ["Sp", "Sn", "Prec", "Acc", "Bal acc", "F1 score", "H score"]
+
+# Average metrics by strain
+avg_metrics = full_df.groupby(["Strain"])[metrics].mean().reset_index()
+
+avg_seed = full_df.groupby(["Seed"])[metrics].mean().reset_index()
+
+# ---------- PLOT 1: Average Metrics Across All Seeds and Folds ----------
+melted_avg = avg_metrics.melt(id_vars=["Strain"], value_vars=metrics,
+                              var_name="Metric", value_name="Value")
+
+plt.figure(figsize=(14, 6))
+sns.barplot(data=melted_avg, x="Metric", y="Value", hue="Strain", ci=None)
+plt.title("Average Metrics Across All Folds and Seeds by Strain")
+plt.xticks(rotation=45)
+plt.legend(title="Strain")
+plt.tight_layout()
+plt.show()
+
+# ---------- PLOT 2: Boxplot of Metric Distributions Across Seeds and Folds ----------
+melted_full = full_df.melt(id_vars=["Strain", "Seed", "Fold"],
+                           value_vars=metrics, var_name="Metric", value_name="Value")
+
+plt.figure(figsize=(14, 6))
+sns.boxplot(data=melted_full, x="Metric", y="Value", hue="Strain")
+plt.title("Metric Distribution Across All Seeds and Folds")
+plt.xticks(rotation=45)
+plt.legend(title="Strain")
+plt.tight_layout()
+plt.show()
+
+# ---------- PLOT 3: Error Bars (Mean ± Std) for Metrics ----------
+agg = melted_full.groupby(["Metric", "Strain"])["Value"].agg(["mean", "std"]).reset_index()
+
+plt.figure(figsize=(12, 6))
+for key, grp in agg.groupby("Strain"):
+    plt.errorbar(grp["Metric"], grp["mean"], yerr=grp["std"], label=key, fmt='-o')
+plt.title("Metric Means with Error Bars (Std Dev)")
+plt.ylabel("Value")
+plt.xticks(rotation=45)
+plt.legend(title="Strain")
+plt.tight_layout()
+plt.show()
+
+# ---------- PLOT 4: Per-Seed Variability ----------
+plt.figure(figsize=(14, 6))
+sns.boxplot(data=melted_full, x="Metric", y="Value", hue="Seed")
+plt.title("Per-Seed Variability")
+plt.xticks(rotation=45)
+plt.legend(title="Seed", bbox_to_anchor=(1.05, 1), loc='upper left')
+plt.tight_layout()
+plt.show()
+
+# ---------- PLOT 5: Per-Fold Variability ----------
+plt.figure(figsize=(14, 6))
+sns.boxplot(data=melted_full, x="Metric", y="Value", hue="Fold")
+plt.title("Per-Fold Variability")
+plt.xticks(rotation=45)
+plt.legend(title="Fold", bbox_to_anchor=(1.05, 1), loc='upper left')
+plt.tight_layout()
+plt.show()
+
+# ---------- TOP 5 PERFORMING SEED-FOLD COMBINATIONS ----------
+
+# Step 1: Average metrics over all strains for each (Seed, Fold)
+grouped_scores = full_df.groupby(["Seed", "Fold"])[metrics].mean()
+
+# Step 2: Calculate an overall mean score across all metrics
+grouped_scores["OverallScore"] = grouped_scores.mean(axis=1)
+
+# Step 3: Sort by overall score and show top 5
+top_5 = grouped_scores.sort_values("OverallScore", ascending=False).head(5).reset_index()
+
+print("\n🏆 Top 5 Fold/Seed Combinations by Overall Average Metric Score:")
+print(top_5[["Seed", "Fold", "OverallScore"]])
 
 
 

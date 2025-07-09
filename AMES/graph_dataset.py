@@ -107,6 +107,8 @@ class GraphDataSet(Dataset):
         if not isinstance(structure_graph.y, torch.Tensor):
             structure_graph.y = torch.tensor(structure_graph.y, dtype=torch.float32)
 
+        structure_graph.file_name = file_name  # <-- Add this line
+
         return structure_graph
 
     def get_file_name(self, idx: int) -> str:

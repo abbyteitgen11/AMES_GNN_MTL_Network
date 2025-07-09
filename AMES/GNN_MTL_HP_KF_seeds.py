@@ -86,7 +86,7 @@ def count_label_distribution(dataset, indices):
 
 
 def main():
-    random_seeds = [3, 7, 15] #[3,7,15,24,42,45,62,77,79,88,90]
+    random_seeds = [3] #[3,7,15,24,42,45,62,77,79,88,90]
 
     val_losses = []
     avg_val_losses = []
