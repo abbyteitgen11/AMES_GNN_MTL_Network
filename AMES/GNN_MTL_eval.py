@@ -439,7 +439,7 @@ def main():
 
 
     # Print to csv
-    csv_file = os.path.join(args.output_dir, "metrics_rem_5.csv")
+    csv_file = os.path.join(args.output_dir, "metrics_rem_threshold_5.csv")
     headers = ['Strain', 'TP', 'TN', 'FP', 'FN', 'Sp', 'Sn', 'Prec', 'Acc', 'Bal acc', 'F1 score', 'H score']
 
     with open(csv_file, mode='w', newline='') as file:
@@ -487,38 +487,70 @@ def main():
 
 
     data_path = "/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/data.csv"
-    overall = load_data(data_path, model="Overall", stage='EVAL')
-    y_test = overall[1]
 
-    y_cons = np.zeros(len(y_test))
+    df = pd.read_csv(data_path)
+    y_overall = df['Overall'].values
+    partition = df['Partition']
+    index = []
 
-    #wrong_indices = np.where(y_cons != y_test)[0]
-    #wrong_files = [file_names[i] for i in wrong_indices]
+    for file_path in file_names:
+        filename = os.path.basename(file_path)
+        match = re.match(r'^(\d+)_', filename)
+        first_number = int(match.group(1))
+        index.append(first_number-1)
 
-    #df_wrong = pd.DataFrame({
-    #    'file_name': wrong_files,
-    #    'true_label': [y_test[i] for i in wrong_indices],
-    #    'pred_label': [y_cons[i] for i in wrong_indices],
-    #})
+    y_labels_overall = y_overall[index]
+    print(partition[index])
 
-    #df_wrong.to_csv(os.path.join(args.output_dir, "misclassified_files.csv"), index=False)
+    #overall = load_data(data_path, model="Overall", stage='EVAL')
+    #y_overall = overall[1]
 
-    #for i in range(len(y_test)):
-    #    if y_pred_cat[i, 0] == 1 or y_pred_cat[i, 1] == 1 or y_pred_cat[i, 2] == 1 or y_pred_cat[i, 3] == 1 or y_pred_cat[i, 4] == 1:
-    #        y_cons[i] = 1
-    #    elif y_pred_cat[i, 0] == 0 and y_pred_cat[i, 1] == 0 and y_pred_cat[i, 2] == 0 and y_pred_cat[i, 3] == 0 and y_pred_cat[i, 4] == 0:
-    #        y_cons[i] = 0
-    #    else:
-    #        y_cons[i] = -1
+    y_cons = np.zeros(len(y_true_cat[:,0]))
+    y_cons_true = np.zeros(len(y_true_cat[:,0]))
 
-    for i in range(len(y_test)):
+    for i in range(len(y_true_cat[:,0])):
         if y_pred_cat[i, 0] == 1 or y_pred_cat[i, 1] == 1 or y_pred_cat[i, 2] == 1 or y_pred_cat[i, 3] == 1 or y_pred_cat[i, 4] == 1:
             y_cons[i] = 1
-        elif (y_pred_cat[i, 1] == 0 or y_pred_cat[i, 3] == 0) or (y_pred_cat[i, 1] == 0 and y_pred_cat[i, 3] == 0) or (y_pred_cat[i, 0] == 0 or y_pred_cat[i, 4] == 0) or (y_pred_cat[i, 0] == 0 and y_pred_cat[i, 4] == 0):
+        elif y_pred_cat[i, 0] == 0 and y_pred_cat[i, 1] == 0 and y_pred_cat[i, 2] == 0 and y_pred_cat[i, 3] == 0 and y_pred_cat[i, 4] == 0:
             y_cons[i] = 0
+        else:
+            y_cons[i] = -1
+
+    for i in range(len(y_true_cat[:,0])):
+        if y_true_cat[i, 0] == 1 or y_true_cat[i, 1] == 1 or y_true_cat[i, 2] == 1 or y_true_cat[i, 3] == 1 or y_true_cat[i, 4] == 1:
+            y_cons_true[i] = 1
+        elif y_true_cat[i, 0] == 0 and y_true_cat[i, 1] == 0 and y_true_cat[i, 2] == 0 and y_true_cat[i, 3] == 0 and y_true_cat[i, 4] == 0:
+            y_cons_true[i] = 0
+        else:
+            y_cons_true[i] = -1
+
+    wrong_indices = np.where(y_cons != y_labels_overall)[0]
+    wrong_files = [file_names[i] for i in wrong_indices]
+
+    df_wrong = pd.DataFrame({
+        'file_name': wrong_files,
+        'true_label': [y_labels_overall[i] for i in wrong_indices],
+        'pred_label': [y_cons[i] for i in wrong_indices],
+     })
+
+    wrong_indices_2 = np.where(y_cons_true != y_labels_overall)[0]
+    wrong_files_2 = [file_names[i] for i in wrong_indices_2]
+
+    df_wrong_2 = pd.DataFrame({
+        'file_name': wrong_files_2,
+        'true_vals_98': y_true_cat[wrong_indices_2, 0],
+        'true_vals_100': y_true_cat[wrong_indices_2, 1],
+        'true_vals_102': y_true_cat[wrong_indices_2, 2],
+        'true_vals_1535': y_true_cat[wrong_indices_2, 3],
+        'true_vals_1537': y_true_cat[wrong_indices_2, 4],
+        'true_label': [y_labels_overall[i] for i in wrong_indices_2],
+        'cons_label': [y_cons_true[i] for i in wrong_indices_2],
+    })
+
+    df_wrong_2.to_csv(os.path.join(args.output_dir, "misclassified_files_threshold_5_2.csv"), index=False)
 
     # Print to csv
-    csv_file = os.path.join(args.output_dir, "metrics_cons_rem_5.csv")
+    csv_file = os.path.join(args.output_dir, "metrics_cons_rem_threshold_5.csv")
     headers = ['Strain', 'TP', 'TN', 'FP', 'FN', 'Sp', 'Sn', 'Prec', 'Acc', 'Bal acc', 'F1 score', 'H score']
 
     with open(csv_file, mode='w', newline='') as file:
@@ -526,7 +558,7 @@ def main():
 
         # Write the header row
         writer.writerow(headers)
-        _, new_real, new_y_pred, new_prob = filter_nan(y_test, y_cons, y_logit_cat[:, 0])
+        _, new_real, new_y_pred, new_prob = filter_nan(y_cons_true, y_cons, y_logit_cat[:, 0])
         metrics = get_metrics(new_real, new_y_pred)
         metrics1 = [int(m) for m in metrics[0]]
         metrics2 = [round(float(m), 2) for m in metrics[1]]
@@ -535,12 +567,55 @@ def main():
         file.flush()
         file.close()
 
+
+
+    csv_file = os.path.join(args.output_dir, "model_output_raw_threshold_5.csv")
+    headers = ['file', 'logits_98', 'logits_100', 'logits_102', 'logits_1535', 'logits_1537','y_true_98', 'y_true_100', 'y_true_102', 'y_true_1535', 'y_true_1537', 'y_pred_98', 'y_pred_100', 'y_pred_102', 'y_pred_1535', 'y_pred_1537', 'y_true_consensus', 'y_pred_consensus']
+
+    data_path = "/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/data.csv"
+    external = load_data(data_path, model="MTL", stage='EVAL')
+    x_test = external[0]
+    x_test_labels = x_test[:, 0]
+
+    with open(csv_file, mode='w', newline='') as file:
+        writer = csv.writer(file)
+        # Write the header row
+        writer.writerow(headers)
+
+        #smiles_array = np.array(x_test_labels).flatten()
+        file_names_array = np.array(file_names).flatten()
+        logits_98_array = np.array(y_logit_cat[:, 0]).astype(float).flatten()
+        logits_100_array = np.array(y_logit_cat[:, 1]).astype(float).flatten()
+        logits_102_array = np.array(y_logit_cat[:, 2]).astype(float).flatten()
+        logits_1535_array = np.array(y_logit_cat[:, 3]).astype(float).flatten()
+        logits_1537_array = np.array(y_logit_cat[:, 4]).astype(float).flatten()
+        y_true_98_array = np.array(y_true_cat[:, 0]).astype(float).flatten()
+        y_true_100_array = np.array(y_true_cat[:, 1]).astype(float).flatten()
+        y_true_102_array = np.array(y_true_cat[:, 2]).astype(float).flatten()
+        y_true_1535_array = np.array(y_true_cat[:, 3]).astype(float).flatten()
+        y_true_1537_array = np.array(y_true_cat[:, 4]).astype(float).flatten()
+        y_pred_98_array = np.array(y_pred_cat[:, 0]).astype(float).flatten()
+        y_pred_100_array = np.array(y_pred_cat[:, 1]).astype(float).flatten()
+        y_pred_102_array = np.array(y_pred_cat[:, 2]).astype(float).flatten()
+        y_pred_1535_array = np.array(y_pred_cat[:, 3]).astype(float).flatten()
+        y_pred_1537_array = np.array(y_pred_cat[:, 4]).astype(float).flatten()
+        y_true_consensus_array = np.array(y_labels_overall).astype(float).flatten()
+        y_pred_consensus_array = np.array(y_cons).astype(float).flatten()
+
+        rows = zip(
+            file_names_array,
+            logits_98_array, logits_100_array, logits_102_array, logits_1535_array, logits_1537_array,
+            y_true_98_array, y_true_100_array, y_true_102_array, y_true_1535_array, y_true_1537_array,
+            y_pred_98_array, y_pred_100_array, y_pred_102_array, y_pred_1535_array, y_pred_1537_array,
+            y_true_consensus_array, y_pred_consensus_array
+        )
+
+        writer.writerows(rows)
+
     # Write to log file
     logging.info(log_text)
 
     sys.stdout.flush()
-
-
 
 
 #writer.flush()

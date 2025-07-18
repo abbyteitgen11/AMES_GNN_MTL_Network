@@ -26,7 +26,7 @@ w5: 5.11
 ActivationFunction: "Tanh" #"Tanh"
 
 nEpochs: 1 #np.iinfo(np.int32). # Number of epochs
-nBatch: 32 # Batch size
+nBatch: 32 # Ba15h size
 nCheckpoint: 1 # Checkpoint frequency
 randomSeed: 15 # Random seed
 #nTrainMaxEntries: 1500 # Number of training samples to use

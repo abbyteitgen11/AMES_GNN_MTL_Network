@@ -300,7 +300,7 @@ def main():
         # Set up train and val loader
         trainLoader = DataLoader(trainDataset, batch_size=nBatch, generator=g)
         valLoader = DataLoader(valDataset, batch_size=nBatch, generator=g)
-        testLoader = DataLoader(valDataset, batch_size=nBatch, generator=g)
+        testLoader = DataLoader(testDataset, batch_size=nBatch, generator=g)
 
         #for batch in trainLoader:
         #    print(batch.y.shape)
@@ -582,7 +582,7 @@ def main():
 
         model.eval()
         with torch.no_grad():
-            for sample in valLoader:
+            for sample in testLoader:
                 pred = model(sample.x.to(device), sample.edge_index.to(device), sample.edge_attr.to(device), sample.batch.to(device), n_node_neurons, n_node_features, n_edge_neurons, n_edge_features, n_graph_convolution_layers, n_shared_layers, n_target_specific_layers, useMolecularDescriptors)
                 y_pred_t = tuple(torch.where(tensor > 0.5, torch.tensor(1), torch.tensor(0)) for tensor in pred) # convert to 0 or 1
                 y_pred.append(y_pred_t)
@@ -637,6 +637,47 @@ def main():
             metrics1 = [int(m) for m in metrics[0]]
             metrics2 = [round(float(m), 2) for m in metrics[1]]
             writer.writerow(['Strain TA1537'] + list(metrics1) + list(metrics2))
+
+            file.flush()
+            file.close()
+
+
+        y_cons = np.zeros(len(y_true_cat[:, 0]))
+        y_cons_true = np.zeros(len(y_true_cat[:, 0]))
+
+        for i in range(len(y_true_cat[:, 0])):
+            if y_pred_cat[i, 0] == 1 or y_pred_cat[i, 1] == 1 or y_pred_cat[i, 2] == 1 or y_pred_cat[i, 3] == 1 or \
+                    y_pred_cat[i, 4] == 1:
+                y_cons[i] = 1
+            elif y_pred_cat[i, 0] == 0 and y_pred_cat[i, 1] == 0 and y_pred_cat[i, 2] == 0 and y_pred_cat[i, 3] == 0 and \
+                    y_pred_cat[i, 4] == 0:
+                y_cons[i] = 0
+            else:
+                y_cons[i] = -1
+
+        for i in range(len(y_true_cat[:, 0])):
+            if y_true_cat[i, 0] == 1 or y_true_cat[i, 1] == 1 or y_true_cat[i, 2] == 1 or y_true_cat[i, 3] == 1 or \
+                    y_true_cat[i, 4] == 1:
+                y_cons_true[i] = 1
+            elif y_true_cat[i, 0] == 0 and y_true_cat[i, 1] == 0 and y_true_cat[i, 2] == 0 and y_true_cat[i, 3] == 0 and \
+                    y_true_cat[i, 4] == 0:
+                y_cons_true[i] = 0
+            else:
+                y_cons_true[i] = -1
+
+        csv_file = os.path.join(args.output_dir, "metrics_cons.csv")
+        headers = ['Strain', 'TP', 'TN', 'FP', 'FN', 'Sp', 'Sn', 'Prec', 'Acc', 'Bal acc', 'F1 score', 'H score']
+
+        with open(csv_file, mode='w', newline='') as file:
+            writer = csv.writer(file)
+
+            # Write the header row
+            writer.writerow(headers)
+            _, new_real, new_y_pred, new_prob = filter_nan(y_cons_true, y_cons, y_logit_cat[:, 0])
+            metrics = get_metrics(new_real, new_y_pred)
+            metrics1 = [int(m) for m in metrics[0]]
+            metrics2 = [round(float(m), 2) for m in metrics[1]]
+            writer.writerow(['Strain TA98'] + list(metrics1) + list(metrics2))
 
             file.flush()
             file.close()
@@ -823,7 +864,7 @@ def main():
             model.eval()
             val_loss = 0
             with torch.no_grad():
-                for X, y in valLoader:
+                for X, y in testLoader:
                     # X, y = X.to(device), y.to(device)
                     pred = model(X.to(device), 0, 0, 0, n_node_neurons, n_node_features, n_edge_neurons, n_edge_features, n_graph_convolution_layers, n_shared_layers, n_target_specific_layers, useMolecularDescriptors)
                     #pred = model(X)
@@ -895,7 +936,7 @@ def main():
         X_external_tensor = torch.tensor(X_external, dtype=torch.float32)
         with torch.no_grad():
             #y_pred = model(X_internal_tensor)
-            y_pred = model(X_internal_tensor.to(device), 0, 0, 0, n_node_neurons, n_node_features, n_edge_neurons, n_edge_features, n_graph_convolution_layers, n_shared_layers, n_target_specific_layers, useMolecularDescriptors)
+            y_pred = model(X_external_tensor.to(device), 0, 0, 0, n_node_neurons, n_node_features, n_edge_neurons, n_edge_features, n_graph_convolution_layers, n_shared_layers, n_target_specific_layers, useMolecularDescriptors)
 
         # Convert predictions to numpy arrays
         #y_pred = [yp.cpu().numpy() for yp in y_pred]
@@ -949,6 +990,36 @@ def main():
 
             file.flush()
             file.close()
+
+
+        data_path = input_data.get("data_file", "./AMES/data.csv")
+        overall = load_data(data_path, model="Overall", stage='EVAL')
+        y_overall = overall[1]
+
+        y_cons = np.zeros(len(y_overall))
+
+        for i in range(len(y_overall)):
+            if y_pred_98[i] == 1 or y_pred_100[i] == 1 or y_pred_102[i] == 1 or y_pred_1535[i] == 1 or y_pred_1537[
+                i] == 1:
+                y_cons[i] = 1
+            elif y_pred_98[i] == 0 and y_pred_100[i] == 0 and y_pred_102[i] == 0 and y_pred_1535[i] == 0 and \
+                    y_pred_1537[i] == 0:
+                y_cons[i] = 0
+            else:
+                y_cons[i] = -1
+
+        csv_file = os.path.join(args.output_dir, "metrics_cons.csv")
+        headers = ['Strain', 'TP', 'TN', 'FP', 'FN', 'Sp', 'Sn', 'Prec', 'Acc', 'Bal acc', 'F1 score', 'H score']
+
+        with open(csv_file, mode='w', newline='') as file:
+            writer = csv.writer(file)
+            writer.writerow(headers)
+
+            idxcons, y_true_cons, new_y_pred_cons, new_pred_cons = filter_nan(y_overall, y_cons, y_cons)
+            metrics = get_metrics(y_true_cons, new_y_pred_cons)
+            metrics1 = [int(m) for m in metrics[0]]
+            metrics2 = [round(float(m), 2) for m in metrics[1]]
+            writer.writerow([f'Cons'] + list(metrics1) + list(metrics2))
 
     # Write to log file
     logging.info(log_text)
