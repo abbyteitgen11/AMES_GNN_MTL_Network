@@ -13,7 +13,7 @@ graphType: 'XG'
 
 # address where to find the data-base files, and where to put the graph files once created
 DataBaseDirectory: '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/DataBase_AMES/FILES_XYZ'
-TargetDirectory: '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/GraphDataBase_AMES'
+TargetDirectory: '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/GraphDataBase_AMES_global'
 
 # the file extensions, both for the input and for the graph files
 

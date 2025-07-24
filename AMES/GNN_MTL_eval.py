@@ -439,7 +439,7 @@ def main():
 
 
     # Print to csv
-    csv_file = os.path.join(args.output_dir, "metrics_rem_threshold_5.csv")
+    csv_file = os.path.join(args.output_dir, "metrics_UPDATED_5.csv")
     headers = ['Strain', 'TP', 'TN', 'FP', 'FN', 'Sp', 'Sn', 'Prec', 'Acc', 'Bal acc', 'F1 score', 'H score']
 
     with open(csv_file, mode='w', newline='') as file:
@@ -490,7 +490,7 @@ def main():
 
     df = pd.read_csv(data_path)
     y_overall = df['Overall'].values
-    partition = df['Partition']
+    #partition = df['Partition']
     index = []
 
     for file_path in file_names:
@@ -500,7 +500,7 @@ def main():
         index.append(first_number-1)
 
     y_labels_overall = y_overall[index]
-    print(partition[index])
+    #print(partition[index])
 
     #overall = load_data(data_path, model="Overall", stage='EVAL')
     #y_overall = overall[1]
@@ -524,33 +524,19 @@ def main():
         else:
             y_cons_true[i] = -1
 
-    wrong_indices = np.where(y_cons != y_labels_overall)[0]
+    wrong_indices = np.where(y_cons != y_cons_true)[0]
     wrong_files = [file_names[i] for i in wrong_indices]
 
     df_wrong = pd.DataFrame({
         'file_name': wrong_files,
-        'true_label': [y_labels_overall[i] for i in wrong_indices],
+        'true_label': [y_cons_true[i] for i in wrong_indices],
         'pred_label': [y_cons[i] for i in wrong_indices],
      })
 
-    wrong_indices_2 = np.where(y_cons_true != y_labels_overall)[0]
-    wrong_files_2 = [file_names[i] for i in wrong_indices_2]
-
-    df_wrong_2 = pd.DataFrame({
-        'file_name': wrong_files_2,
-        'true_vals_98': y_true_cat[wrong_indices_2, 0],
-        'true_vals_100': y_true_cat[wrong_indices_2, 1],
-        'true_vals_102': y_true_cat[wrong_indices_2, 2],
-        'true_vals_1535': y_true_cat[wrong_indices_2, 3],
-        'true_vals_1537': y_true_cat[wrong_indices_2, 4],
-        'true_label': [y_labels_overall[i] for i in wrong_indices_2],
-        'cons_label': [y_cons_true[i] for i in wrong_indices_2],
-    })
-
-    df_wrong_2.to_csv(os.path.join(args.output_dir, "misclassified_files_threshold_5_2.csv"), index=False)
+    df_wrong.to_csv(os.path.join(args.output_dir, "misclassified_files_UPDATED_5.csv"), index=False)
 
     # Print to csv
-    csv_file = os.path.join(args.output_dir, "metrics_cons_rem_threshold_5.csv")
+    csv_file = os.path.join(args.output_dir, "metrics_cons_UPDATED_5.csv")
     headers = ['Strain', 'TP', 'TN', 'FP', 'FN', 'Sp', 'Sn', 'Prec', 'Acc', 'Bal acc', 'F1 score', 'H score']
 
     with open(csv_file, mode='w', newline='') as file:
@@ -569,7 +555,7 @@ def main():
 
 
 
-    csv_file = os.path.join(args.output_dir, "model_output_raw_threshold_5.csv")
+    csv_file = os.path.join(args.output_dir, "model_output_raw_UPDATED_5.csv")
     headers = ['file', 'logits_98', 'logits_100', 'logits_102', 'logits_1535', 'logits_1537','y_true_98', 'y_true_100', 'y_true_102', 'y_true_1535', 'y_true_1537', 'y_pred_98', 'y_pred_100', 'y_pred_102', 'y_pred_1535', 'y_pred_1537', 'y_true_consensus', 'y_pred_consensus']
 
     data_path = "/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/data.csv"
@@ -618,7 +604,19 @@ def main():
     sys.stdout.flush()
 
 
-#writer.flush()
+#writer.flush()top_substructures = sorted(substructure_counts.items(), key=lambda x: x[1]["positive"] + x[1]["negative"], reverse=True)[:20]
+
+mols = [Chem.MolFromSmiles(smi) for smi, _ in top_substructures]
+legends = [f"+: {counts['positive']}, -: {counts['negative']}" for _, counts in top_substructures]
+
+img = Draw.MolsToGridImage(mols, molsPerRow=5, legends=legends, subImgSize=(250,250))
+img.show()top_substructures = sorted(substructure_counts.items(), key=lambda x: x[1]["positive"] + x[1]["negative"], reverse=True)[:20]
+
+mols = [Chem.MolFromSmiles(smi) for smi, _ in top_substructures]
+legends = [f"+: {counts['positive']}, -: {counts['negative']}" for _, counts in top_substructures]
+
+img = Draw.MolsToGridImage(mols, molsPerRow=5, legends=legends, subImgSize=(250,250))
+img.show()
 
 if __name__ == "__main__":
     main()

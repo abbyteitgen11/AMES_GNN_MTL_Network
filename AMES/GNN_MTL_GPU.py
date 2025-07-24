@@ -41,7 +41,7 @@ from graph_dataset import GraphDataSet
 from compute_metrics import *
 from data import load_data
 #from BuildNN_GNN_MTL import BuildNN_GNN_MTL
-from BuildNN_GNN_MTL import BuildNN_GNN_MTL
+from BuildNN_GNN_MTL_global import BuildNN_GNN_MTL
 from masked_loss_function import masked_loss_function
 from set_seed import set_seed
 from MTLDataset import MTLDataset
@@ -105,35 +105,6 @@ def log_metrics(epoch, writer, y_internal, y_pred):
         metrics_cat = np.concatenate(metrics)
 
     return metrics_cat
-
-
-def visualize_model_parameters(model):
-    # Collect parameter info
-    param_data = []
-    for name, param in model.named_parameters():
-        if param.requires_grad:
-            module = name.split('.')[0]  # top-level module name
-            param_data.append((module, param.numel()))
-
-    # Create DataFrame
-    df = pd.DataFrame(param_data, columns=["Module", "Count"])
-    summary = df.groupby("Module")["Count"].sum().sort_values()
-
-    # Plot
-    plt.figure(figsize=(10, 8))
-    bars = plt.barh(summary.index, summary.values)
-    plt.xlabel("Number of Parameters")
-
-    # Add labels
-    for bar in bars:
-        width = bar.get_width()
-        plt.text(width + max(summary.values) * 0.01,
-                 bar.get_y() + bar.get_height() / 2,
-                 f'{width:,}',
-                 va='center')
-
-    plt.tight_layout()
-    plt.show()
 
 def main():
     args = get_args()
@@ -224,7 +195,6 @@ def main():
     loadModel = input_data.get("loadModel", False)
     loadOptimizer = input_data.get("loadOptimizer", False)
     useMolecularDescriptors = input_data.get("useMolecularDescriptors", False) # Use molecular descriptors instead of graphs for comparison to original MTL paper
-    GNN_explainer_analysis = input_data.get("GNNExplainerAnalysis", False) # Run GNNExplainer analysis after training
 
     # Set seeds for consistency
     #set_seed(seed)
@@ -264,6 +234,8 @@ def main():
     descriptionText += log_text
 
     if not useMolecularDescriptors:
+        #for batch in trainLoader:
+        #    print(batch.y.shape)
         trainDir = database_path + '/train/'
         valDir = database_path + '/validate/'
         testDir = database_path + '/test/'
@@ -301,9 +273,6 @@ def main():
         trainLoader = DataLoader(trainDataset, batch_size=nBatch, generator=g)
         valLoader = DataLoader(valDataset, batch_size=nBatch, generator=g)
         testLoader = DataLoader(testDataset, batch_size=nBatch, generator=g)
-
-        #for batch in trainLoader:
-        #    print(batch.y.shape)
 
 
     else:
@@ -411,8 +380,8 @@ def main():
             model.train()
             train_loss = 0
             for sample in trainLoader:
-                # Compute prediction
-                pred = model(sample.x.to(device), sample.edge_index.to(device), sample.edge_attr.to(device), sample.batch.to(device), n_node_neurons, n_node_features, n_edge_neurons, n_edge_features, n_graph_convolution_layers, n_shared_layers, n_target_specific_layers, useMolecularDescriptors)
+                sample.global_feats = (sample.global_feats - global_mean) / (global_std + 1e-8)
+                pred = model(sample.x.to(device), sample.edge_index.to(device), sample.edge_attr.to(device), sample.batch.to(device), n_node_neurons, n_node_features, n_edge_neurons, n_edge_features, n_graph_convolution_layers, n_shared_layers, n_target_specific_layers, useMolecularDescriptors, sample.global_feats.to(device))
                 losses = 0
 
                 for i in range(5):
@@ -435,7 +404,8 @@ def main():
             val_loss = 0
             with torch.no_grad():
                 for sample in valLoader:
-                    pred = model(sample.x.to(device), sample.edge_index.to(device), sample.edge_attr.to(device), sample.batch.to(device), n_node_neurons, n_node_features, n_edge_neurons, n_edge_features, n_graph_convolution_layers, n_shared_layers, n_target_specific_layers, useMolecularDescriptors)
+                    sample.global_feats = (sample.global_feats - global_mean) / (global_std + 1e-8)
+                    pred = model(sample.x.to(device), sample.edge_index.to(device), sample.edge_attr.to(device), sample.batch.to(device), n_node_neurons, n_node_features, n_edge_neurons, n_edge_features, n_graph_convolution_layers, n_shared_layers, n_target_specific_layers, useMolecularDescriptors, sample.global_feats.to(device))
                     losses = 0
                     for i in range(5):
                         output_key = output_keys[i]
@@ -484,11 +454,11 @@ def main():
 
                     model.eval()
                     with torch.no_grad():
-                        for sample in valLoader:
+                        for sample in testLoader:
                             pred = model(sample.x.to(device), sample.edge_index.to(device), sample.edge_attr.to(device),
                                          sample.batch.to(device), n_node_neurons, n_node_features, n_edge_neurons,
                                          n_edge_features, n_graph_convolution_layers, n_shared_layers,
-                                         n_target_specific_layers, useMolecularDescriptors)
+                                         n_target_specific_layers, useMolecularDescriptors, sample.global_feats.to(device))
                             y_pred_t = tuple(torch.where(tensor > 0.5, torch.tensor(1), torch.tensor(0)) for tensor in
                                              pred)  # convert to 0 or 1
                             y_pred.append(y_pred_t)
@@ -583,7 +553,7 @@ def main():
         model.eval()
         with torch.no_grad():
             for sample in testLoader:
-                pred = model(sample.x.to(device), sample.edge_index.to(device), sample.edge_attr.to(device), sample.batch.to(device), n_node_neurons, n_node_features, n_edge_neurons, n_edge_features, n_graph_convolution_layers, n_shared_layers, n_target_specific_layers, useMolecularDescriptors)
+                pred = model(sample.x.to(device), sample.edge_index.to(device), sample.edge_attr.to(device), sample.batch.to(device), n_node_neurons, n_node_features, n_edge_neurons, n_edge_features, n_graph_convolution_layers, n_shared_layers, n_target_specific_layers, useMolecularDescriptors, sample.global_feats.to(device))
                 y_pred_t = tuple(torch.where(tensor > 0.5, torch.tensor(1), torch.tensor(0)) for tensor in pred) # convert to 0 or 1
                 y_pred.append(y_pred_t)
                 y_pred_logit.append(pred)
@@ -646,21 +616,17 @@ def main():
         y_cons_true = np.zeros(len(y_true_cat[:, 0]))
 
         for i in range(len(y_true_cat[:, 0])):
-            if y_pred_cat[i, 0] == 1 or y_pred_cat[i, 1] == 1 or y_pred_cat[i, 2] == 1 or y_pred_cat[i, 3] == 1 or \
-                    y_pred_cat[i, 4] == 1:
+            if y_pred_cat[i, 0] == 1 or y_pred_cat[i, 1] == 1 or y_pred_cat[i, 2] == 1 or y_pred_cat[i, 3] == 1 or y_pred_cat[i, 4] == 1:
                 y_cons[i] = 1
-            elif y_pred_cat[i, 0] == 0 and y_pred_cat[i, 1] == 0 and y_pred_cat[i, 2] == 0 and y_pred_cat[i, 3] == 0 and \
-                    y_pred_cat[i, 4] == 0:
+            elif y_pred_cat[i, 0] == 0 and y_pred_cat[i, 1] == 0 and y_pred_cat[i, 2] == 0 and y_pred_cat[i, 3] == 0 and y_pred_cat[i, 4] == 0:
                 y_cons[i] = 0
             else:
                 y_cons[i] = -1
 
         for i in range(len(y_true_cat[:, 0])):
-            if y_true_cat[i, 0] == 1 or y_true_cat[i, 1] == 1 or y_true_cat[i, 2] == 1 or y_true_cat[i, 3] == 1 or \
-                    y_true_cat[i, 4] == 1:
+            if y_true_cat[i, 0] == 1 or y_true_cat[i, 1] == 1 or y_true_cat[i, 2] == 1 or y_true_cat[i, 3] == 1 or y_true_cat[i, 4] == 1:
                 y_cons_true[i] = 1
-            elif y_true_cat[i, 0] == 0 and y_true_cat[i, 1] == 0 and y_true_cat[i, 2] == 0 and y_true_cat[i, 3] == 0 and \
-                    y_true_cat[i, 4] == 0:
+            elif y_true_cat[i, 0] == 0 and y_true_cat[i, 1] == 0 and y_true_cat[i, 2] == 0 and y_true_cat[i, 3] == 0 and y_true_cat[i, 4] == 0:
                 y_cons_true[i] = 0
             else:
                 y_cons_true[i] = -1
@@ -682,154 +648,6 @@ def main():
             file.flush()
             file.close()
 
-        if GNN_explainer_analysis:
-            # Wrap model for task 0
-            model_args = (
-                n_node_neurons,
-                n_node_features,
-                n_edge_neurons,
-                n_edge_features,
-                n_graph_convolution_layers,
-                n_shared_layers,
-                n_target_specific_layers,
-                useMolecularDescriptors
-            )
-
-            task_model = TaskSpecificGNN(model, task_idx=4, model_args=model_args)
-
-            explainer = Explainer(
-                model=task_model,
-                algorithm=GNNExplainer(epochs=50),
-                explanation_type='model',
-                node_mask_type='attributes',
-                edge_mask_type='object',
-                model_config=dict(
-                    mode='regression',
-                    task_level='graph',
-                    return_type='raw',
-                ),
-            )
-
-            # Single graph
-            data = trainDataset[1]
-            data.batch = torch.zeros(data.x.size(0), dtype=torch.long)
-
-            # Explain the prediction
-            explanation = explainer(data.x, data.edge_index, edge_attr=data.edge_attr, batch=data.batch)
-
-            # Visualize/analyze masks
-            node_feat_mask = explanation.node_mask
-            edge_mask = explanation.edge_mask
-
-            #explanation.visualize_feature_importance()
-            #explanation.visualize_graph()
-
-            feature_names = ["Period 1", "Period 2", "Period 3", "Period 4", "Period 5", "Period 6", "Period 7", "s block", "p block", "d block", "f block",
-                             "Alkali metals", "Alkaline earth metals", "Transition metals", "Poor metals", "Metalloids", "Nonmetals", "Halogens", "Noble gases",
-                             "Lanthanides","Actinides", "Atomic number", "Atomic radius", "Atomic weight", "Covalent radius", "Density", "Pauling electronegativity",
-                             "Mass number", "Van der Waals radius"]
-
-            # Aggregate importance per feature (mean over all nodes)
-            feature_importance = node_feat_mask.mean(dim=0).detach().cpu().numpy()
-
-            # Optional: normalize to [0, 1]
-            feature_importance = feature_importance / feature_importance.max()
-
-            # Plot
-            plt.figure(figsize=(12, 6))
-            plt.bar(range(len(feature_names)), feature_importance, tick_label=feature_names)
-            plt.xticks(rotation=45, ha='right')
-            plt.ylabel("Importance")
-            #plt.title("Node Feature Importance")
-            plt.tight_layout()
-            plt.show()
-
-            filepath = trainDataset.filenames[1]
-            G = to_networkx(data, to_undirected=True)
-
-            # Map edge importance to the NetworkX edge list
-            edge_imp = edge_mask.detach().numpy()
-            edge_list = list(G.edges())
-            edge_colors = [edge_imp[i] for i in range(len(edge_list))]
-
-            # Node importance (optional)
-            node_imp = node_feat_mask.sum(dim=1).detach().numpy()
-
-            # Plot
-            #pos = nx.spring_layout(G)
-            #nx.draw(G, pos, with_labels=True, node_color=node_imp, edge_color=edge_colors,
-            #        node_size=300, width=2.0, edge_cmap=plt.cm.Reds, cmap=plt.cm.Blues)
-            #plt.show()
-
-            #highlight_atoms = [i for i, score in enumerate(node_importance) if score > threshold]
-            #highlight_bonds = [i for i, score in enumerate(edge_mask) if score > threshold]
-
-            #Draw.MolToImage(mol, highlightAtoms=highlight_atoms, highlightBonds=highlight_bonds)
-
-            # Convert to networkx for visualization
-            nx_graph = G
-            graph = data
-
-            # Elements
-            element_mapping = {0: "N", 1: "C", 2: "H", 3: "O", 4: "S", 5: "Cl", 6: "Be",
-                               7: "Br", 8: "Pt", 9: "P", 10: "F", 11: "As", 12: "Hg",
-                               13: "Zn", 14: "Si", 15: "V", 16: "I", 17: "B", 18: "Sn",
-                               19: "Ge", 20: "Ag", 21: "Sb", 22: "Cu", 23: "Cr", 24: "Pb",
-                               25: "Mo", 26: "Se", 27: "Al", 28: "Cd", 29: "Mn", 30: "Fe",
-                               31: "Ga", 32: "Pd", 33: "Na", 34: "Ti", 35: "Bi", 36: "Co",
-                               37: "Ni", 38: "Ce", 39: "Ba", 40: "Zr", 41: "Rh"}
-            element_types = [element_mapping[spec_id.item()] for spec_id in graph.spec_id]
-
-            # CSV file with structure data
-            csv_file = '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/DataBase_AMES/FILES/ames_mutagenicity_data.csv'
-
-            df = pd.read_csv(csv_file)
-
-            molecule_index = molecule_index = int(
-                re.search(r'(\d+)_', filepath).group(1))  # get molecule number from input file name
-            smiles_column_index = 3
-
-            # Extract the SMILES string from the specific row and column
-            smiles_string = df.iloc[molecule_index - 1, smiles_column_index]
-
-            # Convert the SMILES string to an RDKit molecule
-            molecule = Chem.MolFromSmiles(smiles_string)
-
-            # Add hydrogens
-            molecule = Chem.AddHs(molecule)
-
-            num_atoms_in_smiles = molecule.GetNumAtoms()
-
-            # Generate the molecule's 2D coordinates (needed for drawing in a graph)
-            AllChem.Compute2DCoords(molecule)
-
-            # Plot chemical structure with graph
-            # Plot chemical structure
-            pos = {i: (molecule.GetConformer().GetAtomPosition(i).x, molecule.GetConformer().GetAtomPosition(i).y)
-                   for i in range(molecule.GetNumAtoms())}
-
-            fig, ax = plt.subplots(1, 2, figsize=(15, 7))
-
-            # Draw the chemical structure using RDKit
-            img = Draw.MolToImage(molecule, size=(300, 300))
-            ax[0].imshow(img)
-            ax[0].axis('off')  # Hide axes
-            #ax[0].set_title('Chemical Structure')
-            ax[0].set_title(filepath)
-
-            # Plot graph (using RDKit for node positions)
-            node_labels = nx.get_node_attributes(nx_graph, 'label')
-            #nx.draw(nx_graph, pos, with_labels=True, labels=node_labels, node_size=700, font_size=10, font_weight='bold', ax=ax[1], node_color='lightblue')
-            nx.draw(G, pos, with_labels=False, node_color=node_imp, edge_color=edge_colors,
-                    node_size=700, width=2.0, edge_cmap=plt.cm.Reds, cmap=plt.cm.Blues)
-            #ax[1].set_title('Graph Representation')
-
-            #plt.title(filepath)
-            plt.tight_layout()
-            plt.show()
-
-
-
     else:
         for epoch in range(nEpochs):
             model.train()
@@ -837,9 +655,11 @@ def main():
             for X, y in trainLoader:
                 # X, y = X.to(device), y.to(device)
                 # Compute prediction
+
                 pred = model(X.to(device), 0, 0, 0, n_node_neurons, n_node_features, n_edge_neurons, n_edge_features, n_graph_convolution_layers, n_shared_layers, n_target_specific_layers, useMolecularDescriptors)
                 #pred = model(X)
                 losses = 0
+
 
                 # print(model.parameters())
 
@@ -864,7 +684,7 @@ def main():
             model.eval()
             val_loss = 0
             with torch.no_grad():
-                for X, y in testLoader:
+                for X, y in valLoader:
                     # X, y = X.to(device), y.to(device)
                     pred = model(X.to(device), 0, 0, 0, n_node_neurons, n_node_features, n_edge_neurons, n_edge_features, n_graph_convolution_layers, n_shared_layers, n_target_specific_layers, useMolecularDescriptors)
                     #pred = model(X)
@@ -999,11 +819,9 @@ def main():
         y_cons = np.zeros(len(y_overall))
 
         for i in range(len(y_overall)):
-            if y_pred_98[i] == 1 or y_pred_100[i] == 1 or y_pred_102[i] == 1 or y_pred_1535[i] == 1 or y_pred_1537[
-                i] == 1:
+            if y_pred_98[i] == 1 or y_pred_100[i] == 1 or y_pred_102[i] == 1 or y_pred_1535[i] == 1 or y_pred_1537[i] == 1:
                 y_cons[i] = 1
-            elif y_pred_98[i] == 0 and y_pred_100[i] == 0 and y_pred_102[i] == 0 and y_pred_1535[i] == 0 and \
-                    y_pred_1537[i] == 0:
+            elif y_pred_98[i] == 0 and y_pred_100[i] == 0 and y_pred_102[i] == 0 and y_pred_1535[i] == 0 and y_pred_1537[i] == 0:
                 y_cons[i] = 0
             else:
                 y_cons[i] = -1

@@ -47,7 +47,7 @@ StateDictFileName: '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/A
 
 useMolecularDescriptors: False # Use molecular features instead of graphs for comparison to original MTL paper
 
-GNNExplainerAnalysis: False # Run GNNExplainer analysis after training
+useGlobalFeatures: True
 
 callbacks: 
    earlyStopping:
@@ -62,7 +62,7 @@ callbacks:
 descriptionText: 'No data transformation'
 
 # where the graph data-base resides
-database: '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/GraphDataBase_AMES'
+database: '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/GraphDataBase_AMES_global'
 
 # file with molecular data
 data_file: '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/data.csv'
