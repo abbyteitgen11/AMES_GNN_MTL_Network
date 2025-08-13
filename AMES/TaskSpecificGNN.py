@@ -8,6 +8,6 @@ class TaskSpecificGNN(nn.Module):
         self.model_args = model_args
 
     def forward(self, x, edge_index, edge_attr=None, batch=None, global_feats=None):
-        outputs = self.model(x, edge_index, edge_attr, batch, *self.model_args, global_feats=global_feats)
+        outputs = self.model(x, edge_index, edge_attr, batch, *self.model_args) #, global_feats=global_feats
         task_output = outputs[self.task_idx]
         return task_output.squeeze(-1)

@@ -8,7 +8,7 @@ import seaborn as sns
 
 # SINGLE
 # Load the study
-study = joblib.load('/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/optuna/study10.pkl')
+study = joblib.load('/Volumes/Seagate/Postdoc/AMES_GNN_MTL_Network/AMES/optuna/HP_opt_nonglobal/study6.pkl')
 
 # Plot optimization history
 vis.plot_optimization_history(study).show()
@@ -52,6 +52,22 @@ sns.histplot(df["best_fold_val_loss"], bins=20)
 plt.title("Best Fold Validation Loss Across Trials")
 plt.xlabel("Loss")
 plt.show()
+
+# Find trial with lowest best_fold_loss
+best_idx = df["best_fold_loss"].idxmin()
+best_trial_number = df.loc[best_idx, "trial_number"]
+# Get trial object
+best_trial = study.trials[best_trial_number]
+
+# Extract parameters
+best_params = best_trial.params
+
+print("Best trial number:", best_trial_number)
+print("Best fold loss:", df.loc[best_idx, "best_fold_loss"])
+print("Best fold:", df.loc[best_idx, "best_fold"])
+print("Best parameters:")
+for k, v in best_params.items():
+    print(f"  {k}: {v}")
 
 """
 # Load multiple studies

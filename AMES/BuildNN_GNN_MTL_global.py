@@ -120,7 +120,7 @@ class BuildNN_GNN_MTL(nn.Module):
 
 
 
-    def forward(self, x, edge_index, edge_attr, batch, n_node_neurons, n_node_features, n_edge_neurons, n_edge_features, n_gc_layers, n_s_layers, n_ts_layers, use_molecular_descriptors, global_feats=None):
+    def forward(self, x, edge_index, edge_attr, batch, n_node_neurons, n_node_features, n_edge_neurons, n_edge_features, n_gc_layers, n_s_layers, n_ts_layers, use_molecular_descriptors, global_feats, global_mean, global_std):
         # GNN
         if not use_molecular_descriptors:
             if n_node_neurons > n_node_features:
@@ -145,6 +145,8 @@ class BuildNN_GNN_MTL(nn.Module):
             batch_size = batch.max().item() + 1
             n_global_features = global_feats.shape[0] // batch_size
             global_feats = global_feats.view(batch_size, n_global_features)
+
+            global_feats = (global_feats - global_mean) / (global_std + 1e-8)
 
             if global_feats is not None:
                 x = torch.cat([x, global_feats], dim=1)

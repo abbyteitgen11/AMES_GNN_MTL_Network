@@ -45,7 +45,7 @@ from graph_dataset import GraphDataSet
 from compute_metrics import *
 from data import load_data
 #from BuildNN_GNN_MTL import BuildNN_GNN_MTL
-from BuildNN_GNN_MTL_global import BuildNN_GNN_MTL
+from BuildNN_GNN_MTL_GINEConv import BuildNN_GNN_MTL
 from masked_loss_function import masked_loss_function
 from set_seed import set_seed
 from MTLDataset import MTLDataset
@@ -75,6 +75,42 @@ def extract_submol_from_indices(smiles, atom_indices):
     submol = emol.GetMol()
     #Chem.SanitizeMol(submol)
     return submol
+
+def fragment_smiles_from_nodes(smiles, node_idxs):
+    mol = Chem.MolFromSmiles(smiles)  # implicit Hs
+
+    if mol is None:
+        return None
+
+    n = mol.GetNumAtoms()
+
+    # sanitize and guard indices: cast to int, unique, in-range, sorted
+    try:
+        idxs = sorted({int(i) for i in node_idxs if 0 <= int(i) < n})
+    except Exception:
+        return None
+
+    if not idxs:
+        return None  # nothing to fragment
+
+    try:
+        smi = Chem.MolFragmentToSmiles(
+            mol,
+            atomsToUse=idxs,
+            isomericSmiles=False,
+            kekuleSmiles=True,
+            canonical=True,
+            allBondsExplicit=True,
+            allHsExplicit=False,
+        )
+    except Exception:
+        return None
+
+    # optional: strip atom maps if present
+    smi = re.sub(r'\[\w+:\d+\]', lambda m: m.group(0).split(':')[0] + ']', smi)
+    return smi if smi else None
+
+
 
 def main():
     args = get_args()
@@ -119,12 +155,19 @@ def main():
     w4 = input_data.get("w4", 1.0)
     w5 = input_data.get("w5", 1.0)
     if weighted_loss_function:
+        #class_weights = {
+        #    '98': {0: 1.0, 1: w1, -1: 0},
+        #    '100': {0: 1.0, 1: w2, -1: 0},
+        #    '102': {0: 1.0, 1: w3, -1: 0},
+        #    '1535': {0: 1.0, 1: w4, -1: 0},
+        #    '1537': {0: 1.0, 1: w5, -1: 0},
+        #}
         class_weights = {
-            '98': {0: 1.0, 1: w1, -1: 0},
-            '100': {0: 1.0, 1: w2, -1: 0},
-            '102': {0: 1.0, 1: w3, -1: 0},
-            '1535': {0: 1.0, 1: w4, -1: 0},
-            '1537': {0: 1.0, 1: w5, -1: 0},
+            '98': {0: 1.0, 1: 1.6599, -1: 0},
+            '100': {0: 1.0, 1: 1.2982, -1: 0},
+            '102': {0: 1.0, 1: 2.5973, -1: 0},
+            '1535': {0: 1.0, 1: 4.8234, -1: 0},
+            '1537': {0: 1.0, 1: 4.8740, -1: 0},
         }
     else:
         class_weights = {
@@ -198,7 +241,7 @@ def main():
                             n_shared_layers, n_target_specific_layers, n_shared, n_target, dropout_shared, dropout_target,
                             activation, useMolecularDescriptors, n_inputs)
 
-    checkpoint = torch.load('/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/checkpoints/checkpoint_epoch_1000.pt', map_location=torch.device('cpu'))
+    checkpoint = torch.load('/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/output/checkpoint_epoch_200.pt', map_location=torch.device('cpu'))
     
     model.load_state_dict(checkpoint['model_state_dict'])
     model.eval()
@@ -206,7 +249,7 @@ def main():
     model = model.to(device)
 
     substructure_counts_overall = defaultdict(lambda: {"positive": 0, "negative": 0})
-    substructure_labels_overall = defaultdict(lambda: {"positive": 0, "negative": 0, "undefined": 0})
+    substructure_labels_overall = defaultdict(lambda: {"positive": 0, "negative": 0})
 
     for task_id in range(5):
 
@@ -218,14 +261,14 @@ def main():
 
         explainer = Explainer(
             model=task_model,
-            algorithm=GNNExplainer(epochs=50),
+            algorithm=GNNExplainer(epochs=100),
             explanation_type='model',
-            node_mask_type='attributes',
+            node_mask_type='object',
             edge_mask_type='object',
             model_config=dict(
-            mode='regression',
+            mode='binary_classification',
             task_level='graph',
-            return_type='raw',
+            return_type='probs',
             ),
         )
 
@@ -246,7 +289,7 @@ def main():
                 edge_index=data.edge_index,
                 edge_attr=data.edge_attr,
                 batch=data.batch,
-                global_feats=data.global_feats
+                #global_feats=data.global_feats
             )
 
             with torch.no_grad():
@@ -255,18 +298,36 @@ def main():
                     edge_index=data.edge_index,
                     edge_attr=data.edge_attr,
                     batch=data.batch,
-                    global_feats=data.global_feats
+                    #global_feats=data.global_feats
                 )
 
                 prediction = int(task_output.item() > 0.5)  # 1 = toxic, 0 = non-toxic
                 predictions.append(prediction)
 
-            node_mask = explanation.node_mask.detach().cpu()
-            node_masks_all.append(node_mask.mean(dim=1).numpy())  # importance per atom
+            #node_mask = explanation.node_mask.detach().cpu()
+            #node_masks_all.append(node_mask.mean(dim=1).numpy())  # importance per atom
+
+            edge_mask = explanation.edge_mask.detach().cpu().numpy()
+            k_edges = max(8, int(0.15 * edge_mask.size))  # tune 0.10–0.20; min 8
+            top_e = np.argsort(-edge_mask)[:k_edges]
+
+            imp_edges = data.edge_index[:, torch.tensor(top_e, device=data.edge_index.device)]
+            imp_nodes = sorted(set(imp_edges.view(-1).tolist()))
+
+            # keep only the largest connected component among these nodes
+            G = to_networkx(data, to_undirected=True)
+            sub = G.subgraph(imp_nodes).copy()
+            if sub.number_of_nodes() > 0:
+                lcc = max(nx.connected_components(sub), key=len)
+                important_atoms = sorted(list(lcc))
+            else:
+                important_atoms = []
+
+            important_atoms_per_mol.append(important_atoms)
 
             # Extract SMILES
             # CSV file with structure data
-            csv_file = '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/DataBase_AMES/FILES/ames_mutagenicity_data.csv'
+            csv_file = '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/data.csv'
             df = pd.read_csv(csv_file)
             filepath = os.path.basename(data.file_name)
 
@@ -286,43 +347,57 @@ def main():
             correct_overall = df.iloc[molecule_index - 1, correct_val_overall_index]
             correct_val_overall.append(correct_overall)
 
-        threshold = 0.146  # Choose a mask threshold empirically (0–1)
+        #threshold = 0.146  # Choose a mask threshold empirically (0–1)
 
-        for node_mask in node_masks_all:
-            important = [i for i, val in enumerate(node_mask) if val > threshold]
-            important_atoms_per_mol.append(important)
+        #for node_mask in node_masks_all:
+        #    important = [i for i, val in enumerate(node_mask) if val > threshold]
+        #    important_atoms_per_mol.append(important)
+
 
         # {substructure: {"positive": count, "negative": count}}
         substructure_counts = defaultdict(lambda: {"positive": 0, "negative": 0})
-        substructure_labels = defaultdict(lambda: {"positive": 0, "negative": 0, "undefined": 0})
+        substructure_labels = defaultdict(lambda: {"positive": 0, "negative": 0})
 
         # for each molecule
         for pred, atom_indices, smiles, label, label_overall in zip(predictions, important_atoms_per_mol, smiles_list, correct_val, correct_val_overall):
-            submol = extract_submol_from_indices(smiles, atom_indices)
-            smi = Chem.MolToSmiles(submol, canonical=True)
-            if pred == 1:
-                substructure_counts[smi]["positive"] += 1
-            elif pred == 0:
-                substructure_counts[smi]["negative"] += 1
+            smi = fragment_smiles_from_nodes(smiles, atom_indices)
+            if not smi:
+                continue
+            mol_frag = Chem.MolFromSmiles(smi)
+            if mol_frag is None:
+                continue
+            heavy = sum(a.GetAtomicNum() > 1 for a in mol_frag.GetAtoms())
+            if not (5 <= heavy <= 18):  # tweak if needed
+                continue
 
-            if pred == 1:
-                substructure_counts_overall[smi]["positive"] += 1
-            elif pred == 0:
-                substructure_counts_overall[smi]["negative"] += 1
+            if label != -1:
 
-            if label == 1:
-                substructure_labels[smi]["positive"] += 1
-            elif label == 0:
-                substructure_labels[smi]["negative"] += 1
-            elif label == -1:
-                substructure_labels[smi]["undefined"] += 1
+                if pred == 1:
+                    substructure_counts[smi]["positive"] += 1
+                elif pred == 0:
+                    substructure_counts[smi]["negative"] += 1
 
-            if label_overall == 1:
-                substructure_labels_overall[smi]["positive"] += 1
-            elif label_overall == 0:
-                substructure_labels_overall[smi]["negative"] += 1
-            elif label_overall == -1:
-                substructure_labels_overall[smi]["undefined"] += 1
+                if pred == 1:
+                    substructure_counts_overall[smi]["positive"] += 1
+                elif pred == 0:
+                    substructure_counts_overall[smi]["negative"] += 1
+
+                if label == 1:
+                    substructure_labels[smi]["positive"] += 1
+                elif label == 0:
+                    substructure_labels[smi]["negative"] += 1
+
+                if label == 1:
+                    substructure_labels_overall[smi]["positive"] += 1
+                elif label == 0:
+                    substructure_labels_overall[smi]["negative"] += 1
+
+            #if label_overall != 1:
+            #    if label_overall == 1:
+            #        substructure_labels_overall[smi]["positive"] += 1
+            #    elif label_overall == 0:
+            #        substructure_labels_overall[smi]["negative"] += 1
+
 
         top_n = 10  # Number of top substructures to show
 
@@ -352,13 +427,31 @@ def main():
                 "negative predictions": counts["negative"],
                 "positive labels": labels["positive"],
                 "negative labels": labels["negative"],
-                "undefined labels": labels["undefined"],
             })
             if len(plot_data) == top_n:
                 break
 
+        # ---- SAVE PER-TASK SUBSTRUCTURE TABLE ----
+        task_rows = []
+        for smi, counts in substructure_counts.items():
+            labels = substructure_labels[smi]
+            task_rows.append({
+                "task": task,
+                "substructure_smiles": smi,
+                "pred_pos": counts["positive"],
+                "pred_neg": counts["negative"],
+                "label_pos": labels["positive"],
+                "label_neg": labels["negative"],
+                "total_pred": counts["positive"] + counts["negative"],
+                "total_label_defined": labels["positive"] + labels["negative"],
+            })
+        task_df = pd.DataFrame(task_rows)
+        task_csv = os.path.join(args.output_dir, f"substructures_task_{task}.csv")
+        task_df.to_csv(task_csv, index=False)
+        print(f"Saved per-task substructures to {task_csv}")
+
         # Plot chart
-        fig, axes = plt.subplots(nrows=len(plot_data), ncols=6, figsize=(15, 2 * len(plot_data)))
+        fig, axes = plt.subplots(nrows=len(plot_data), ncols=5, figsize=(15, 2 * len(plot_data)))
         fig.suptitle("Top Substructures and Prediction Counts", fontsize=16)
 
         for i, entry in enumerate(plot_data):
@@ -368,7 +461,6 @@ def main():
             neg = entry["negative predictions"]
             label_pos = entry["positive labels"]
             label_neg = entry["negative labels"]
-            label_undef = entry["undefined labels"]
 
             # Molecule image
             img = Draw.MolToImage(mol, size=(200, 200))
@@ -395,13 +487,26 @@ def main():
             axes[i][4].set_title("Negative Labels")
             axes[i][4].axis("off")
 
-            # Undefined labels
-            axes[i][5].text(0.5, 0.5, str(label_undef), fontsize=12, ha='center')
-            axes[i][5].set_title("Undefined Labels")
-            axes[i][5].axis("off")
-
         #plt.tight_layout(rect=[0, 0, 1, 0.96])
         plt.show()
+
+    # ---- SAVE OVERALL SUBSTRUCTURE TABLE ----
+    overall_rows = []
+    for smi, counts in substructure_counts_overall.items():
+        labels = substructure_labels_overall[smi]
+        overall_rows.append({
+            "substructure_smiles": smi,
+            "pred_pos": counts["positive"],
+            "pred_neg": counts["negative"],
+            "label_pos": labels["positive"],
+            "label_neg": labels["negative"],
+            "total_pred": counts["positive"] + counts["negative"],
+            "total_label_defined": labels["positive"] + labels["negative"],
+        })
+    overall_df = pd.DataFrame(overall_rows)
+    overall_csv = os.path.join(args.output_dir, "substructures_overall.csv")
+    overall_df.to_csv(overall_csv, index=False)
+    print(f"Saved overall substructures to {overall_csv}")
 
     # Plot top substructures overall
     top_n = 10
@@ -429,12 +534,11 @@ def main():
             "negative predictions": counts["negative"],
             "positive labels": labels_overall["positive"],
             "negative labels": labels_overall["negative"],
-            "undefined labels": labels_overall["undefined"],
         })
         if len(plot_data) == top_n:
             break
 
-    fig, axes = plt.subplots(nrows=len(plot_data), ncols=6, figsize=(15, 2 * len(plot_data)))
+    fig, axes = plt.subplots(nrows=len(plot_data), ncols=5, figsize=(15, 2 * len(plot_data)))
     fig.suptitle("Top 10 Substructures (Overall)", fontsize=16)
 
     for i, entry in enumerate(plot_data):
@@ -444,7 +548,6 @@ def main():
         neg = entry["negative predictions"]
         label_pos = entry["positive labels"]
         label_neg = entry["negative labels"]
-        label_undef = entry["undefined labels"]
 
         # Molecule image
         img = Draw.MolToImage(mol, size=(200, 200))
@@ -474,11 +577,6 @@ def main():
         axes[i][4].text(0.5, 0.5, str(label_neg), fontsize=12, ha='center')
         axes[i][4].set_title("Negative Labels")
         axes[i][4].axis("off")
-
-        # Undefined labels
-        axes[i][5].text(0.5, 0.5, str(label_undef), fontsize=12, ha='center')
-        axes[i][5].set_title("Undefined Labels")
-        axes[i][5].axis("off")
 
     #plt.tight_layout(rect=[0, 0, 1, 0.96])
     plt.show()

@@ -41,7 +41,7 @@ from graph_dataset import GraphDataSet
 from compute_metrics import *
 from data import load_data
 #from BuildNN_GNN_MTL import BuildNN_GNN_MTL
-from BuildNN_GNN_MTL import BuildNN_GNN_MTL
+from BuildNN_GNN_MTL_GINEConv import BuildNN_GNN_MTL
 from masked_loss_function import masked_loss_function
 from set_seed import set_seed
 from MTLDataset import MTLDataset
@@ -135,6 +135,122 @@ def visualize_model_parameters(model):
     plt.tight_layout()
     plt.show()
 
+
+def consensus_from_heads(y_pred_cat):
+    # Your exact OR rule with -1 if mixed
+    N = y_pred_cat.shape[0]
+    y_cons = np.zeros(N, dtype=int)
+    for i in range(N):
+        row = y_pred_cat[i]
+        if np.any(row == 1):
+            y_cons[i] = 1
+        elif np.all(row == 0):
+            y_cons[i] = 0
+        else:
+            y_cons[i] = -1
+    return y_cons
+
+def consensus_truth(y_true_cat):
+    N = y_true_cat.shape[0]
+    y_cons_true = np.zeros(N, dtype=int)
+    for i in range(N):
+        row = y_true_cat[i]
+        if np.any(row == 1):
+            y_cons_true[i] = 1
+        elif np.all(row == 0):
+            y_cons_true[i] = 0
+        else:
+            y_cons_true[i] = -1
+    return y_cons_true
+
+def eval_consensus_metric(y_true_cat, y_logit_cat, thresholds, metric="balanced_accuracy"):
+    """Apply thresholds -> consensus preds, then return your metric on valid rows."""
+    probs = y_logit_cat  # (N,5)
+    y_pred_cat = (probs >= np.array(thresholds)[None, :]).astype(int)  # (N,5)
+    y_cons_pred = consensus_from_heads(y_pred_cat)
+    y_cons_true = consensus_truth(y_true_cat)
+
+    # Use your existing masking + metrics
+    _, new_real, new_y_pred, _ = filter_nan(y_cons_true, y_cons_pred, y_cons_pred)
+    # get_metrics returns (counts, scores)
+    counts, scores = get_metrics(new_real, new_y_pred)
+    # scores order (per your code): Sp, Sn, Prec, Acc, BalAcc, F1, H
+    sp, sn, prec, acc, balacc, f1, h = scores
+    return (sp if metric == "sp" else h), (sp, sn, prec, acc, balacc, f1, h)
+
+
+import numpy as np
+
+def one_se_choice(th_grid, scores):
+    """
+    Pick a threshold within 1 standard error of the best score.
+    Return the median of eligible thresholds (more stable than the single best).
+    """
+    scores = np.array(scores, dtype=float)
+    best = np.max(scores)
+    se = np.std(scores, ddof=1) / np.sqrt(len(scores)) if len(scores) > 1 else 0.0
+    eligible = [t for t, s in zip(th_grid, scores) if s >= best - se]
+    return float(np.median(eligible)) if eligible else float(th_grid[int(np.argmax(scores))])
+
+def coord_ascent_consensus(y_true_cat, y_prob_cat, init_th=None, metric="sn", rounds=3):
+    """
+    Coordinate ascent over the 5 thresholds with the 1-SE rule per coordinate.
+    y_prob_cat: (N,5) probabilities in [0,1] (your y_logit_cat as you use it now)
+    metric: "sn" (your current choice), or swap to "balanced_accuracy" / "h" if you prefer.
+    """
+    ths = [0.5]*5 if init_th is None else list(init_th)
+    grid = np.linspace(0.05, 0.95, 19)  # coarse but robust
+
+    best_val, best_scores = eval_consensus_metric(y_true_cat, y_prob_cat, ths, metric)
+
+    for _ in range(rounds):
+        improved = False
+        for h in range(5):
+            # Evaluate metric across grid while holding other thresholds fixed
+            scores = []
+            for t in grid:
+                trial = ths.copy()
+                trial[h] = float(t)
+                val, _ = eval_consensus_metric(y_true_cat, y_prob_cat, trial, metric)
+                scores.append(val)
+            # Choose threshold using 1-SE rule
+            t_star = one_se_choice(grid, scores)
+            trial = ths.copy(); trial[h] = t_star
+            val, scr = eval_consensus_metric(y_true_cat, y_prob_cat, trial, metric)
+            if val > best_val + 1e-9:
+                ths[h] = float(t_star)
+                best_val, best_scores = val, scr
+                improved = True
+        if not improved:
+            break
+    return ths, best_val, best_scores
+
+def crossfit_thresholds_for_consensus(y_true_cat, y_prob_cat, K=5, metric="sn", seed=0):
+    """
+    K-fold cross-fit on the *validation* set: for each fold,
+    learn thresholds on K-1 folds with coord-ascent+1SE; aggregate (median) across folds.
+    Returns list of 5 thresholds.
+    """
+    N = len(y_true_cat)
+    idx = np.arange(N)
+    rng = np.random.RandomState(seed)
+    rng.shuffle(idx)
+    folds = np.array_split(idx, K)
+
+    ths_per_fold = []
+    for k in range(K):
+        val_idx = folds[k]
+        tr_idx = np.concatenate([folds[j] for j in range(K) if j != k])
+
+        ths_k, _, _ = coord_ascent_consensus(y_true_cat[tr_idx], y_prob_cat[tr_idx], metric=metric)
+        ths_per_fold.append(ths_k)
+
+    ths_per_fold = np.array(ths_per_fold)  # (K,5)
+    ths_final = np.median(ths_per_fold, axis=0).tolist()
+    return ths_final
+
+
+
 def main():
     args = get_args()
     output_dir = ''
@@ -184,12 +300,19 @@ def main():
     w4 = input_data.get("w4", 1.0)
     w5 = input_data.get("w5", 1.0)
     if weighted_loss_function:
+        #class_weights = {
+        #    '98': {0: 1.0, 1: w1, -1: 0},
+        #    '100': {0: 1.0, 1: w2, -1: 0},
+        #    '102': {0: 1.0, 1: w3, -1: 0},
+        #    '1535': {0: 1.0, 1: w4, -1: 0},
+        #    '1537': {0: 1.0, 1: w5, -1: 0},
+        # }
         class_weights = {
-            '98': {0: 1.0, 1: w1, -1: 0},
-            '100': {0: 1.0, 1: w2, -1: 0},
-            '102': {0: 1.0, 1: w3, -1: 0},
-            '1535': {0: 1.0, 1: w4, -1: 0},
-            '1537': {0: 1.0, 1: w5, -1: 0},
+            '98': {0: 0.801, 1: 1.330, -1: 0.0},
+            '100': {0: 0.885, 1: 1.149, -1: 0.0},
+            '102': {0: 0.692, 1: 1.799, -1: 0.0},
+            '1535': {0: 0.604, 1: 2.907, -1: 0.0},
+            '1537': {0: 0.602, 1: 2.941, -1: 0.0},
         }
     else:
         class_weights = {
@@ -402,13 +525,51 @@ def main():
     callbacks = set_up_callbacks(anyCallBacks, optimizer)
 
 
-    checkpoint = torch.load('/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/output_crossfold_val/checkpoints/metrics_15_1.pt', map_location=torch.device('cpu'))
+    checkpoint = torch.load('/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/output/checkpoint_epoch_200.pt', map_location=torch.device('cpu'))
     model.load_state_dict(checkpoint['model_state_dict'])
 
     model = model.to(device)
     #optimizer.load_state_dict(checkspoint['optimizer_state_dict'])
     #epoch = checkpoint['epoch']
     #loss = checkpoint['loss']
+
+    #thresholds = [0.55, 0.55, 0.45, 0.48, 0.48]
+    # Compute thresholds
+
+    y_pred_logit = []
+    y_true = []
+    
+    model.eval()
+    with torch.no_grad():
+        for i, sample in enumerate(valLoader):
+            pred = model(sample.x.to(device), sample.edge_index.to(device), sample.edge_attr.to(device),
+                         sample.batch.to(device), n_node_neurons, n_node_features, n_edge_neurons, n_edge_features,
+                         n_graph_convolution_layers, n_shared_layers, n_target_specific_layers, useMolecularDescriptors)
+            y_pred_logit.append(pred)
+            y_true.append(sample.y)
+
+    y_logit_cat = [np.concatenate([t.cpu().numpy() for t in tensors], axis=0) for tensors in
+                   zip(*y_pred_logit)]  # concatenate predictions for all examples into single array
+    y_logit_cat = np.hstack(y_logit_cat)
+
+    y_true_cat = torch.cat(y_true)
+    y_true_cat = y_true_cat.numpy()
+
+    best_ths = crossfit_thresholds_for_consensus(
+        y_true_cat=y_true_cat,
+        y_prob_cat=y_logit_cat,
+        K=5,
+        metric="sp",  # or "balanced_accuracy" / "h"
+        seed=42
+    )
+    print("Cross-fit consensus thresholds:", best_ths)
+
+    # (Optional) see val performance at the cross-fit thresholds
+    val_metric, val_scores = eval_consensus_metric(y_true_cat, y_logit_cat, best_ths, metric="sp")
+    print("Validation consensus scores (Sp, Sn, Prec, Acc, BalAcc, F1, H):", val_scores)
+
+    thresholds =  [0.5, 0.5, 0.7749999999999999, 0.5, 0.5]
+    #thresholds = [0.5, 0.5, 0.5, 0.5, 0.5]
 
     # Make predictions
     y_pred_logit = []
@@ -420,7 +581,8 @@ def main():
     with torch.no_grad():
         for i, sample in enumerate(testLoader):
             pred = model(sample.x.to(device), sample.edge_index.to(device), sample.edge_attr.to(device), sample.batch.to(device), n_node_neurons, n_node_features, n_edge_neurons, n_edge_features, n_graph_convolution_layers, n_shared_layers, n_target_specific_layers, useMolecularDescriptors)
-            y_pred_t = tuple(torch.where(tensor > 0.5, torch.tensor(1), torch.tensor(0)) for tensor in pred) # convert to 0 or 1
+            y_pred_t = tuple(torch.where(tensor > thresholds[i], torch.tensor(1), torch.tensor(0)) for i, tensor in enumerate(pred))
+            #y_pred_t = tuple(torch.where(tensor > 0.5, torch.tensor(1), torch.tensor(0)) for tensor in pred) # convert to 0 or 1
             y_pred.append(y_pred_t)
             y_pred_logit.append(pred)
             y_true.append(sample.y)
@@ -439,7 +601,7 @@ def main():
 
 
     # Print to csv
-    csv_file = os.path.join(args.output_dir, "metrics_UPDATED_5.csv")
+    csv_file = os.path.join(args.output_dir, "metrics.csv")
     headers = ['Strain', 'TP', 'TN', 'FP', 'FN', 'Sp', 'Sn', 'Prec', 'Acc', 'Bal acc', 'F1 score', 'H score']
 
     with open(csv_file, mode='w', newline='') as file:
@@ -533,10 +695,10 @@ def main():
         'pred_label': [y_cons[i] for i in wrong_indices],
      })
 
-    df_wrong.to_csv(os.path.join(args.output_dir, "misclassified_files_UPDATED_5.csv"), index=False)
+    df_wrong.to_csv(os.path.join(args.output_dir, "misclassified_files.csv"), index=False)
 
     # Print to csv
-    csv_file = os.path.join(args.output_dir, "metrics_cons_UPDATED_5.csv")
+    csv_file = os.path.join(args.output_dir, "metrics_cons.csv")
     headers = ['Strain', 'TP', 'TN', 'FP', 'FN', 'Sp', 'Sn', 'Prec', 'Acc', 'Bal acc', 'F1 score', 'H score']
 
     with open(csv_file, mode='w', newline='') as file:
@@ -555,7 +717,7 @@ def main():
 
 
 
-    csv_file = os.path.join(args.output_dir, "model_output_raw_UPDATED_5.csv")
+    csv_file = os.path.join(args.output_dir, "model_output_raw.csv")
     headers = ['file', 'logits_98', 'logits_100', 'logits_102', 'logits_1535', 'logits_1537','y_true_98', 'y_true_100', 'y_true_102', 'y_true_1535', 'y_true_1537', 'y_pred_98', 'y_pred_100', 'y_pred_102', 'y_pred_1535', 'y_pred_1537', 'y_true_consensus', 'y_pred_consensus']
 
     data_path = "/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/data.csv"
@@ -606,17 +768,17 @@ def main():
 
 #writer.flush()top_substructures = sorted(substructure_counts.items(), key=lambda x: x[1]["positive"] + x[1]["negative"], reverse=True)[:20]
 
-mols = [Chem.MolFromSmiles(smi) for smi, _ in top_substructures]
-legends = [f"+: {counts['positive']}, -: {counts['negative']}" for _, counts in top_substructures]
+#mols = [Chem.MolFromSmiles(smi) for smi, _ in top_substructures]
+#legends = [f"+: {counts['positive']}, -: {counts['negative']}" for _, counts in top_substructures]
 
-img = Draw.MolsToGridImage(mols, molsPerRow=5, legends=legends, subImgSize=(250,250))
-img.show()top_substructures = sorted(substructure_counts.items(), key=lambda x: x[1]["positive"] + x[1]["negative"], reverse=True)[:20]
+#img = Draw.MolsToGridImage(mols, molsPerRow=5, legends=legends, subImgSize=(250,250))
+#img.show()top_substructures = sorted(substructure_counts.items(), key=lambda x: x[1]["positive"] + x[1]["negative"], reverse=True)[:20]
 
-mols = [Chem.MolFromSmiles(smi) for smi, _ in top_substructures]
-legends = [f"+: {counts['positive']}, -: {counts['negative']}" for _, counts in top_substructures]
+#mols = [Chem.MolFromSmiles(smi) for smi, _ in top_substructures]
+#legends = [f"+: {counts['positive']}, -: {counts['negative']}" for _, counts in top_substructures]
 
-img = Draw.MolsToGridImage(mols, molsPerRow=5, legends=legends, subImgSize=(250,250))
-img.show()
+#img = Draw.MolsToGridImage(mols, molsPerRow=5, legends=legends, subImgSize=(250,250))
+#img.show()
 
 if __name__ == "__main__":
     main()

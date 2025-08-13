@@ -13,6 +13,7 @@ from ISSSTY_utils import read_ISSSTY_structure
 from structure_utils import get_dihedral_angle
 from rdkit import Chem
 from rdkit.Chem import Descriptors
+from rdkit.Chem import rdMolDescriptors
 import pandas as pd
 
 
@@ -262,13 +263,29 @@ class XG(AtomicStructureGraphs):
         neigh_id = torch.tensor(neighbour_id, dtype=torch.long)
         neigh_distance = torch.tensor(neighbour_distance, dtype=torch.float32)
 
+        #descriptor_funcs = {
+        #"MolWt": Descriptors.MolWt,
+        #"TPSA": Descriptors.TPSA,
+        #"NumAromaticRings": Descriptors.NumAromaticRings,
+        #"NumHDonors": Descriptors.NumHDonors,
+        #"NumHAcceptors": Descriptors.NumHAcceptors,
+        #"NumRotatableBonds": Descriptors.NumRotatableBonds,
+        #}
+
         descriptor_funcs = {
-        "MolWt": Descriptors.MolWt,
         "TPSA": Descriptors.TPSA,
         "NumAromaticRings": Descriptors.NumAromaticRings,
         "NumHDonors": Descriptors.NumHDonors,
         "NumHAcceptors": Descriptors.NumHAcceptors,
         "NumRotatableBonds": Descriptors.NumRotatableBonds,
+        "LogP": Descriptors.MolLogP,
+        "HeavyAtomCount": Descriptors.HeavyAtomCount,
+        "FractionCSP3": Descriptors.FractionCSP3,
+        "BertzCT": Descriptors.BertzCT,
+        "NumRings": rdMolDescriptors.CalcNumRings,
+        "NumBridgeheadAtoms": rdMolDescriptors.CalcNumBridgeheadAtoms,
+        "NumSpiroAtoms": rdMolDescriptors.CalcNumSpiroAtoms,
+        "MolMR": Descriptors.MolMR,
         }
 
         mol_id = molecule_id

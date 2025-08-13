@@ -10,7 +10,6 @@ from torch_geometric.nn import BatchNorm
 
 class BuildNN_GNN_MTL(nn.Module):
     def __init__(self,
-                 trial
                  n_gc_layers,
                  n_node_neurons,
                  n_edge_neurons,
@@ -128,7 +127,7 @@ class BuildNN_GNN_MTL(nn.Module):
 
 
 
-    def forward(self, x, edge_index, edge_attr, batch, n_node_neurons, n_node_features, n_edge_neurons, n_edge_features, n_gc_layers, n_s_layers, n_ts_layers, use_molecular_descriptors, global_feats=None):
+    def forward(self, x, edge_index, edge_attr, batch, n_node_neurons, n_node_features, n_edge_neurons, n_edge_features, n_gc_layers, n_s_layers, n_ts_layers, use_molecular_descriptors, global_feats):
         # GNN
         if not use_molecular_descriptors:
             if n_node_neurons > n_node_features:

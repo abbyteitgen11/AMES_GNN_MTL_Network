@@ -269,6 +269,18 @@ def main():
         g = torch.Generator()
         g.manual_seed(seed)
 
+        all_global_feats_train = torch.stack([g.global_feats for g in trainDataset])
+        global_mean_train = all_global_feats_train.mean(dim=0).to(device)
+        global_std_train = all_global_feats_train.std(dim=0).to(device)
+
+        all_global_feats_val = torch.stack([g.global_feats for g in valDataset])
+        global_mean_val = all_global_feats_val.mean(dim=0).to(device)
+        global_std_val = all_global_feats_val.std(dim=0).to(device)
+
+        all_global_feats_test = torch.stack([g.global_feats for g in testDataset])
+        global_mean_test = all_global_feats_test.mean(dim=0).to(device)
+        global_std_test = all_global_feats_test.std(dim=0).to(device)
+
         # Set up train and val loader
         trainLoader = DataLoader(trainDataset, batch_size=nBatch, generator=g)
         valLoader = DataLoader(valDataset, batch_size=nBatch, generator=g)
@@ -380,8 +392,7 @@ def main():
             model.train()
             train_loss = 0
             for sample in trainLoader:
-                sample.global_feats = (sample.global_feats - global_mean) / (global_std + 1e-8)
-                pred = model(sample.x.to(device), sample.edge_index.to(device), sample.edge_attr.to(device), sample.batch.to(device), n_node_neurons, n_node_features, n_edge_neurons, n_edge_features, n_graph_convolution_layers, n_shared_layers, n_target_specific_layers, useMolecularDescriptors, sample.global_feats.to(device))
+                pred = model(sample.x.to(device), sample.edge_index.to(device), sample.edge_attr.to(device), sample.batch.to(device), n_node_neurons, n_node_features, n_edge_neurons, n_edge_features, n_graph_convolution_layers, n_shared_layers, n_target_specific_layers, useMolecularDescriptors, sample.global_feats.to(device), global_mean_train, global_std_train)
                 losses = 0
 
                 for i in range(5):
@@ -404,8 +415,7 @@ def main():
             val_loss = 0
             with torch.no_grad():
                 for sample in valLoader:
-                    sample.global_feats = (sample.global_feats - global_mean) / (global_std + 1e-8)
-                    pred = model(sample.x.to(device), sample.edge_index.to(device), sample.edge_attr.to(device), sample.batch.to(device), n_node_neurons, n_node_features, n_edge_neurons, n_edge_features, n_graph_convolution_layers, n_shared_layers, n_target_specific_layers, useMolecularDescriptors, sample.global_feats.to(device))
+                    pred = model(sample.x.to(device), sample.edge_index.to(device), sample.edge_attr.to(device), sample.batch.to(device), n_node_neurons, n_node_features, n_edge_neurons, n_edge_features, n_graph_convolution_layers, n_shared_layers, n_target_specific_layers, useMolecularDescriptors, sample.global_feats.to(device), global_mean_val, global_std_val)
                     losses = 0
                     for i in range(5):
                         output_key = output_keys[i]
@@ -458,7 +468,7 @@ def main():
                             pred = model(sample.x.to(device), sample.edge_index.to(device), sample.edge_attr.to(device),
                                          sample.batch.to(device), n_node_neurons, n_node_features, n_edge_neurons,
                                          n_edge_features, n_graph_convolution_layers, n_shared_layers,
-                                         n_target_specific_layers, useMolecularDescriptors, sample.global_feats.to(device))
+                                         n_target_specific_layers, useMolecularDescriptors, sample.global_feats.to(device), global_mean_test, global_std_test)
                             y_pred_t = tuple(torch.where(tensor > 0.5, torch.tensor(1), torch.tensor(0)) for tensor in
                                              pred)  # convert to 0 or 1
                             y_pred.append(y_pred_t)
@@ -553,7 +563,7 @@ def main():
         model.eval()
         with torch.no_grad():
             for sample in testLoader:
-                pred = model(sample.x.to(device), sample.edge_index.to(device), sample.edge_attr.to(device), sample.batch.to(device), n_node_neurons, n_node_features, n_edge_neurons, n_edge_features, n_graph_convolution_layers, n_shared_layers, n_target_specific_layers, useMolecularDescriptors, sample.global_feats.to(device))
+                pred = model(sample.x.to(device), sample.edge_index.to(device), sample.edge_attr.to(device), sample.batch.to(device), n_node_neurons, n_node_features, n_edge_neurons, n_edge_features, n_graph_convolution_layers, n_shared_layers, n_target_specific_layers, useMolecularDescriptors, sample.global_feats.to(device), global_mean_test, global_std_test)
                 y_pred_t = tuple(torch.where(tensor > 0.5, torch.tensor(1), torch.tensor(0)) for tensor in pred) # convert to 0 or 1
                 y_pred.append(y_pred_t)
                 y_pred_logit.append(pred)
