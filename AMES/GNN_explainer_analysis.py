@@ -280,7 +280,7 @@ def main():
         correct_val = []
         correct_val_overall = []
 
-        for i, data in enumerate(testDataset):  # limit if needed for speed
+        for i, data in enumerate(valDataset):  # limit if needed for speed
             data = data.to(device)
             data.batch = torch.zeros(data.x.size(0), dtype=torch.long)
 

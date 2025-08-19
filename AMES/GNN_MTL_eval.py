@@ -176,7 +176,7 @@ def eval_consensus_metric(y_true_cat, y_logit_cat, thresholds, metric="balanced_
     counts, scores = get_metrics(new_real, new_y_pred)
     # scores order (per your code): Sp, Sn, Prec, Acc, BalAcc, F1, H
     sp, sn, prec, acc, balacc, f1, h = scores
-    return (sp if metric == "sp" else h), (sp, sn, prec, acc, balacc, f1, h)
+    return (balacc if metric == "bal_acc" else h), (sp, sn, prec, acc, balacc, f1, h)
 
 
 import numpy as np
@@ -308,11 +308,11 @@ def main():
         #    '1537': {0: 1.0, 1: w5, -1: 0},
         # }
         class_weights = {
-            '98': {0: 0.801, 1: 1.330, -1: 0.0},
-            '100': {0: 0.885, 1: 1.149, -1: 0.0},
-            '102': {0: 0.692, 1: 1.799, -1: 0.0},
-            '1535': {0: 0.604, 1: 2.907, -1: 0.0},
-            '1537': {0: 0.602, 1: 2.941, -1: 0.0},
+            '98': {0: 1.0, 1: 1.330, -1: 0.0},
+            '100': {0: 1.0, 1: 1.149, -1: 0.0},
+            '102': {0: 1.0, 1: 1.799, -1: 0.0},
+            '1535': {0: 1.0, 1: 2.907, -1: 0.0},
+            '1537': {0: 1.0, 1: 2.941, -1: 0.0},
         }
     else:
         class_weights = {
@@ -565,10 +565,10 @@ def main():
     print("Cross-fit consensus thresholds:", best_ths)
 
     # (Optional) see val performance at the cross-fit thresholds
-    val_metric, val_scores = eval_consensus_metric(y_true_cat, y_logit_cat, best_ths, metric="sp")
+    val_metric, val_scores = eval_consensus_metric(y_true_cat, y_logit_cat, best_ths, metric="bal_acc")
     print("Validation consensus scores (Sp, Sn, Prec, Acc, BalAcc, F1, H):", val_scores)
 
-    thresholds =  [0.5, 0.5, 0.7749999999999999, 0.5, 0.5]
+    thresholds =  [0.5, 0.5, 0.5, 0.5, 0.5]
     #thresholds = [0.5, 0.5, 0.5, 0.5, 0.5]
 
     # Make predictions

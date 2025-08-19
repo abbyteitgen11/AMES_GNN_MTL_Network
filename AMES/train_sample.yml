@@ -62,7 +62,7 @@ callbacks:
 descriptionText: 'No data transformation'
 
 # where the graph data-base resides
-database: '/Volumes/Seagate/Postdoc/AMES_GNN_MTL_Network/GraphDataBase_AMES'
+database: '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/GraphDataBase_AMES'
 
 # file with molecular data
 data_file: '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/data.csv'
