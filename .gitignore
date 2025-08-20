@@ -1,6 +1,8 @@
 DataBase/
 DataBase_AMES/
 GraphDataBase_AMES/
+GraphDataBase_AMES_global/
+GraphDataBase_AMES_global_extra/
 QM9ERHGraphDataBase/
 AMES/__pycache__/
 MTL_publication/
@@ -16,6 +18,11 @@ AMES/predictions_Torch.csv
 AMES/loss/
 AMES/lib/
 AMES/optuna/
+AMES/checkpoints/
+AMES/metrics/
+AMES/output_seed_8_20_25/
+AMES/performance/
+AMES/output_seed_SAVE/
 AMES/output_crossfold_val/
 *.pt
 *.csv
