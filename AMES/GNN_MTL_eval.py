@@ -522,7 +522,7 @@ def main():
 
     # setup callbacks, if any
     anyCallBacks = input_data.get("callbacks", None)
-    callbacks = set_up_callbacks(anyCallBacks, optimizer)
+    #callbacks = set_up_callbacks(anyCallBacks, optimizer)
 
 
     checkpoint = torch.load('/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/output/checkpoint_epoch_200.pt', map_location=torch.device('cpu'))
@@ -534,6 +534,7 @@ def main():
     #loss = checkpoint['loss']
 
     #thresholds = [0.55, 0.55, 0.45, 0.48, 0.48]
+    thresholds = [0.5, 0.5, 0.5, 0.5, 0.5]
     # Compute thresholds
 
     y_pred_logit = []

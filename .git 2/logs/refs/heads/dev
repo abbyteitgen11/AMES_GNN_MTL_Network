@@ -1,0 +1,27 @@
+0000000000000000000000000000000000000000 5aec7b13230f9551b9b06fa79b223bf73ce5f0c5 Abigail Teitgen <ateitgen@eng.ucsd.edu> 1742302693 +0100	branch: Created from HEAD
+5aec7b13230f9551b9b06fa79b223bf73ce5f0c5 f163abc17639bc49affe3a3bda7651031bf09ed1 Abigail Teitgen <ateitgen@eng.ucsd.edu> 1742381328 +0100	commit: fixed gitignore
+f163abc17639bc49affe3a3bda7651031bf09ed1 44696766f247f5e94696ad8a4991051e0f7ef408 Abigail Teitgen <ateitgen@eng.ucsd.edu> 1742381359 +0100	commit: GNN MTL working
+44696766f247f5e94696ad8a4991051e0f7ef408 03a3b7b7cdc13fb39bb112afb18724e4b7311490 Abigail Teitgen <ateitgen@eng.ucsd.edu> 1743080002 +0100	commit: GNN_MTL working baseline
+03a3b7b7cdc13fb39bb112afb18724e4b7311490 5271361d608a470a884457fabcd52498e0d3cc48 Abigail Teitgen <ateitgen@eng.ucsd.edu> 1743171163 +0100	commit: removed unnecessary files, added one hot encoding for series and block
+5271361d608a470a884457fabcd52498e0d3cc48 bcd7e4e99c45976b95387f861b71e7d44ff8d31e Abigail Teitgen <ateitgen@eng.ucsd.edu> 1743592395 +0200	commit: GNN_MTL working and same as MTL
+bcd7e4e99c45976b95387f861b71e7d44ff8d31e 3617d4208e75d00f7ea6ff1718732309ba6303a3 Abigail Teitgen <ateitgen@eng.ucsd.edu> 1743596640 +0200	commit: fixed callbacks, checkpoints, log files etc
+3617d4208e75d00f7ea6ff1718732309ba6303a3 928032913509ec1a9392d571d632e6c4ab01a19a Abigail Teitgen <ateitgen@eng.ucsd.edu> 1745231748 +0200	commit: updated code to run on GPU
+928032913509ec1a9392d571d632e6c4ab01a19a e053c7d987b6081025a03e0568c78651d65d5674 Abigail Teitgen <ateitgen@eng.ucsd.edu> 1745231852 +0200	commit: updated
+e053c7d987b6081025a03e0568c78651d65d5674 eb296e3979b08ee41f225b6eae4bf3a6d2d61164 Abigail Teitgen <ateitgen@eng.ucsd.edu> 1745835178 +0200	commit: updated gitignore
+eb296e3979b08ee41f225b6eae4bf3a6d2d61164 fa462558322c300442a76ef94fe43b1fa8e536d0 Abigail Teitgen <ateitgen@eng.ucsd.edu> 1745835429 +0200	commit: added HP optimization
+fa462558322c300442a76ef94fe43b1fa8e536d0 c1a60762425f098c1681d8b6a8b912b2fa0e145a Abigail Teitgen <ateitgen@eng.ucsd.edu> 1746796228 +0200	commit: updated for GNN explainer
+c1a60762425f098c1681d8b6a8b912b2fa0e145a 2d1d500ee44579697ccf4cefdc1696ac58924725 Abigail Teitgen <ateitgen@eng.ucsd.edu> 1747742731 +0200	commit: updated gitignore
+2d1d500ee44579697ccf4cefdc1696ac58924725 0b53ac06baab94d8d2d23309d9b3e45ccb83c1e3 Abigail Teitgen <ateitgen@eng.ucsd.edu> 1747744313 +0200	commit: updated optuna to save results etc
+0b53ac06baab94d8d2d23309d9b3e45ccb83c1e3 d15ef6cdaee1b148f74589017553fa8d74d0884f Abigail Teitgen <ateitgen@eng.ucsd.edu> 1748522545 +0200	commit: added crossfold validation
+d15ef6cdaee1b148f74589017553fa8d74d0884f f4a0ed864b4f0006697183f0d7d6e953f275a9de Abigail Teitgen <ateitgen@eng.ucsd.edu> 1748604008 +0200	commit: switched order dropout batch norm, added save study
+f4a0ed864b4f0006697183f0d7d6e953f275a9de 050fda0ab5f29c74be97cf0e66dea2c68c72273b Abigail Teitgen <ateitgen@eng.ucsd.edu> 1749214027 +0200	commit: added seeds kfv, updated for consistency
+050fda0ab5f29c74be97cf0e66dea2c68c72273b 53f4dbf705934a491039a1eae7f72b06c640f025 Abigail Teitgen <ateitgen@eng.ucsd.edu> 1750347829 +0200	commit: added number of params
+53f4dbf705934a491039a1eae7f72b06c640f025 f7a7558373b0f9aaab96b322e00bbe7ef9938114 Abigail Teitgen <ateitgen@eng.ucsd.edu> 1750408188 +0200	commit: added crossfold validation analysis
+f7a7558373b0f9aaab96b322e00bbe7ef9938114 f06f4e8080a9e0d7eb49f54697bbb9f914e1bce2 Abigail Teitgen <ateitgen@eng.ucsd.edu> 1750676254 +0200	commit: updated xfv checkpoints
+f06f4e8080a9e0d7eb49f54697bbb9f914e1bce2 59d7b01e44f343f6faf04de6c8aabd234516e61f Abigail Teitgen <ateitgen@eng.ucsd.edu> 1752062910 +0200	commit: different layer types, incorrect examples
+59d7b01e44f343f6faf04de6c8aabd234516e61f 344069dcfcc9195ce725043d55bdf3ee147173d3 Abigail Teitgen <ateitgen@eng.ucsd.edu> 1752062987 +0200	commit: updated gitignore
+344069dcfcc9195ce725043d55bdf3ee147173d3 b32fb884427cfaa1582fd20d41770a184f26a044 Abigail Teitgen <ateitgen@eng.ucsd.edu> 1752831866 +0200	commit: fixed consensus issue
+b32fb884427cfaa1582fd20d41770a184f26a044 a89499d228d761b30a43ba597439ece63bb782dd Abigail Teitgen <ateitgen@eng.ucsd.edu> 1753353367 +0200	commit: global node features, explainer analysis, assess incorrect predictions
+a89499d228d761b30a43ba597439ece63bb782dd c1613f2d177f726f64552137fdf87366d895553e Abigail Teitgen <ateitgen@eng.ucsd.edu> 1755084593 +0200	commit: updated gitignore
+c1613f2d177f726f64552137fdf87366d895553e e1d3a95adb886117697af19c6c3d12d79e235570 Abigail Teitgen <ateitgen@eng.ucsd.edu> 1755084624 +0200	commit: updated global node features, GNNexplainer
+e1d3a95adb886117697af19c6c3d12d79e235570 126db6cf77fc019a0f069e25abae61694b6db1ed Abigail Teitgen <ateitgen@eng.ucsd.edu> 1755599492 +0200	commit: updated substructures
