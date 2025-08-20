@@ -25,6 +25,7 @@ AMES/output_seed_8_20_25/
 AMES/performance/
 AMES/output_seed_SAVE/
 AMES/output_crossfold_val/
+*.DS_Store
 *.pt
 *.csv
 *.zip
