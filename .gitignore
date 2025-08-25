@@ -35,3 +35,7 @@ AMES/output_crossfold_val/
 *.log
 *.tar
 *.xlsx
+*.xls
+*.png
+*.jpg
+*.pdf
