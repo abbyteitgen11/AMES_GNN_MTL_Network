@@ -112,10 +112,10 @@ print(top_5[["Seed", "Fold", "Weight", "OverallScore"]])
 #csv_dir = "/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/output_seed_NEW_SAVE/outputs"
 #csv_files = glob(os.path.join(csv_dir, "metrics_seed_*_fold_*.csv"))
 
-csv_dir = "/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/MTL_publication/output_crossfold_val/outputs/only_weighted"  # Change this to your folder
-csv_files = glob(os.path.join(csv_dir, "seed_*_fold_*.csv"))
+csv_dir = "/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/output_seed_8_20_25/metrics"  # Change this to your folder
+csv_files = glob(os.path.join(csv_dir, "metrics_seed_*_fold_*.csv"))
 
-pattern = re.compile(r"seed_(\d+)_fold_(\d+).csv")
+pattern = re.compile(r"metrics_seed_(\d+)_fold_(\d+).csv")
 
 # Load and tag each file
 all_data = []

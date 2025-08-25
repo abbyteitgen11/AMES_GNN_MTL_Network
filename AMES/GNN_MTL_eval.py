@@ -525,7 +525,7 @@ def main():
     #callbacks = set_up_callbacks(anyCallBacks, optimizer)
 
 
-    checkpoint = torch.load('/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/output/checkpoint_epoch_200.pt', map_location=torch.device('cpu'))
+    checkpoint = torch.load('/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/output_seed_8_20_25/checkpoints/metrics_79_3.pt', map_location=torch.device('cpu'))
     model.load_state_dict(checkpoint['model_state_dict'])
 
     model = model.to(device)
@@ -569,8 +569,8 @@ def main():
     val_metric, val_scores = eval_consensus_metric(y_true_cat, y_logit_cat, best_ths, metric="bal_acc")
     print("Validation consensus scores (Sp, Sn, Prec, Acc, BalAcc, F1, H):", val_scores)
 
-    thresholds =  [0.5, 0.5, 0.5, 0.5, 0.5]
-    #thresholds = [0.5, 0.5, 0.5, 0.5, 0.5]
+    #thresholds =  [0.5, 0.725, 0.5, 0.5, 0.25]
+    thresholds = [0.5, 0.5, 0.5, 0.5, 0.5]
 
     # Make predictions
     y_pred_logit = []

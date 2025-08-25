@@ -37,6 +37,14 @@ from rdkit.Chem import rdmolops
 from torch_geometric.utils import to_networkx
 from collections import Counter
 from collections import defaultdict
+import seaborn as sns
+import matplotlib.colors as mcolors
+from matplotlib.patches import Patch
+import math
+import matplotlib.cm as cm
+from rdkit.Chem.Draw import rdMolDraw2D
+from PIL import Image
+import io
 
 from callbacks import set_up_callbacks
 from count_model_parameters import count_model_parameters
@@ -64,52 +72,152 @@ def get_args():
     parser.add_argument("--input_file", type=str, required=True)
     return parser.parse_args()
 
-def extract_submol_from_indices(smiles, atom_indices):
-    mol = Chem.MolFromSmiles(smiles)
-    mol = Chem.AddHs(mol)
-    emol = Chem.EditableMol(Chem.Mol(mol))
-    # Remove atoms not in important set
-    to_remove = sorted([a.GetIdx() for a in mol.GetAtoms() if a.GetIdx() not in atom_indices], reverse=True)
-    for idx in to_remove:
-        emol.RemoveAtom(idx)
-    submol = emol.GetMol()
-    #Chem.SanitizeMol(submol)
-    return submol
+def load_alerts():
+    alerts = [
+        ("Alkyl esters of phosphonic or sulphonic acids", "C[OX2]P(=O)(O)O or C[OX2]S(=O)(=O)O"),
+        ("Aromatic nitro groups", "[c][NX3](=O)=O"),
+        ("Aromatic N-oxides", "[n+](=O)[O-]"),
+        ("Aromatic mono- and dialkyl amino groups", "[c][NX3;H0,H1;!$(NC=O)]"),
+        ("Alkyl hydrazines", "[NX3][NX3]"),
+        ("Simple aldehyde", "[CX3H1](=O)[#6]"),
+        ("N-methylol derivatives", "[NX3]CO"),
+        ("Monohaloalkenes", "C=C[F,Cl,Br,I]"),
+        ("S- or N- mustards", "N(CCCl)CCCl or S(CCCl)CCCl"),
+        ("Acyl halides", "[CX3](=O)[F,Cl,Br,I]"),
+        ("Propiolactones and propiosultones", "O=C1OCC1 or O=S1OCC1"),
+        ("Epoxides and aziridines", "C1OC1 or C1NC1"),
+        ("Aliphatic halogens", "[CX4;!c][F,Cl,Br,I]"),
+        ("Alkyl nitrite", "[CX4][OX2]N=O"),
+        ("Quinones", "O=C1C=CC(=O)C=C1"),
+        ("N-nitroso", "[NX3;H0,H1][NX2]=O"),
+        ("Aromatic amines and hydroxylamines", "[c][NX3H2] or [c][NX3H1]O"),
+        ("Azo, azoxy, diazo compounds", "[NX2]=[NX2] or [NX2]=N[O] or [NX2-]-[NX2+]"),
+        ("Alpha, beta unsaturated carbonyls", "C=CC(=O)"),
+        ("Isocyanate and isothiocyanate groups", "N=C=O or N=C=S"),
+        ("Alkyl carbamate and thiocarbamate", "OC(=O)N or SC(=O)N"),
+        ("Heterocyclic/polycyclic aromatic hydrocarbons", "c1ccccc1"),
+        ("Azide and triazene groups", "N=[N+]=[N-] or N=N-N"),
+        ("Aromatic N-acyl amines", "[c][NX3][CX3](=O)"),
+        ("Coumarins and Furocoumarins", "O=C1OC=CC2=CC=CC=C12 or O=C1OC=CC2=CC=CC3=C21OCC3"),
+        ("Halogenated benzene", "[c][F,Cl,Br,I]"),
+        ("Halogenated polycyclic aromatic hydrocarbon", "[c1ccc2ccccc2c1][F,Cl,Br,I]"),
+        ("Halogenated dibenzodioxins", "c1cc2Oc3c(cccc3Oc2cc1)[F,Cl,Br,I]"),
+        ("Thiocarbonyls", "[CX3]=S"),
+        ("Steroidal oestrogens", "C1CCC2C1(C)CCC3C2CCC4=CC(=O)CC=C34"),
+        ("Trichloro/fluoro or tetrachloro/fluoro ethylene", "C([Cl,F])=C([Cl,F])[Cl,F]"),
+        ("Pentachlorophenol", "c1(ccc(cc1Cl)Cl)Cl"),
+        ("o-Phenylphenol", "c1ccccc1-c2ccccc2O"),
+        ("Imidazole", "c1ncc[nH]1"),
+        ("Dicarboximide", "O=C1NC(=O)C=C1"),
+        ("Dimethylpyridine", "c1ccncc1C"),
+        ("Michael acceptors", "C=CC=O"),
+        ("Acrylamides", "C=CC(=O)N"),
+        ("Alkylating sulfonates/mesylates/tosylates", "OS(=O)(=O)C"),
+        ("Polyhalogenated alkanes", "C([F,Cl,Br,I])([F,Cl,Br,I])([F,Cl,Br,I])([F,Cl,Br,I])"),
+    ]
 
-def fragment_smiles_from_nodes(smiles, node_idxs):
-    mol = Chem.MolFromSmiles(smiles)  # implicit Hs
+    compiled = []
 
-    if mol is None:
-        return None
+    for name, smarts in alerts:
+        patt = Chem.MolFromSmarts(smarts)
+        if patt:
+            compiled.append((name, patt))
+    return compiled
 
-    n = mol.GetNumAtoms()
 
-    # sanitize and guard indices: cast to int, unique, in-range, sorted
-    try:
-        idxs = sorted({int(i) for i in node_idxs if 0 <= int(i) < n})
-    except Exception:
-        return None
+def compute_overlap_score(mol, smarts, highlighted_atoms):
+    matches = mol.GetSubstructMatches(smarts) #match_smarts(mol, smarts)
+    if not matches:
+        return 0.0, []
 
-    if not idxs:
-        return None  # nothing to fragment
+    highlighted_atoms = set(highlighted_atoms)
+    scores = []
 
-    try:
-        smi = Chem.MolFragmentToSmiles(
-            mol,
-            atomsToUse=idxs,
-            isomericSmiles=False,
-            kekuleSmiles=True,
-            canonical=True,
-            allBondsExplicit=True,
-            allHsExplicit=False,
-        )
-    except Exception:
-        return None
+    for match in matches:
+        match_set = set(match)
+        overlap = len(match_set & highlighted_atoms) / len(match_set)
+        scores.append(overlap)
 
-    # optional: strip atom maps if present
-    smi = re.sub(r'\[\w+:\d+\]', lambda m: m.group(0).split(':')[0] + ']', smi)
-    return smi if smi else None
+    return max(scores), matches
 
+
+def evaluate_alerts(smiles_list, important_atoms_per_mol, alerts, predictions, correct_val, correct_val_overall):
+    rows = []
+
+    for i, (smiles, imp_dict, pred, label, label_overall) in enumerate(zip(smiles_list, important_atoms_per_mol, predictions, correct_val, correct_val_overall)):
+        mol = Chem.MolFromSmiles(smiles)
+        for name, smarts in alerts:
+            tight_score, _ = compute_overlap_score(mol, smarts, imp_dict["tight"])
+            loose_score, _ = compute_overlap_score(mol, smarts, imp_dict["loose"])
+
+            rows.append({
+                "mol_id": i,
+                "alert": name,
+                "tight_score": tight_score,
+                "loose_score": loose_score,
+                "prediction": pred,
+                "label": label,
+                "label_overall": label_overall,
+            })
+
+    return pd.DataFrame(rows)
+
+
+def draw_with_colors(mol, highlight_atoms, highlight_atom_colors,
+                     highlight_bonds, highlight_bond_colors, size=(300,300)):
+    # ensure 2D coords exist
+    if not mol.GetNumConformers():
+        AllChem.Compute2DCoords(mol)
+
+    drawer = rdMolDraw2D.MolDraw2DCairo(size[0], size[1])
+    opts = drawer.drawOptions()
+    opts.useBWAtomPalette = False
+    opts.highlightBondWidthMultiplier = 8  # make highlighted bonds thicker
+
+    # RDKit can accept plain RGB tuples now
+    atom_cols = {int(k): tuple(v) for k, v in highlight_atom_colors.items()}
+    bond_cols = {int(k): tuple(v) for k, v in highlight_bond_colors.items()}
+
+    ha = sorted({int(i) for i in highlight_atoms})
+    hb = sorted({int(i) for i in highlight_bonds})
+
+    rdMolDraw2D.PrepareAndDrawMolecule(
+        drawer, mol,
+        highlightAtoms=ha,
+        highlightBonds=hb,
+        highlightAtomColors=atom_cols,
+        highlightBondColors=bond_cols
+    )
+    drawer.FinishDrawing()
+    png = drawer.GetDrawingText()
+    return Image.open(io.BytesIO(png))
+
+
+def plot_group(imgs, title, alert_color_dict, present_alerts, ncols=5):
+    """Plot a group of molecule images in a grid."""
+    if not imgs:
+        print(f"No molecules in {title}")
+        return
+    nrows = -(-len(imgs) // ncols)  # ceiling division
+    fig, axes = plt.subplots(nrows, ncols, figsize=(ncols*3, nrows*3))
+    axes = axes.flatten()
+
+    for ax, (img, mol_id, pred, label) in zip(axes, imgs):
+        ax.imshow(img)
+        ax.axis('off')
+        ax.set_title(f"Mol {mol_id}\nPred: {pred}, Label: {label}", fontsize=8)
+
+    for ax in axes[len(imgs):]:
+        ax.axis('off')
+
+    fig.suptitle(title, fontsize=16)
+
+    # Legend
+    legend_elements = [Patch(facecolor=alert_color_dict[name], edgecolor='k', label=name) for name in present_alerts]
+    plt.legend(handles=legend_elements, bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=8)
+
+    plt.tight_layout()
+    plt.show()
 
 
 def main():
@@ -241,15 +349,13 @@ def main():
                             n_shared_layers, n_target_specific_layers, n_shared, n_target, dropout_shared, dropout_target,
                             activation, useMolecularDescriptors, n_inputs)
 
-    checkpoint = torch.load('/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/output/checkpoint_epoch_200.pt', map_location=torch.device('cpu'))
+    checkpoint = torch.load('/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/output_seed_8_20_25/checkpoints/metrics_45_1.pt', map_location=torch.device('cpu'))
     
     model.load_state_dict(checkpoint['model_state_dict'])
     model.eval()
 
     model = model.to(device)
 
-    substructure_counts_overall = defaultdict(lambda: {"positive": 0, "negative": 0})
-    substructure_labels_overall = defaultdict(lambda: {"positive": 0, "negative": 0})
 
     for task_id in range(5):
 
@@ -280,7 +386,7 @@ def main():
         correct_val = []
         correct_val_overall = []
 
-        for i, data in enumerate(valDataset):  # limit if needed for speed
+        for i, data in enumerate(testDataset):  # limit if needed for speed
             data = data.to(device)
             data.batch = torch.zeros(data.x.size(0), dtype=torch.long)
 
@@ -304,26 +410,43 @@ def main():
                 prediction = int(task_output.item() > 0.5)  # 1 = toxic, 0 = non-toxic
                 predictions.append(prediction)
 
-            #node_mask = explanation.node_mask.detach().cpu()
-            #node_masks_all.append(node_mask.mean(dim=1).numpy())  # importance per atom
-
             edge_mask = explanation.edge_mask.detach().cpu().numpy()
-            k_edges = max(8, int(0.15 * edge_mask.size))  # tune 0.10–0.20; min 8
-            top_e = np.argsort(-edge_mask)[:k_edges]
 
-            imp_edges = data.edge_index[:, torch.tensor(top_e, device=data.edge_index.device)]
-            imp_nodes = sorted(set(imp_edges.view(-1).tolist()))
+            # --- TIGHT FILTER ---
+            k_edges_tight = max(8, int(0.15 * edge_mask.size))  # ~10–15%
+            top_e_tight = np.argsort(-edge_mask)[:k_edges_tight]
 
-            # keep only the largest connected component among these nodes
+            imp_edges_tight = data.edge_index[:, torch.tensor(top_e_tight, device=data.edge_index.device)]
+            imp_nodes_tight = sorted(set(imp_edges_tight.view(-1).tolist()))
+
             G = to_networkx(data, to_undirected=True)
-            sub = G.subgraph(imp_nodes).copy()
-            if sub.number_of_nodes() > 0:
-                lcc = max(nx.connected_components(sub), key=len)
-                important_atoms = sorted(list(lcc))
+            sub_tight = G.subgraph(imp_nodes_tight).copy()
+            if sub_tight.number_of_nodes() > 0:
+                lcc_tight = max(nx.connected_components(sub_tight), key=len)
+                important_atoms_tight = sorted(list(lcc_tight))
             else:
-                important_atoms = []
+                important_atoms_tight = []
 
-            important_atoms_per_mol.append(important_atoms)
+            # --- LOOSE FILTER ---
+            k_edges_loose = max(15, int(0.30 * edge_mask.size))  # ~25–30%
+            top_e_loose = np.argsort(-edge_mask)[:k_edges_loose]
+
+            imp_edges_loose = data.edge_index[:, torch.tensor(top_e_loose, device=data.edge_index.device)]
+            imp_nodes_loose = sorted(set(imp_edges_loose.view(-1).tolist()))
+
+            sub_loose = G.subgraph(imp_nodes_loose).copy()
+            if sub_loose.number_of_nodes() > 0:
+                # Keep *all* connected components, not just the largest
+                comps = list(nx.connected_components(sub_loose))
+                important_atoms_loose = sorted(set().union(*comps))
+            else:
+                important_atoms_loose = []
+
+            # Collect both sets
+            important_atoms_per_mol.append({
+                "tight": important_atoms_tight,
+                "loose": important_atoms_loose
+            })
 
             # Extract SMILES
             # CSV file with structure data
@@ -347,239 +470,148 @@ def main():
             correct_overall = df.iloc[molecule_index - 1, correct_val_overall_index]
             correct_val_overall.append(correct_overall)
 
-        #threshold = 0.146  # Choose a mask threshold empirically (0–1)
+        alerts = load_alerts()
 
-        #for node_mask in node_masks_all:
-        #    important = [i for i, val in enumerate(node_mask) if val > threshold]
-        #    important_atoms_per_mol.append(important)
+        df = evaluate_alerts(smiles_list, important_atoms_per_mol, alerts, predictions, correct_val, correct_val_overall)
+        summary = df.groupby("alert")[["tight_score", "loose_score"]].mean().reset_index()
+        summary = summary.sort_values("loose_score", ascending=False)
+        alerts_csv = os.path.join(args.output_dir, f"alerts_task_{task}.csv")
+        summary.to_csv(alerts_csv, index=False)
 
-
-        # {substructure: {"positive": count, "negative": count}}
-        substructure_counts = defaultdict(lambda: {"positive": 0, "negative": 0})
-        substructure_labels = defaultdict(lambda: {"positive": 0, "negative": 0})
-
-        # for each molecule
-        for pred, atom_indices, smiles, label, label_overall in zip(predictions, important_atoms_per_mol, smiles_list, correct_val, correct_val_overall):
-            smi = fragment_smiles_from_nodes(smiles, atom_indices)
-            if not smi:
-                continue
-            mol_frag = Chem.MolFromSmiles(smi)
-            if mol_frag is None:
-                continue
-            heavy = sum(a.GetAtomicNum() > 1 for a in mol_frag.GetAtoms())
-            if not (5 <= heavy <= 18):  # tweak if needed
-                continue
-
-            if label != -1:
-
-                if pred == 1:
-                    substructure_counts[smi]["positive"] += 1
-                elif pred == 0:
-                    substructure_counts[smi]["negative"] += 1
-
-                if pred == 1:
-                    substructure_counts_overall[smi]["positive"] += 1
-                elif pred == 0:
-                    substructure_counts_overall[smi]["negative"] += 1
-
-                if label == 1:
-                    substructure_labels[smi]["positive"] += 1
-                elif label == 0:
-                    substructure_labels[smi]["negative"] += 1
-
-                if label == 1:
-                    substructure_labels_overall[smi]["positive"] += 1
-                elif label == 0:
-                    substructure_labels_overall[smi]["negative"] += 1
-
-            #if label_overall != 1:
-            #    if label_overall == 1:
-            #        substructure_labels_overall[smi]["positive"] += 1
-            #    elif label_overall == 0:
-            #        substructure_labels_overall[smi]["negative"] += 1
-
-
-        top_n = 10  # Number of top substructures to show
-
-        # Sort substructures by total frequency
-        top_substructures = sorted(
-            substructure_counts.items(),
-            key=lambda x: x[1]["positive"] + x[1]["negative"],
-            reverse=True,
-        )
-
-        # Prepare valid entries
-        plot_data = []
-        for smi, counts in top_substructures:
-            if not smi:  # Skip if SMILES string is None or empty
-                continue
-
-            mol = Chem.MolFromSmiles(smi)
-            if mol is None:
-                continue  # Skip invalid SMILES
-
-            labels = substructure_labels[smi]
-
-            plot_data.append({
-                "mol": mol,
-                "smi": smi,
-                "positive predictions": counts["positive"],
-                "negative predictions": counts["negative"],
-                "positive labels": labels["positive"],
-                "negative labels": labels["negative"],
-            })
-            if len(plot_data) == top_n:
-                break
-
-        # ---- SAVE PER-TASK SUBSTRUCTURE TABLE ----
-        task_rows = []
-        for smi, counts in substructure_counts.items():
-            labels = substructure_labels[smi]
-            task_rows.append({
-                "task": task,
-                "substructure_smiles": smi,
-                "pred_pos": counts["positive"],
-                "pred_neg": counts["negative"],
-                "label_pos": labels["positive"],
-                "label_neg": labels["negative"],
-                "total_pred": counts["positive"] + counts["negative"],
-                "total_label_defined": labels["positive"] + labels["negative"],
-            })
-        task_df = pd.DataFrame(task_rows)
-        task_csv = os.path.join(args.output_dir, f"substructures_task_{task}.csv")
-        task_df.to_csv(task_csv, index=False)
-        print(f"Saved per-task substructures to {task_csv}")
-
-        # Plot chart
-        fig, axes = plt.subplots(nrows=len(plot_data), ncols=5, figsize=(15, 2 * len(plot_data)))
-        fig.suptitle("Top Substructures and Prediction Counts", fontsize=16)
-
-        for i, entry in enumerate(plot_data):
-            mol = entry["mol"]
-            smi = entry["smi"]
-            pos = entry["positive predictions"]
-            neg = entry["negative predictions"]
-            label_pos = entry["positive labels"]
-            label_neg = entry["negative labels"]
-
-            # Molecule image
-            img = Draw.MolToImage(mol, size=(200, 200))
-            axes[i][0].imshow(img)
-            axes[i][0].axis("off")
-
-            # Positive predictions
-            axes[i][1].text(0.5, 0.5, str(pos), fontsize=12, ha='center')
-            axes[i][1].set_title("Positive Predictions")
-            axes[i][1].axis("off")
-
-            # Negative predictons
-            axes[i][2].text(0.5, 0.5, str(neg), fontsize=12, ha='center')
-            axes[i][2].set_title("Negative Predictions")
-            axes[i][2].axis("off")
-
-            # Positive labels
-            axes[i][3].text(0.5, 0.5, str(label_pos), fontsize=12, ha='center')
-            axes[i][3].set_title("Positive Labels")
-            axes[i][3].axis("off")
-
-            # Negative labels
-            axes[i][4].text(0.5, 0.5, str(label_neg), fontsize=12, ha='center')
-            axes[i][4].set_title("Negative Labels")
-            axes[i][4].axis("off")
-
-        #plt.tight_layout(rect=[0, 0, 1, 0.96])
+        ##### Plot per-strain results
+        plt.figure(figsize=(10, 6))
+        plt.bar(summary["alert"], summary["tight_score"], alpha=0.6, label="Tight")
+        plt.bar(summary["alert"], summary["loose_score"], alpha=0.6, label="Loose")
+        plt.xticks(rotation=90)
+        plt.ylabel("Mean overlap score")
+        plt.title("GNN explanation overlap with functional alerts")
+        plt.legend()
+        plt.tight_layout()
         plt.show()
 
-    # ---- SAVE OVERALL SUBSTRUCTURE TABLE ----
-    overall_rows = []
-    for smi, counts in substructure_counts_overall.items():
-        labels = substructure_labels_overall[smi]
-        overall_rows.append({
-            "substructure_smiles": smi,
-            "pred_pos": counts["positive"],
-            "pred_neg": counts["negative"],
-            "label_pos": labels["positive"],
-            "label_neg": labels["negative"],
-            "total_pred": counts["positive"] + counts["negative"],
-            "total_label_defined": labels["positive"] + labels["negative"],
-        })
-    overall_df = pd.DataFrame(overall_rows)
-    overall_csv = os.path.join(args.output_dir, "substructures_overall.csv")
-    overall_df.to_csv(overall_csv, index=False)
-    print(f"Saved overall substructures to {overall_csv}")
+        pivot_df = df.pivot(index="mol_id", columns="alert", values="loose_score")
 
-    # Plot top substructures overall
-    top_n = 10
-    top_substructures_overall = sorted(
-        substructure_counts_overall.items(),
-        key=lambda x: x[1]["positive"] + x[1]["negative"],
-        reverse=True
-    )
+        plt.figure(figsize=(12, 6))
+        sns.heatmap(pivot_df, cmap="viridis", cbar_kws={"label": "Overlap score"})
+        plt.title("Per-molecule overlap with functional alerts (loose)")
+        plt.xlabel("Alert")
+        plt.ylabel("Molecule")
+        plt.tight_layout()
+        plt.show()
 
-    plot_data = []
-    for smi, counts in top_substructures_overall:
-        if not smi:  # Skip if SMILES string is None or empty
-            continue
+        # --- ALERT SUMMARY TABLE AND PLOT BASED ON ALERT OCCURRENCE ---
+        # Consider an alert present if tight_score > 0 or loose_score > 0
+        df['alert_present'] = (df['tight_score'] > 0) | (df['loose_score'] > 0)
 
-        mol = Chem.MolFromSmiles(smi)
-        if mol is None:
-            continue  # Skip invalid SMILES
+        alert_summary = df.groupby("alert").agg(
+            n_positive_predictions=("prediction", lambda x: ((x == 1) & df.loc[x.index, 'alert_present']).sum()),
+            n_negative_predictions=("prediction", lambda x: ((x == 0) & df.loc[x.index, 'alert_present']).sum()),
+            n_positive_labels=("label", lambda x: ((x == 1) & df.loc[x.index, 'alert_present']).sum()),
+            n_negative_labels=("label", lambda x: ((x == 0) & df.loc[x.index, 'alert_present']).sum()),
+        ).reset_index()
 
-        labels_overall = substructure_labels_overall[smi]
+        # Save to CSV
+        alert_summary_csv = os.path.join(args.output_dir, f"alert_summary_task_{task}.csv")
+        alert_summary.to_csv(alert_summary_csv, index=False)
 
-        plot_data.append({
-            "mol": mol,
-            "smi": smi,
-            "positive predictions": counts["positive"],
-            "negative predictions": counts["negative"],
-            "positive labels": labels_overall["positive"],
-            "negative labels": labels_overall["negative"],
-        })
-        if len(plot_data) == top_n:
-            break
+        # Plot
+        plt.figure(figsize=(12, 6))
+        alert_summary.plot(
+            x="alert",
+            y=["n_positive_predictions", "n_negative_predictions", "n_positive_labels", "n_negative_labels"],
+            kind="bar",
+            stacked=False,
+            figsize=(12, 6)
+        )
+        plt.xticks(rotation=90)
+        plt.ylabel("Count of molecules with alert")
+        plt.title(f"Structural alerts: Predictions vs Labels (Task {task})")
+        plt.tight_layout()
+        plt.show()
 
-    fig, axes = plt.subplots(nrows=len(plot_data), ncols=5, figsize=(15, 2 * len(plot_data)))
-    fig.suptitle("Top 10 Substructures (Overall)", fontsize=16)
+        # Only include molecules with valid label_overall and label
+        valid_mols = df[(df['label_overall'] != -1) & (df['label'] != -1)]['mol_id'].unique()
 
-    for i, entry in enumerate(plot_data):
-        mol = entry["mol"]
-        smi = entry["smi"]
-        pos = entry["positive predictions"]
-        neg = entry["negative predictions"]
-        label_pos = entry["positive labels"]
-        label_neg = entry["negative labels"]
+        # Use tab20 for distinct alert colors
+        alert_names = df['alert'].unique()
+        n_alerts = len(alert_names)
+        cmap = cm.get_cmap('tab20', n_alerts)
+        alert_color_dict = {alert_names[i]: cmap(i)[:3] for i in range(n_alerts)}
+        alert_color_dict['Heterocyclic/polycyclic aromatic hydrocarbons'] = (0.8,0.0,0.8)
+        present_alerts = set()
 
-        # Molecule image
-        img = Draw.MolToImage(mol, size=(200, 200))
-        axes[i][0].imshow(img)
-        axes[i][0].axis("off")
+        correct_toxic_imgs = []
+        correct_nontoxic_imgs = []
+        incorrect_imgs = []
 
-        # SMILES
-        #axes[i][1].text(0, 0.5, smi, fontsize=9, wrap=True)
-        #axes[i][1].axis("off")
+        for mol_id in valid_mols:
+            #mol_df = df[(df['mol_id'] == mol_id) & (df['alert_present'])]
+            mol_df = df[(df['mol_id'] == mol_id)]
+            mol = Chem.MolFromSmiles(smiles_list[mol_id])
+            #if mol is None or mol_df.empty:
+            #    #ax.axis('off')
+            #    continue
 
-        # Positive predictions
-        axes[i][1].text(0.5, 0.5, str(pos), fontsize=12, ha='center')
-        axes[i][1].set_title("Positive Predictions")
-        axes[i][1].axis("off")
+            highlight_atoms = []
+            highlight_colors = {}
+            highlight_bonds = []
+            highlight_bond_colors = {}
 
-        # Negative predictions
-        axes[i][2].text(0.5, 0.5, str(neg), fontsize=12, ha='center')
-        axes[i][2].set_title("Negative Predictions")
-        axes[i][2].axis("off")
+            for _, row in mol_df.iterrows():
+                if row['alert_present']:
+                    name = row['alert']
+                    smarts_pattern = next((p for n, p in alerts if n == name), None)
+                    if smarts_pattern is None:
+                        continue
 
-        # Positive labels
-        axes[i][3].text(0.5, 0.5, str(label_pos), fontsize=12, ha='center')
-        axes[i][3].set_title("Positive Labels")
-        axes[i][3].axis("off")
+                    present_alerts.add(name)
 
-        # Negative labels
-        axes[i][4].text(0.5, 0.5, str(label_neg), fontsize=12, ha='center')
-        axes[i][4].set_title("Negative Labels")
-        axes[i][4].axis("off")
+                    # Get RGB triple
+                    r, g, b = alert_color_dict[name]
+                    color = (float(r), float(g), float(b))
 
-    #plt.tight_layout(rect=[0, 0, 1, 0.96])
-    plt.show()
+                    matches = mol.GetSubstructMatches(smarts_pattern)
+                    for match in matches:
+                        match_set = set(match)
+
+                        # Always update atom colors (last alert wins)
+                        for atom_idx in match:
+                            highlight_atoms.append(atom_idx)
+                            highlight_colors[atom_idx] = color
+
+                        # Always update bond colors (last alert wins)
+                        for bond in mol.GetBonds():
+                            a1, a2 = bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()
+                            if a1 in match_set and a2 in match_set:
+                                bidx = bond.GetIdx()
+                                highlight_bonds.append(bidx)
+                                highlight_bond_colors[bidx] = color
+
+            img = draw_with_colors(
+                mol,
+                highlight_atoms,
+                highlight_colors,
+                highlight_bonds,
+                highlight_bond_colors,
+                size=(300, 300),
+            )
+
+            # Figure out group
+            pred = int(mol_df.iloc[0]['prediction'])
+            label = int(mol_df.iloc[0]['label'])
+
+            if pred == 1 and label == 1:
+                correct_toxic_imgs.append((img, mol_id, pred, label))
+            elif pred == 0 and label == 0:
+                correct_nontoxic_imgs.append((img, mol_id, pred, label))
+            else:
+                incorrect_imgs.append((img, mol_id, pred, label))
+
+        # Now make 3 separate grids
+        plot_group(correct_toxic_imgs, "Correct Toxic (pred=1,label=1)", alert_color_dict, present_alerts)
+        plot_group(correct_nontoxic_imgs, "Correct Nontoxic (pred=0,label=0)", alert_color_dict, present_alerts)
+        plot_group(incorrect_imgs, "Incorrect Prediction (pred≠label)", alert_color_dict, present_alerts)
+
 
 
 if __name__ == "__main__":
