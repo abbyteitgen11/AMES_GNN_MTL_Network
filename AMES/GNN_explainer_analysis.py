@@ -43,8 +43,9 @@ from matplotlib.patches import Patch
 import math
 import matplotlib.cm as cm
 from rdkit.Chem.Draw import rdMolDraw2D
-from PIL import Image
 import io
+from PIL import Image, ImageDraw, ImageFont
+import colorsys
 
 from callbacks import set_up_callbacks
 from count_model_parameters import count_model_parameters
@@ -72,7 +73,9 @@ def get_args():
     parser.add_argument("--input_file", type=str, required=True)
     return parser.parse_args()
 
+# Load structural alerts
 def load_alerts():
+    """
     alerts = [
         ("Alkyl esters of phosphonic or sulphonic acids", "C[OX2]P(=O)(O)O or C[OX2]S(=O)(=O)O"),
         ("Aromatic nitro groups", "[c][NX3](=O)=O"),
@@ -115,6 +118,65 @@ def load_alerts():
         ("Alkylating sulfonates/mesylates/tosylates", "OS(=O)(=O)C"),
         ("Polyhalogenated alkanes", "C([F,Cl,Br,I])([F,Cl,Br,I])([F,Cl,Br,I])([F,Cl,Br,I])"),
     ]
+    """
+
+    # Removing polycyclic hydrocarbons
+    """
+    alerts = [
+        ("Alkyl esters of phosphonic or sulphonic acids", "C[OX2]P(=O)(O)O or C[OX2]S(=O)(=O)O"),
+        ("Aromatic nitro groups", "[c][NX3](=O)=O"),
+        ("Aromatic N-oxides", "[n+](=O)[O-]"),
+        ("Aromatic mono- and dialkyl amino groups", "[c][NX3;H0,H1;!$(NC=O)]"),
+        ("Alkyl hydrazines", "[NX3][NX3]"),
+        ("Simple aldehyde", "[CX3H1](=O)[#6]"),
+        ("N-methylol derivatives", "[NX3]CO"),
+        ("Monohaloalkenes", "C=C[F,Cl,Br,I]"),
+        ("S- or N- mustards", "N(CCCl)CCCl or S(CCCl)CCCl"),
+        ("Acyl halides", "[CX3](=O)[F,Cl,Br,I]"),
+        ("Propiolactones and propiosultones", "O=C1OCC1 or O=S1OCC1"),
+        ("Epoxides and aziridines", "C1OC1 or C1NC1"),
+        ("Aliphatic halogens", "[CX4;!c][F,Cl,Br,I]"),
+        ("Alkyl nitrite", "[CX4][OX2]N=O"),
+        ("Quinones", "O=C1C=CC(=O)C=C1"),
+        ("N-nitroso", "[NX3;H0,H1][NX2]=O"),
+        ("Aromatic amines and hydroxylamines", "[c][NX3H2] or [c][NX3H1]O"),
+        ("Azo, azoxy, diazo compounds", "[NX2]=[NX2] or [NX2]=N[O] or [NX2-]-[NX2+]"),
+        ("Alpha, beta unsaturated carbonyls", "C=CC(=O)"),
+        ("Isocyanate and isothiocyanate groups", "N=C=O or N=C=S"),
+        ("Alkyl carbamate and thiocarbamate", "OC(=O)N or SC(=O)N"),
+        ("Azide and triazene groups", "N=[N+]=[N-] or N=N-N"),
+        ("Aromatic N-acyl amines", "[c][NX3][CX3](=O)"),
+        ("Coumarins and Furocoumarins", "O=C1OC=CC2=CC=CC=C12 or O=C1OC=CC2=CC=CC3=C21OCC3"),
+        ("Halogenated benzene", "[c][F,Cl,Br,I]"),
+        ("Halogenated polycyclic aromatic hydrocarbon", "[c1ccc2ccccc2c1][F,Cl,Br,I]"),
+        ("Halogenated dibenzodioxins", "c1cc2Oc3c(cccc3Oc2cc1)[F,Cl,Br,I]"),
+        ("Thiocarbonyls", "[CX3]=S"),
+        ("Steroidal oestrogens", "C1CCC2C1(C)CCC3C2CCC4=CC(=O)CC=C34"),
+        ("Trichloro/fluoro or tetrachloro/fluoro ethylene", "C([Cl,F])=C([Cl,F])[Cl,F]"),
+        ("Pentachlorophenol", "c1(ccc(cc1Cl)Cl)Cl"),
+        ("o-Phenylphenol", "c1ccccc1-c2ccccc2O"),
+        ("Imidazole", "c1ncc[nH]1"),
+        ("Dicarboximide", "O=C1NC(=O)C=C1"),
+        ("Dimethylpyridine", "c1ccncc1C"),
+        ("Michael acceptors", "C=CC=O"),
+        ("Acrylamides", "C=CC(=O)N"),
+        ("Alkylating sulfonates/mesylates/tosylates", "OS(=O)(=O)C"),
+        ("Polyhalogenated alkanes", "C([F,Cl,Br,I])([F,Cl,Br,I])([F,Cl,Br,I])([F,Cl,Br,I])"),
+    ]
+    """
+
+    # Simpler subset
+    alerts = [
+        ("Alkyl hydrazines", "[NX3][NX3]"),
+        ("Aromatic nitro groups", "[c][NX3](=O)=O"),
+        ("Monohaloalkenes", "C=C[F,Cl,Br,I]"),
+        ("Epoxides and aziridines", "C1OC1 or C1NC1"),
+        ("Quinones", "O=C1C=CC(=O)C=C1"),
+        ("Alkylating sulfonates/mesylates/tosylates", "OS(=O)(=O)C"),
+        ("Aromatic amines and hydroxylamines", "[c][NX3H2] or [c][NX3H1]O"),
+        ("Azo, azoxy, diazo compounds", "[NX2]=[NX2] or [NX2]=N[O] or [NX2-]-[NX2+]"),
+    ]
+
 
     compiled = []
 
@@ -124,7 +186,7 @@ def load_alerts():
             compiled.append((name, patt))
     return compiled
 
-
+# Compute overlap between substructure matches and important atoms
 def compute_overlap_score(mol, smarts, highlighted_atoms):
     matches = mol.GetSubstructMatches(smarts) #match_smarts(mol, smarts)
     if not matches:
@@ -162,7 +224,7 @@ def evaluate_alerts(smiles_list, important_atoms_per_mol, alerts, predictions, c
 
     return pd.DataFrame(rows)
 
-
+# Plotting
 def draw_with_colors(mol, highlight_atoms, highlight_atom_colors,
                      highlight_bonds, highlight_bond_colors, size=(300,300)):
     # ensure 2D coords exist
@@ -174,12 +236,18 @@ def draw_with_colors(mol, highlight_atoms, highlight_atom_colors,
     opts.useBWAtomPalette = False
     opts.highlightBondWidthMultiplier = 8  # make highlighted bonds thicker
 
-    # RDKit can accept plain RGB tuples now
     atom_cols = {int(k): tuple(v) for k, v in highlight_atom_colors.items()}
     bond_cols = {int(k): tuple(v) for k, v in highlight_bond_colors.items()}
 
     ha = sorted({int(i) for i in highlight_atoms})
     hb = sorted({int(i) for i in highlight_bonds})
+
+    ha = [int(i) for i in highlight_atoms if 0 <= int(i) < mol.GetNumAtoms()]
+    hb = [int(i) for i in highlight_bonds if 0 <= int(i) < mol.GetNumBonds()]
+    atom_cols = {int(k): tuple(float(x) for x in v) for k, v in highlight_atom_colors.items() if
+                 0 <= int(k) < mol.GetNumAtoms()}
+    bond_cols = {int(k): tuple(float(x) for x in v) for k, v in highlight_bond_colors.items() if
+                 0 <= int(k) < mol.GetNumBonds()}
 
     rdMolDraw2D.PrepareAndDrawMolecule(
         drawer, mol,
@@ -192,9 +260,8 @@ def draw_with_colors(mol, highlight_atoms, highlight_atom_colors,
     png = drawer.GetDrawingText()
     return Image.open(io.BytesIO(png))
 
-
+# Plot in grid
 def plot_group(imgs, title, alert_color_dict, present_alerts, ncols=5):
-    """Plot a group of molecule images in a grid."""
     if not imgs:
         print(f"No molecules in {title}")
         return
@@ -218,6 +285,268 @@ def plot_group(imgs, title, alert_color_dict, present_alerts, ncols=5):
 
     plt.tight_layout()
     plt.show()
+
+def blank_image(size=(300,300), color=(255,255,255)):
+    return Image.new('RGB', size, color)
+
+def hstack_images(imgs, pad=6, bg=(255,255,255)):
+    widths, heights = zip(*(i.size for i in imgs))
+    total_w = sum(widths) + pad*(len(imgs)-1)
+    max_h = max(heights)
+    new_im = Image.new('RGB', (total_w, max_h), bg)
+    x = 0
+    for im in imgs:
+        new_im.paste(im, (x, (max_h-im.size[1])//2))
+        x += im.size[0] + pad
+    return new_im
+
+import matplotlib.cm as cm
+import numpy as np
+
+def generate_alert_colors(alerts):
+    reserved = [
+        (1.0, 0.3, 0.3),   # red
+        (1.0, 0.8, 0.3),   # orange
+        (0.8, 0.8, 0.8),   # gray
+    ]
+    reserved = np.array(reserved)
+
+    n = len(alerts)
+    # use HSV evenly spaced colors
+    hsv = [(i / n, 0.75, 0.95) for i in range(n)]
+    rgb_candidates = [tuple(colorsys.hsv_to_rgb(*h)) for h in hsv]
+
+    safe_colors = []
+    for cand in rgb_candidates:
+        cand_arr = np.array(cand)
+        dists = np.linalg.norm(reserved - cand_arr, axis=1)
+        if np.all(dists > 0.25):   # threshold to avoid looking too similar
+            safe_colors.append(cand)
+        else:
+            # tweak hue slightly if too close
+            new = ((cand[0]*0.7 + 0.3), (cand[1]*0.7), (cand[2]*0.7))
+            safe_colors.append(new)
+
+    return {name: safe_colors[i] for i,(name,_) in enumerate(alerts)}
+
+
+# Plot summary
+def assemble_and_save_summary(per_task_dfs, per_task_impatoms, per_task_preds, per_task_labels, global_smiles, alerts_compiled, output_dir):
+    #cmap = cm.get_cmap("tab20", len(alerts_compiled))
+    #alert_colors = {name: tuple(cmap(i)[:3]) for i, (name, _) in enumerate(alerts_compiled)}
+
+    alert_colors = generate_alert_colors(alerts_compiled)
+
+    os.makedirs(os.path.join(output_dir, 'summary_rows'), exist_ok=True)
+
+    n_tasks = len(per_task_dfs)
+    n_mols = len(global_smiles)
+    cell_size = (300,300)
+
+    alerts_present_by_mol = []
+    for s in global_smiles:
+        mol = Chem.MolFromSmiles(s)
+        atom_highlights = {}
+        bond_highlights = {}
+        present = []
+        for name, patt in alerts_compiled:
+            matches = mol.GetSubstructMatches(patt)
+            if matches:
+                present.append(name)
+                for match in matches:
+                    for a in match:
+                        atom_highlights[a] = (0.8, 0.8, 0.8)
+                    for bond in mol.GetBonds():
+                        a1, a2 = bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()
+                        if a1 in match and a2 in match:
+                            bond_highlights[bond.GetIdx()] = (0.6,0.6,0.6)
+        alerts_present_by_mol.append((present, atom_highlights, bond_highlights))
+
+    all_row_imgs = []
+    rows_correct_toxic = []
+    rows_correct_nontoxic = []
+    rows_incorrect = []
+
+    for mol_id in range(n_mols):
+        df0 = per_task_dfs[0]
+        df_0 = df0[0]
+        overall_rows = df_0[df_0['mol_id']==mol_id]
+        if overall_rows.empty:
+            continue
+        overall_label = int(overall_rows.iloc[0]['label_overall'])
+        if overall_label == -1:
+            continue
+
+        mol = Chem.MolFromSmiles(global_smiles[mol_id])
+
+        strain_cells = []
+        for task in range(n_tasks):
+            pdf = per_task_dfs[task]
+            pdf_task = pdf[task]
+            mol_df = pdf_task[pdf_task['mol_id']==mol_id]
+            if mol_df.empty:
+                strain_cells.append(blank_image(cell_size))
+                continue
+            per_task_labels_t = per_task_labels[task]
+            correct_label = int(per_task_labels_t[task][mol_id])
+            per_task_preds_t = per_task_preds[task]
+            pred = int(per_task_preds_t[task][mol_id])
+            if correct_label == -1:
+                im = blank_image(cell_size)
+            else:
+                highlight_atoms, atom_colors, highlight_bonds, bond_colors = [], {}, [], {}
+                for _, row in mol_df.iterrows():
+                    if row['alert_present']:
+                        name = row['alert']
+                        patt = next((p for n,p in alerts_compiled if n==name), None)
+                        if patt is None:
+                            continue
+                        matches = mol.GetSubstructMatches(patt)
+                        color = alert_colors.get(name, (0.5,0.5,0.5))
+                        for match in matches:
+                            for a in match:
+                                highlight_atoms.append(a)
+                                atom_colors[a] = color
+                            for bond in mol.GetBonds():
+                                a1,a2 = bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()
+                                if a1 in match and a2 in match:
+                                    bid = bond.GetIdx()
+                                    highlight_bonds.append(bid)
+                                    bond_colors[bid] = color
+
+                # Add important atoms for this strain
+                imp = per_task_impatoms[task]
+                imp_t = imp[task]
+                tight = imp_t[mol_id]['tight'] if mol_id < len(imp_t) else []
+                loose = imp_t[mol_id]['loose'] if mol_id < len(imp_t) else []
+                for a in tight:
+                    atom_colors[a] = (1.0, 0.3, 0.3)  # red
+                    highlight_atoms.append(a)
+                for a in loose:
+                    if a not in atom_colors:
+                        atom_colors[a] = (1.0, 0.8, 0.3)  # orange
+                    highlight_atoms.append(a)
+
+                im = draw_with_colors(mol, highlight_atoms, atom_colors, highlight_bonds, bond_colors, size=cell_size)
+                draw = ImageDraw.Draw(im)
+                try:
+                    font = ImageFont.truetype('DejaVuSans.ttf', 14)
+                except Exception:
+                    font = ImageFont.load_default()
+                text = f"P:{pred} / L:{correct_label}"
+                draw.rectangle([(0,0),(im.size[0],18)], fill=(255,255,255))
+                draw.text((4,0), text, fill=(0,0,0), font=font)
+            strain_cells.append(im)
+
+        preds = []
+        for t in range(n_tasks):
+            preds_t = per_task_preds[t]
+            preds.append(int(preds_t[t][mol_id]))
+        consensus = 1 if any(preds) else 0
+        cons_im = blank_image(cell_size)
+        d = ImageDraw.Draw(cons_im)
+        try:
+            font = ImageFont.truetype('DejaVuSans.ttf', 18)
+        except Exception:
+            font = ImageFont.load_default()
+        d.text((10,10), f"Consensus: {consensus}", fill=(0,0,0), font=font)
+        d.text((10,40), f"Overall label: {overall_label}", fill=(0,0,0), font=font)
+
+        present, atom_highlights, bond_highlights = alerts_present_by_mol[mol_id]
+        im_alerts_present = draw_with_colors(mol, list(atom_highlights.keys()), atom_highlights, list(bond_highlights.keys()), bond_highlights, size=cell_size)
+
+        union_atoms, atom_cols = set(), {}
+        for t in range(n_tasks):
+            imp = per_task_impatoms[t]
+            imp_t = imp[t]
+            tight = imp_t[mol_id]['tight'] if mol_id < len(imp_t) else []
+            loose = imp_t[mol_id]['loose'] if mol_id < len(imp_t) else []
+            for a in tight:
+                union_atoms.add(a)
+                atom_cols[a] = (1.0, 0.3, 0.3)
+            for a in loose:
+                if a not in atom_cols:
+                    atom_cols[a] = (1.0, 0.8, 0.3)
+                union_atoms.add(a)
+        im_imp = draw_with_colors(mol, list(union_atoms), atom_cols, [], {}, size=cell_size)
+
+        row_imgs = strain_cells + [cons_im, im_alerts_present]
+        row_concat = hstack_images(row_imgs, pad=4)
+
+        outfn = os.path.join(output_dir, 'summary_rows', f'mol_{mol_id:04d}_cons_{consensus}_ovl_{overall_label}.png')
+        #row_concat.save(outfn)
+        #all_row_imgs.append(row_concat.convert('RGB'))
+        #print(f"Saved summary row for mol {mol_id} -> {outfn}")
+
+        if consensus == 1 and overall_label == 1:
+            rows_correct_toxic.append(row_concat)
+        elif consensus == 0 and overall_label == 0:
+            rows_correct_nontoxic.append(row_concat)
+        else:
+            rows_incorrect.append(row_concat)
+
+    # Save category PDFs
+    outdir = os.path.join(output_dir, "summary_rows")
+    os.makedirs(outdir, exist_ok=True)
+
+    save_rows_to_pdf(rows_correct_toxic,
+                     os.path.join(outdir, "summary_correct_toxic.pdf"),
+                     alert_colors)
+    save_rows_to_pdf(rows_correct_nontoxic,
+                     os.path.join(outdir, "summary_correct_nontoxic.pdf"),
+                     alert_colors)
+    save_rows_to_pdf(rows_incorrect,
+                     os.path.join(outdir, "summary_incorrect.pdf"),
+                     alert_colors)
+
+
+def save_rows_to_pdf(row_imgs, pdf_path, alert_colors, rows_per_page=20):
+    if not row_imgs:
+        return
+    row_imgs = [im.convert("RGB") for im in row_imgs]
+    page_imgs = []
+    for i in range(0, len(row_imgs), rows_per_page):
+        batch = row_imgs[i:i+rows_per_page]
+        widths, heights = zip(*(im.size for im in batch))
+        page_w = max(widths)
+        page_h = sum(heights)
+        page = Image.new("RGB", (page_w, page_h), (255,255,255))
+        y = 0
+        for im in batch:
+            page.paste(im, (0, y))
+            y += im.size[1]
+        page_imgs.append(page)
+
+    # Add legend as last page
+    legend_page = make_legend_page(alert_colors)
+    page_imgs.append(legend_page)
+
+    page_imgs[0].save(pdf_path, save_all=True, append_images=page_imgs[1:])
+    print(f"Saved PDF: {pdf_path} ({len(page_imgs)} pages)")
+
+def make_legend_page(alert_colors, size=(1200,1600)):
+    page = Image.new("RGB", size, (255,255,255))
+    draw = ImageDraw.Draw(page)
+    try:
+        font = ImageFont.truetype("DejaVuSans.ttf", 20)
+    except Exception:
+        font = ImageFont.load_default()
+
+    x, y = 50, 50
+    # structural alerts
+    draw.text((x, y), "Structural Alerts:", fill=(0,0,0), font=font)
+    y += 40
+    for name, color in alert_colors.items():
+        rgb = tuple(int(c*255) for c in color)
+        draw.rectangle([x,y,x+40,y+40], fill=rgb)
+        draw.text((x+50, y), name, fill=(0,0,0), font=font)
+        y += 50
+        if y > size[1]-50:
+            y = 90
+            x += 400
+
+    return page
+
 
 
 def main():
@@ -356,6 +685,11 @@ def main():
 
     model = model.to(device)
 
+    per_task_dfs = []
+    per_task_impatoms = []
+    per_task_preds = []
+    per_task_labels = []
+    global_smiles = []
 
     for task_id in range(5):
 
@@ -412,7 +746,7 @@ def main():
 
             edge_mask = explanation.edge_mask.detach().cpu().numpy()
 
-            # --- TIGHT FILTER ---
+            # Tight filter
             k_edges_tight = max(8, int(0.15 * edge_mask.size))  # ~10–15%
             top_e_tight = np.argsort(-edge_mask)[:k_edges_tight]
 
@@ -427,8 +761,8 @@ def main():
             else:
                 important_atoms_tight = []
 
-            # --- LOOSE FILTER ---
-            k_edges_loose = max(15, int(0.30 * edge_mask.size))  # ~25–30%
+            # Loose filter
+            k_edges_loose = max(8, int(0.15 * edge_mask.size))  # ~25–30%
             top_e_loose = np.argsort(-edge_mask)[:k_edges_loose]
 
             imp_edges_loose = data.edge_index[:, torch.tensor(top_e_loose, device=data.edge_index.device)]
@@ -437,8 +771,10 @@ def main():
             sub_loose = G.subgraph(imp_nodes_loose).copy()
             if sub_loose.number_of_nodes() > 0:
                 # Keep *all* connected components, not just the largest
-                comps = list(nx.connected_components(sub_loose))
-                important_atoms_loose = sorted(set().union(*comps))
+                comps = max(nx.connected_components(sub_loose), key=len)
+                important_atoms_loose = sorted(list(comps))
+                #comps = list(nx.connected_components(sub_loose))
+                #important_atoms_loose = sorted(set().union(*comps))
             else:
                 important_atoms_loose = []
 
@@ -470,21 +806,69 @@ def main():
             correct_overall = df.iloc[molecule_index - 1, correct_val_overall_index]
             correct_val_overall.append(correct_overall)
 
+
+        per_task_impatoms.append({task_id: important_atoms_per_mol})
+        per_task_preds.append({task_id: predictions})
+        per_task_labels.append({task_id: correct_val})
+        global_smiles = smiles_list
+
         alerts = load_alerts()
 
-        df = evaluate_alerts(smiles_list, important_atoms_per_mol, alerts, predictions, correct_val, correct_val_overall)
-        summary = df.groupby("alert")[["tight_score", "loose_score"]].mean().reset_index()
-        summary = summary.sort_values("loose_score", ascending=False)
-        alerts_csv = os.path.join(args.output_dir, f"alerts_task_{task}.csv")
+        df = evaluate_alerts(smiles_list, important_atoms_per_mol, alerts, predictions, correct_val, correct_val_overall) # Compute overlap scores by comparing alerts and important nodes, store all in df
+        per_task_dfs.append({task_id: df})
+
+        summary = df.groupby("alert")[["tight_score", "loose_score"]].mean().reset_index() #compute average scores for each alert
+        summary = summary.sort_values("loose_score", ascending=False) # sort by loose score
+        alerts_csv = os.path.join(args.output_dir, f"alerts_task_{task}.csv") # write to csv
         summary.to_csv(alerts_csv, index=False)
 
         ##### Plot per-strain results
         plt.figure(figsize=(10, 6))
-        plt.bar(summary["alert"], summary["tight_score"], alpha=0.6, label="Tight")
-        plt.bar(summary["alert"], summary["loose_score"], alpha=0.6, label="Loose")
+        plt.bar(summary["alert"], summary["tight_score"], alpha=0.6)
+        #plt.bar(summary["alert"], summary["loose_score"], alpha=0.6, label="Loose")
         plt.xticks(rotation=90)
         plt.ylabel("Mean overlap score")
-        plt.title("GNN explanation overlap with functional alerts")
+        plt.title("GNN explanation overlap with functional alerts, all molecules")
+        plt.legend()
+        plt.tight_layout()
+        plt.show()
+
+        alerts_list = df['alert'].unique()
+        x = np.arange(len(alerts_list))
+        bar_width = 0.5  # width of the bars
+
+        # --- Tight ---
+        tight_means = df.groupby(["alert", "prediction"])["tight_score"].mean().unstack(fill_value=0)
+
+        mean_tight_nontoxic = tight_means.get(0, np.zeros(len(alerts_list))).mean()
+        mean_tight_toxic = tight_means.get(1, np.zeros(len(alerts_list))).mean()
+
+        plt.figure(figsize=(12, 6))
+        plt.bar(x, tight_means.get(0, np.zeros(len(alerts_list))), width=bar_width,
+                color='purple', alpha=0.6, label=f"Nontoxic (pred=0), overall mean={mean_tight_nontoxic:.2f}")
+        plt.bar(x, tight_means.get(1, np.zeros(len(alerts_list))), width=bar_width,
+                color='red', alpha=0.6, label=f"Toxic (pred=1), overall mean={mean_tight_toxic:.2f}")
+        plt.xticks(x, alerts_list, rotation=90)
+        plt.ylabel("Mean overlap score")
+        plt.title(f"Task {task}: Mean overlap score by predicted toxicity")
+        plt.legend()
+        plt.tight_layout()
+        plt.show()
+
+        # --- Loose ---
+        loose_means = df.groupby(["alert", "prediction"])["loose_score"].mean().unstack(fill_value=0)
+
+        mean_loose_nontoxic = loose_means.get(0, np.zeros(len(alerts_list))).mean()
+        mean_loose_toxic = loose_means.get(1, np.zeros(len(alerts_list))).mean()
+
+        plt.figure(figsize=(12, 6))
+        plt.bar(x, loose_means.get(0, np.zeros(len(alerts_list))), width=bar_width,
+                color='purple', alpha=0.6, label=f"Nontoxic (pred=0), overall mean={mean_loose_nontoxic:.2f}")
+        plt.bar(x, loose_means.get(1, np.zeros(len(alerts_list))), width=bar_width,
+                color='red', alpha=0.6, label=f"Toxic (pred=1), overall mean={mean_loose_toxic:.2f}")
+        plt.xticks(x, alerts_list, rotation=90)
+        plt.ylabel("Mean overlap score")
+        plt.title(f"Task {task}: Mean overlap score by predicted toxicity")
         plt.legend()
         plt.tight_layout()
         plt.show()
@@ -499,9 +883,9 @@ def main():
         plt.tight_layout()
         plt.show()
 
-        # --- ALERT SUMMARY TABLE AND PLOT BASED ON ALERT OCCURRENCE ---
         # Consider an alert present if tight_score > 0 or loose_score > 0
         df['alert_present'] = (df['tight_score'] > 0) | (df['loose_score'] > 0)
+        #df['alert_present'] = (df['tight_score'] > 0)
 
         alert_summary = df.groupby("alert").agg(
             n_positive_predictions=("prediction", lambda x: ((x == 1) & df.loc[x.index, 'alert_present']).sum()),
@@ -612,7 +996,8 @@ def main():
         plot_group(correct_nontoxic_imgs, "Correct Nontoxic (pred=0,label=0)", alert_color_dict, present_alerts)
         plot_group(incorrect_imgs, "Incorrect Prediction (pred≠label)", alert_color_dict, present_alerts)
 
-
+    alerts_compiled = load_alerts()
+    assemble_and_save_summary(per_task_dfs, per_task_impatoms, per_task_preds, per_task_labels, global_smiles, alerts_compiled, args.output_dir)
 
 if __name__ == "__main__":
     main()
