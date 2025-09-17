@@ -46,6 +46,8 @@ from rdkit.Chem.Draw import rdMolDraw2D
 import io
 from PIL import Image, ImageDraw, ImageFont
 import colorsys
+from collections import Counter
+
 
 from callbacks import set_up_callbacks
 from count_model_parameters import count_model_parameters
@@ -165,6 +167,39 @@ def load_alerts():
     ]
     """
 
+    # Excluding polycyclic hydrocarbons, nongenotoxic
+    alerts = [
+        ("Alkyl esters of phosphonic or sulphonic acids", "C[OX2]P(=O)(O)O or C[OX2]S(=O)(=O)O"),
+        ("Aromatic nitro groups", "[c][NX3](=O)=O"),
+        ("Aromatic N-oxides", "[n+](=O)[O-]"),
+        ("Aromatic mono- and dialkyl amino groups", "[c][NX3;H0,H1;!$(NC=O)]"),
+        ("Alkyl hydrazines", "[NX3][NX3]"),
+        ("Simple aldehyde", "[CX3H1](=O)[#6]"),
+        ("N-methylol derivatives", "[NX3]CO"),
+        ("Monohaloalkenes", "C=C[F,Cl,Br,I]"),
+        ("S- or N- mustards", "N(CCCl)CCCl or S(CCCl)CCCl"),
+        ("Acyl halides", "[CX3](=O)[F,Cl,Br,I]"),
+        ("Propiolactones and propiosultones", "O=C1OCC1 or O=S1OCC1"),
+        ("Epoxides and aziridines", "C1OC1 or C1NC1"),
+        ("Heterocyclic/polycyclic aromatic hydrocarbons", "c1ccccc1"),
+        ("Aliphatic halogens", "[CX4;!c][F,Cl,Br,I]"),
+        ("Alkyl nitrite", "[CX4][OX2]N=O"),
+        ("Quinones", "O=C1C=CC(=O)C=C1"),
+        ("N-nitroso", "[NX3;H0,H1][NX2]=O"),
+        ("Aromatic amines and hydroxylamines", "[c][NX3H2] or [c][NX3H1]O"),
+        ("Azo, azoxy, diazo compounds", "[NX2]=[NX2] or [NX2]=N[O] or [NX2-]-[NX2+]"),
+        ("Alpha, beta unsaturated carbonyls", "C=CC(=O)"),
+        ("Isocyanate and isothiocyanate groups", "N=C=O or N=C=S"),
+        ("Alkyl carbamate and thiocarbamate", "OC(=O)N or SC(=O)N"),
+        ("Azide and triazene groups", "N=[N+]=[N-] or N=N-N"),
+        ("Aromatic N-acyl amines", "[c][NX3][CX3](=O)"),
+        ("Coumarins and Furocoumarins", "O=C1OC=CC2=CC=CC=C12 or O=C1OC=CC2=CC=CC3=C21OCC3"),
+        ("Michael acceptors", "C=CC=O"),
+        ("Acrylamides", "C=CC(=O)N"),
+        ("Alkylating sulfonates/mesylates/tosylates", "OS(=O)(=O)C"),
+    ]
+    
+    """
     # Simpler subset
     alerts = [
         ("Alkyl hydrazines", "[NX3][NX3]"),
@@ -176,7 +211,7 @@ def load_alerts():
         ("Aromatic amines and hydroxylamines", "[c][NX3H2] or [c][NX3H1]O"),
         ("Azo, azoxy, diazo compounds", "[NX2]=[NX2] or [NX2]=N[O] or [NX2-]-[NX2+]"),
     ]
-
+    """
 
     compiled = []
 
@@ -185,6 +220,56 @@ def load_alerts():
         if patt:
             compiled.append((name, patt))
     return compiled
+
+
+
+def compute_alert_confusion(global_smiles, alerts_compiled, alerts_present_by_mol, per_task_dfs, n_tasks):
+    n_mols = len(global_smiles)
+
+    counts = Counter()
+
+    for mol_id in range(n_mols):
+        # Skip invalid labels (already filtered in your pipeline)
+        present_alerts, _, _ = alerts_present_by_mol[mol_id]
+        present_alerts = set(present_alerts)
+
+        detected_alerts = set()
+        for task in range(n_tasks):
+            df_task = per_task_dfs[task][task]
+            mol_df = df_task[df_task["mol_id"] == mol_id]
+            detected_alerts.update(mol_df.loc[mol_df["alert_present"], "alert"].tolist())
+
+        all_alerts = set([name for name, _ in alerts_compiled])
+
+        for alert in all_alerts:
+            present = alert in present_alerts
+            detected = alert in detected_alerts
+
+            if present and detected:
+                counts["TP"] += 1
+            elif not present and detected:
+                counts["FP"] += 1
+            elif present and not detected:
+                counts["FN"] += 1
+            else:
+                counts["TN"] += 1
+
+    return counts
+
+def plot_alert_confusion(counts):
+    cm = [[counts["TN"], counts["FP"]],
+          [counts["FN"], counts["TP"]]]
+
+    plt.figure(figsize=(5,4))
+    sns.heatmap(cm, annot=True, fmt="d", cmap="Blues",
+                xticklabels=["Not Detected", "Detected"],
+                yticklabels=["No Alert", "Alert Present"])
+    plt.xlabel("Model Detected")
+    plt.ylabel("Ground Truth")
+    plt.title("Structural Alert Detection Confusion Matrix")
+    plt.tight_layout()
+    plt.show()
+
 
 # Compute overlap between substructure matches and important atoms
 def compute_overlap_score(mol, smarts, highlighted_atoms):
@@ -455,25 +540,25 @@ def assemble_and_save_summary(per_task_dfs, per_task_impatoms, per_task_preds, p
         present, atom_highlights, bond_highlights = alerts_present_by_mol[mol_id]
         im_alerts_present = draw_with_colors(mol, list(atom_highlights.keys()), atom_highlights, list(bond_highlights.keys()), bond_highlights, size=cell_size)
 
-        union_atoms, atom_cols = set(), {}
-        for t in range(n_tasks):
-            imp = per_task_impatoms[t]
-            imp_t = imp[t]
-            tight = imp_t[mol_id]['tight'] if mol_id < len(imp_t) else []
-            loose = imp_t[mol_id]['loose'] if mol_id < len(imp_t) else []
-            for a in tight:
-                union_atoms.add(a)
-                atom_cols[a] = (1.0, 0.3, 0.3)
-            for a in loose:
-                if a not in atom_cols:
-                    atom_cols[a] = (1.0, 0.8, 0.3)
-                union_atoms.add(a)
-        im_imp = draw_with_colors(mol, list(union_atoms), atom_cols, [], {}, size=cell_size)
+        #union_atoms, atom_cols = set(), {}
+        #for t in range(n_tasks):
+        #    imp = per_task_impatoms[t]
+        #    imp_t = imp[t]
+        #    tight = imp_t[mol_id]['tight'] if mol_id < len(imp_t) else []
+        #    loose = imp_t[mol_id]['loose'] if mol_id < len(imp_t) else []
+        #    for a in tight:
+        #        union_atoms.add(a)
+        #        atom_cols[a] = (1.0, 0.3, 0.3)
+        #    for a in loose:
+        #        if a not in atom_cols:
+        #            atom_cols[a] = (1.0, 0.8, 0.3)
+        #        union_atoms.add(a)
+        #im_imp = draw_with_colors(mol, list(union_atoms), atom_cols, [], {}, size=cell_size)
 
         row_imgs = strain_cells + [cons_im, im_alerts_present]
         row_concat = hstack_images(row_imgs, pad=4)
 
-        outfn = os.path.join(output_dir, 'summary_rows', f'mol_{mol_id:04d}_cons_{consensus}_ovl_{overall_label}.png')
+        #outfn = os.path.join(output_dir, 'summary_rows', f'mol_{mol_id:04d}_cons_{consensus}_ovl_{overall_label}.png')
         #row_concat.save(outfn)
         #all_row_imgs.append(row_concat.convert('RGB'))
         #print(f"Saved summary row for mol {mol_id} -> {outfn}")
@@ -484,6 +569,10 @@ def assemble_and_save_summary(per_task_dfs, per_task_impatoms, per_task_preds, p
             rows_correct_nontoxic.append(row_concat)
         else:
             rows_incorrect.append(row_concat)
+
+    counts = compute_alert_confusion(global_smiles, alerts_compiled, alerts_present_by_mol, per_task_dfs, n_tasks)
+    plot_alert_confusion(counts)
+    print(counts)
 
     # Save category PDFs
     outdir = os.path.join(output_dir, "summary_rows")
@@ -678,7 +767,7 @@ def main():
                             n_shared_layers, n_target_specific_layers, n_shared, n_target, dropout_shared, dropout_target,
                             activation, useMolecularDescriptors, n_inputs)
 
-    checkpoint = torch.load('/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/output_seed_8_20_25/checkpoints/metrics_45_1.pt', map_location=torch.device('cpu'))
+    checkpoint = torch.load('/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/output_seed_8_20_25/checkpoints/metrics_62_2.pt', map_location=torch.device('cpu'))
     
     model.load_state_dict(checkpoint['model_state_dict'])
     model.eval()
@@ -747,7 +836,7 @@ def main():
             edge_mask = explanation.edge_mask.detach().cpu().numpy()
 
             # Tight filter
-            k_edges_tight = max(8, int(0.15 * edge_mask.size))  # ~10–15%
+            k_edges_tight = int(0.15 * edge_mask.size) #max(8, int(0.15 * edge_mask.size))  # ~10–15%
             top_e_tight = np.argsort(-edge_mask)[:k_edges_tight]
 
             imp_edges_tight = data.edge_index[:, torch.tensor(top_e_tight, device=data.edge_index.device)]
@@ -755,14 +844,26 @@ def main():
 
             G = to_networkx(data, to_undirected=True)
             sub_tight = G.subgraph(imp_nodes_tight).copy()
+            #if sub_tight.number_of_nodes() > 0:
+            #    lcc_tight = max(nx.connected_components(sub_tight), key=len)
+            #    important_atoms_tight = sorted(list(lcc_tight))
+            #else:
+            #    important_atoms_tight = []
+            #if sub_tight.number_of_nodes() > 0:
+            #    important_atoms_tight = imp_nodes_tight
+            #else:
+            #    important_atoms_tight = []
             if sub_tight.number_of_nodes() > 0:
-                lcc_tight = max(nx.connected_components(sub_tight), key=len)
-                important_atoms_tight = sorted(list(lcc_tight))
+                # Keep *all* connected components, not just the largest
+                comps = max(nx.connected_components(sub_tight), key=len)
+                important_atoms_tight = sorted(list(comps))
+                #comps = list(nx.connected_components(sub_tight))
+                #important_atoms_tight = sorted(set().union(*comps))
             else:
                 important_atoms_tight = []
 
             # Loose filter
-            k_edges_loose = max(8, int(0.15 * edge_mask.size))  # ~25–30%
+            k_edges_loose = int(0.15 * edge_mask.size) #max(8, int(0.15 * edge_mask.size))  # ~25–30%
             top_e_loose = np.argsort(-edge_mask)[:k_edges_loose]
 
             imp_edges_loose = data.edge_index[:, torch.tensor(top_e_loose, device=data.edge_index.device)]
@@ -777,6 +878,10 @@ def main():
                 #important_atoms_loose = sorted(set().union(*comps))
             else:
                 important_atoms_loose = []
+            #if sub_loose.number_of_nodes() > 0:
+            #    important_atoms_loose = imp_nodes_loose
+            #else:
+            #    important_atoms_tight = []
 
             # Collect both sets
             important_atoms_per_mol.append({
@@ -815,39 +920,43 @@ def main():
         alerts = load_alerts()
 
         df = evaluate_alerts(smiles_list, important_atoms_per_mol, alerts, predictions, correct_val, correct_val_overall) # Compute overlap scores by comparing alerts and important nodes, store all in df
+        df = df[(df["label"] != -1) & (df["label_overall"] != -1)]
         per_task_dfs.append({task_id: df})
 
         summary = df.groupby("alert")[["tight_score", "loose_score"]].mean().reset_index() #compute average scores for each alert
         summary = summary.sort_values("loose_score", ascending=False) # sort by loose score
         alerts_csv = os.path.join(args.output_dir, f"alerts_task_{task}.csv") # write to csv
         summary.to_csv(alerts_csv, index=False)
+        alerts_list = summary["alert"].tolist()  # <- canonical order for ALL plots
+        x = np.arange(len(alerts_list))
 
         ##### Plot per-strain results
-        plt.figure(figsize=(10, 6))
-        plt.bar(summary["alert"], summary["tight_score"], alpha=0.6)
-        #plt.bar(summary["alert"], summary["loose_score"], alpha=0.6, label="Loose")
-        plt.xticks(rotation=90)
+        plt.figure(figsize=(12, 6))
+        plt.bar(x, summary["tight_score"], alpha=0.6)
+        #plt.bar(x, summary["loose_score"], alpha=0.6, label="Loose")
+        plt.xticks(x, alerts_list, rotation=90)
         plt.ylabel("Mean overlap score")
-        plt.title("GNN explanation overlap with functional alerts, all molecules")
+        plt.title(f"Task {task}: GNN explanation overlap with functional alerts, all molecules")
         plt.legend()
         plt.tight_layout()
         plt.show()
 
-        alerts_list = df['alert'].unique()
-        x = np.arange(len(alerts_list))
-        bar_width = 0.5  # width of the bars
+        tight_means = (
+            df.groupby(["alert", "prediction"])["tight_score"]
+            .mean()
+            .unstack(fill_value=0)  # ensures missing entries are filled
+            .reindex(columns=[0, 1], fill_value=0)  # guarantees both columns exist
+            .reindex(alerts_list)  # enforces alert order
+        )
 
-        # --- Tight ---
-        tight_means = df.groupby(["alert", "prediction"])["tight_score"].mean().unstack(fill_value=0)
-
-        mean_tight_nontoxic = tight_means.get(0, np.zeros(len(alerts_list))).mean()
-        mean_tight_toxic = tight_means.get(1, np.zeros(len(alerts_list))).mean()
+        mean_tight_nontoxic = df.loc[df["prediction"] == 0, "tight_score"].mean()
+        mean_tight_toxic = df.loc[df["prediction"] == 1, "tight_score"].mean()
 
         plt.figure(figsize=(12, 6))
-        plt.bar(x, tight_means.get(0, np.zeros(len(alerts_list))), width=bar_width,
-                color='purple', alpha=0.6, label=f"Nontoxic (pred=0), overall mean={mean_tight_nontoxic:.2f}")
-        plt.bar(x, tight_means.get(1, np.zeros(len(alerts_list))), width=bar_width,
-                color='red', alpha=0.6, label=f"Toxic (pred=1), overall mean={mean_tight_toxic:.2f}")
+        plt.bar(x, tight_means[0], width=0.5, color='blue', alpha=0.6,
+                label=f"Nontoxic (pred=0), overall mean={mean_tight_nontoxic:.2f}")
+        plt.bar(x, tight_means[1], width=0.5, color='red', alpha=0.6,
+                label=f"Toxic (pred=1), overall mean={mean_tight_toxic:.2f}")
         plt.xticks(x, alerts_list, rotation=90)
         plt.ylabel("Mean overlap score")
         plt.title(f"Task {task}: Mean overlap score by predicted toxicity")
@@ -855,17 +964,22 @@ def main():
         plt.tight_layout()
         plt.show()
 
-        # --- Loose ---
-        loose_means = df.groupby(["alert", "prediction"])["loose_score"].mean().unstack(fill_value=0)
+        loose_means = (
+            df.groupby(["alert", "prediction"])["loose_score"]
+            .mean()
+            .unstack(fill_value=0)
+            .reindex(columns=[0, 1], fill_value=0)
+            .reindex(alerts_list)
+        )
 
-        mean_loose_nontoxic = loose_means.get(0, np.zeros(len(alerts_list))).mean()
-        mean_loose_toxic = loose_means.get(1, np.zeros(len(alerts_list))).mean()
+        mean_loose_nontoxic = df.loc[df["prediction"] == 0, "loose_score"].mean()
+        mean_loose_toxic = df.loc[df["prediction"] == 1, "loose_score"].mean()
 
         plt.figure(figsize=(12, 6))
-        plt.bar(x, loose_means.get(0, np.zeros(len(alerts_list))), width=bar_width,
-                color='purple', alpha=0.6, label=f"Nontoxic (pred=0), overall mean={mean_loose_nontoxic:.2f}")
-        plt.bar(x, loose_means.get(1, np.zeros(len(alerts_list))), width=bar_width,
-                color='red', alpha=0.6, label=f"Toxic (pred=1), overall mean={mean_loose_toxic:.2f}")
+        plt.bar(x, loose_means[0], width=0.5, color='blue', alpha=0.6,
+                label=f"Nontoxic (pred=0), overall mean={mean_loose_nontoxic:.2f}")
+        plt.bar(x, loose_means[1], width=0.5, color='red', alpha=0.6,
+                label=f"Toxic (pred=1), overall mean={mean_loose_toxic:.2f}")
         plt.xticks(x, alerts_list, rotation=90)
         plt.ylabel("Mean overlap score")
         plt.title(f"Task {task}: Mean overlap score by predicted toxicity")
@@ -874,10 +988,11 @@ def main():
         plt.show()
 
         pivot_df = df.pivot(index="mol_id", columns="alert", values="loose_score")
+        pivot_df = pivot_df.reindex(columns=alerts_list)
 
         plt.figure(figsize=(12, 6))
         sns.heatmap(pivot_df, cmap="viridis", cbar_kws={"label": "Overlap score"})
-        plt.title("Per-molecule overlap with functional alerts (loose)")
+        plt.title("Per-molecule overlap with functional alerts")
         plt.xlabel("Alert")
         plt.ylabel("Molecule")
         plt.tight_layout()
@@ -893,6 +1008,8 @@ def main():
             n_positive_labels=("label", lambda x: ((x == 1) & df.loc[x.index, 'alert_present']).sum()),
             n_negative_labels=("label", lambda x: ((x == 0) & df.loc[x.index, 'alert_present']).sum()),
         ).reset_index()
+
+        alert_summary = alert_summary.set_index("alert").reindex(alerts_list).reset_index()
 
         # Save to CSV
         alert_summary_csv = os.path.join(args.output_dir, f"alert_summary_task_{task}.csv")
@@ -914,8 +1031,8 @@ def main():
         plt.show()
 
         # Only include molecules with valid label_overall and label
-        valid_mols = df[(df['label_overall'] != -1) & (df['label'] != -1)]['mol_id'].unique()
-
+        #valid_mols = df[(df['label_overall'] != -1) & (df['label'] != -1)]['mol_id'].unique()
+        valid_mols = df['mol_id'].unique()
         # Use tab20 for distinct alert colors
         alert_names = df['alert'].unique()
         n_alerts = len(alert_names)

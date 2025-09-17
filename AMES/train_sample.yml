@@ -28,7 +28,7 @@ ActivationFunction: "Tanh" #"Tanh"
 nEpochs: 1 #np.iinfo(np.int32). # Number of epochs
 nBatch: 32 # Ba15h size
 nCheckpoint: 1 # Checkpoint frequency
-randomSeed: 90 # Random seed
+randomSeed: 62 # Random seed
 #nTrainMaxEntries: 1500 # Number of training samples to use
 #nValMaxEntries: 300 # Number of validation examples to  use
 

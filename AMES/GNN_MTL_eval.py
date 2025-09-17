@@ -533,7 +533,7 @@ def main():
     #epoch = checkpoint['epoch']
     #loss = checkpoint['loss']
 
-    #thresholds = [0.55, 0.55, 0.45, 0.48, 0.48]
+    #thresholds = [0.42499999999999993, 0.5, 0.3, 0.5, 0.5]
     thresholds = [0.5, 0.5, 0.5, 0.5, 0.5]
     # Compute thresholds
 
@@ -569,7 +569,7 @@ def main():
     val_metric, val_scores = eval_consensus_metric(y_true_cat, y_logit_cat, best_ths, metric="bal_acc")
     print("Validation consensus scores (Sp, Sn, Prec, Acc, BalAcc, F1, H):", val_scores)
 
-    #thresholds =  [0.5, 0.725, 0.5, 0.5, 0.25]
+    #thresholds =  [0.5, 0.675, 0.5, 0.5, 0.5]
     thresholds = [0.5, 0.5, 0.5, 0.5, 0.5]
 
     # Make predictions
