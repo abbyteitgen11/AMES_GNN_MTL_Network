@@ -46,7 +46,7 @@ from rdkit.Chem.Draw import rdMolDraw2D
 import io
 from PIL import Image, ImageDraw, ImageFont
 import colorsys
-from collections import Counter
+
 
 
 from callbacks import set_up_callbacks
@@ -256,6 +256,36 @@ def compute_alert_confusion(global_smiles, alerts_compiled, alerts_present_by_mo
 
     return counts
 
+
+def compute_per_alert_confusions(global_smiles, alerts_compiled, alerts_present_by_mol, per_task_dfs, n_tasks):
+    """Return dict: alert -> dict(TP, FN, FP, TN) aggregated across all strains."""
+    results = defaultdict(lambda: {"TP": 0, "FN": 0, "FP": 0, "TN": 0})
+
+    for mol_id, (present_alerts, _, _) in enumerate(alerts_present_by_mol):
+        for alert, patt in alerts_compiled:
+            # Ground truth
+            gt = alert in present_alerts
+
+            # Did model detect this alert in ANY strain?
+            detected = False
+            for task in range(n_tasks):
+                df_task = per_task_dfs[task][task]
+                mol_df = df_task[df_task['mol_id'] == mol_id]
+                if not mol_df.empty and any((mol_df['alert'] == alert) & mol_df['alert_present']):
+                    detected = True
+                    break
+
+            if gt and detected:
+                results[alert]["TP"] += 1
+            elif gt and not detected:
+                results[alert]["FN"] += 1
+            elif not gt and detected:
+                results[alert]["FP"] += 1
+            else:
+                results[alert]["TN"] += 1
+
+    return results
+
 def plot_alert_confusion(counts):
     cm = [[counts["TN"], counts["FP"]],
           [counts["FN"], counts["TP"]]]
@@ -416,7 +446,7 @@ def generate_alert_colors(alerts):
 
 
 # Plot summary
-def assemble_and_save_summary(per_task_dfs, per_task_impatoms, per_task_preds, per_task_labels, global_smiles, alerts_compiled, output_dir):
+def assemble_and_save_summary(per_task_dfs, per_task_impatoms, per_task_preds, per_task_labels, global_smiles, alerts_compiled, output_dir, alerts_list):
     #cmap = cm.get_cmap("tab20", len(alerts_compiled))
     #alert_colors = {name: tuple(cmap(i)[:3]) for i, (name, _) in enumerate(alerts_compiled)}
 
@@ -573,6 +603,56 @@ def assemble_and_save_summary(per_task_dfs, per_task_impatoms, per_task_preds, p
     counts = compute_alert_confusion(global_smiles, alerts_compiled, alerts_present_by_mol, per_task_dfs, n_tasks)
     plot_alert_confusion(counts)
     print(counts)
+
+    per_alert_confusions = compute_per_alert_confusions(global_smiles, alerts_compiled, alerts_present_by_mol, per_task_dfs, n_tasks)
+
+    # Convert to DataFrame
+    records = []
+    records_summary = []
+    for alert, c in per_alert_confusions.items():
+        tp, fn, fp, tn = c["TP"], c["FN"], c["FP"], c["TN"]
+        sensitivity = tp / (tp + fn) if (tp + fn) > 0 else 0
+        precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+        records_summary.append({"alert": alert, "true positive": tp, "false negative": fn})
+        records.append({"alert": alert, "sensitivity": sensitivity, "precision": precision})
+
+    df_alert_perf = pd.DataFrame(records).sort_values("sensitivity", ascending=False)
+
+    df_alert_summary = pd.DataFrame(records_summary).sort_values("true positive", ascending=False)
+
+    # --- Plot ---
+    plt.figure(figsize=(12, 6))
+    bar_width = 0.4
+    x = np.arange(len(df_alert_perf))
+
+    plt.bar(x - bar_width / 2, df_alert_perf["sensitivity"], width=bar_width, label="Sensitivity (Recall)")
+    #plt.bar(x + bar_width / 2, df_alert_perf["precision"], width=bar_width, label="Precision")
+
+    plt.xticks(x, df_alert_perf["alert"], rotation=90)
+    plt.ylabel("Score")
+    plt.title("Per-Alert Detection Performance (Global, all strains)")
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+
+    plt.figure(figsize=(12, 6))
+    bar_width = 0.4
+    x = np.arange(len(df_alert_summary))
+
+    plt.bar(x - bar_width / 2, df_alert_summary["true positive"], width=bar_width, label="True positive")
+    plt.bar(x + bar_width / 2, df_alert_summary["false negative"], width=bar_width, label="False negative")
+
+    plt.xticks(x, df_alert_perf["alert"], rotation=90)
+    plt.ylabel("Count")
+    plt.title("Per-Alert Detection Performance (Global, all strains)")
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+    # Save to CSV
+    SA_alert_summary_csv = os.path.join(output_dir, f"SA_summary.csv")
+    df_alert_summary.to_csv(SA_alert_summary_csv, index=False)
 
     # Save category PDFs
     outdir = os.path.join(output_dir, "summary_rows")
@@ -767,7 +847,7 @@ def main():
                             n_shared_layers, n_target_specific_layers, n_shared, n_target, dropout_shared, dropout_target,
                             activation, useMolecularDescriptors, n_inputs)
 
-    checkpoint = torch.load('/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/output_seed_8_20_25/checkpoints/metrics_62_2.pt', map_location=torch.device('cpu'))
+    checkpoint = torch.load('/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/output_seed_8_20_25/checkpoints/metrics_79_3.pt', map_location=torch.device('cpu'))
     
     model.load_state_dict(checkpoint['model_state_dict'])
     model.eval()
@@ -1114,7 +1194,7 @@ def main():
         plot_group(incorrect_imgs, "Incorrect Prediction (pred≠label)", alert_color_dict, present_alerts)
 
     alerts_compiled = load_alerts()
-    assemble_and_save_summary(per_task_dfs, per_task_impatoms, per_task_preds, per_task_labels, global_smiles, alerts_compiled, args.output_dir)
+    assemble_and_save_summary(per_task_dfs, per_task_impatoms, per_task_preds, per_task_labels, global_smiles, alerts_compiled, args.output_dir, alerts_list)
 
 if __name__ == "__main__":
     main()
