@@ -4,57 +4,42 @@ import os
 import pdb
 import re
 import sys
-import csv
 import h5py
 import random
 import markdown
 import csv
 import argparse
 import logging
-
+from collections import Counter, defaultdict
+import json
 import pickle
-import matplotlib.pyplot as plt
+import math
 import yaml
+import io
 import numpy as np
 import pandas as pd
+import seaborn as sns
+import matplotlib.pyplot as plt
+from matplotlib.patches import Patch
+import matplotlib.colors as mcolors
+import matplotlib.cm as cm
+from PIL import Image, ImageDraw, ImageFont
+import colorsys
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from tensorboard.compat.proto.struct_pb2 import NoneValue
-from torch.utils.data import DataLoader
-from torch.utils.data import TensorDataset
+from torch.utils.data import DataLoader, TensorDataset, Dataset
 from torch.utils.tensorboard import SummaryWriter
-from torch.utils.data import Dataset
 from torch_geometric.loader import DataLoader
 from torch_geometric.explain import GNNExplainer, PGExplainer, Explainer
 from torch_geometric.utils import to_networkx
 import networkx as nx
 from networkx.drawing import nx_agraph
 from rdkit import Chem
-from rdkit.Chem import Draw
-from rdkit.Chem import AllChem
-from rdkit.Chem import rdmolops
-from torch_geometric.utils import to_networkx
-from collections import Counter
-from collections import defaultdict
-import seaborn as sns
-import matplotlib.colors as mcolors
-from matplotlib.patches import Patch
-import math
-import matplotlib.cm as cm
 from rdkit.Chem.Draw import rdMolDraw2D
-import io
-from PIL import Image, ImageDraw, ImageFont
-import colorsys
-from collections import Counter, defaultdict
-from rdkit.Chem import AllChem
-import json
-from rdkit import Chem
-from rdkit.Chem import Draw, AllChem
+from rdkit.Chem import Draw, AllChem, rdmolops
 from rdkit.DataStructs import TanimotoSimilarity
-from collections import Counter
-import os
-
 
 from callbacks import set_up_callbacks
 from count_model_parameters import count_model_parameters
@@ -69,18 +54,19 @@ from set_seed import set_seed
 from MTLDataset import MTLDataset
 from TaskSpecificGNN import TaskSpecificGNN
 
-
 # Set seed
 torch.manual_seed(42)
 random.seed(42)
 np.random.seed(42)
 torch.cuda.manual_seed(42)
 
+
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--output_dir", type=str, required=True)
     parser.add_argument("--input_file", type=str, required=True)
     return parser.parse_args()
+
 
 # Load structural alerts
 def load_alerts():
@@ -205,7 +191,7 @@ def load_alerts():
         ("Acrylamides", "C=CC(=O)N"),
         ("Alkylating sulfonates/mesylates/tosylates", "OS(=O)(=O)C"),
     ]
-    
+
     """
     # Simpler subset
     alerts = [
@@ -227,7 +213,6 @@ def load_alerts():
         if patt:
             compiled.append((name, patt))
     return compiled
-
 
 
 def compute_alert_confusion(global_smiles, alerts_compiled, alerts_present_by_mol, per_task_dfs, n_tasks):
@@ -293,11 +278,12 @@ def compute_per_alert_confusions(global_smiles, alerts_compiled, alerts_present_
 
     return results
 
+
 def plot_alert_confusion(counts):
     cm = [[counts["TN"], counts["FP"]],
           [counts["FN"], counts["TP"]]]
 
-    plt.figure(figsize=(5,4))
+    plt.figure(figsize=(5, 4))
     sns.heatmap(cm, annot=True, fmt="d", cmap="Blues",
                 xticklabels=["Not Detected", "Detected"],
                 yticklabels=["No Alert", "Alert Present"])
@@ -310,7 +296,7 @@ def plot_alert_confusion(counts):
 
 # Compute overlap between substructure matches and important atoms
 def compute_overlap_score(mol, smarts, highlighted_atoms):
-    matches = mol.GetSubstructMatches(smarts) #match_smarts(mol, smarts)
+    matches = mol.GetSubstructMatches(smarts)  # match_smarts(mol, smarts)
     if not matches:
         return 0.0, []
 
@@ -328,8 +314,9 @@ def compute_overlap_score(mol, smarts, highlighted_atoms):
 def evaluate_alerts(smiles_list, important_atoms_per_mol, alerts, predictions, correct_val, correct_val_overall):
     rows = []
 
-    for i, (smiles, imp_dict, pred, label, label_overall) in enumerate(zip(smiles_list, important_atoms_per_mol, predictions, correct_val, correct_val_overall)):
-        #mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
+    for i, (smiles, imp_dict, pred, label, label_overall) in enumerate(
+            zip(smiles_list, important_atoms_per_mol, predictions, correct_val, correct_val_overall)):
+        # mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
         mol = Chem.MolFromSmiles(smiles)
         for name, smarts in alerts:
             tight_score, _ = compute_overlap_score(mol, smarts, imp_dict["tight"])
@@ -347,9 +334,10 @@ def evaluate_alerts(smiles_list, important_atoms_per_mol, alerts, predictions, c
 
     return pd.DataFrame(rows)
 
+
 # Plotting
 def draw_with_colors(mol, highlight_atoms, highlight_atom_colors,
-                     highlight_bonds, highlight_bond_colors, size=(300,300)):
+                     highlight_bonds, highlight_bond_colors, size=(300, 300)):
     # ensure 2D coords exist
     if not mol.GetNumConformers():
         AllChem.Compute2DCoords(mol)
@@ -383,13 +371,14 @@ def draw_with_colors(mol, highlight_atoms, highlight_atom_colors,
     png = drawer.GetDrawingText()
     return Image.open(io.BytesIO(png))
 
+
 # Plot in grid
 def plot_group(imgs, title, alert_color_dict, present_alerts, ncols=5):
     if not imgs:
         print(f"No molecules in {title}")
         return
     nrows = -(-len(imgs) // ncols)  # ceiling division
-    fig, axes = plt.subplots(nrows, ncols, figsize=(ncols*3, nrows*3))
+    fig, axes = plt.subplots(nrows, ncols, figsize=(ncols * 3, nrows * 3))
     axes = axes.flatten()
 
     for ax, (img, mol_id, pred, label) in zip(axes, imgs):
@@ -409,28 +398,32 @@ def plot_group(imgs, title, alert_color_dict, present_alerts, ncols=5):
     plt.tight_layout()
     plt.show()
 
-def blank_image(size=(300,300), color=(255,255,255)):
+
+def blank_image(size=(300, 300), color=(255, 255, 255)):
     return Image.new('RGB', size, color)
 
-def hstack_images(imgs, pad=6, bg=(255,255,255)):
+
+def hstack_images(imgs, pad=6, bg=(255, 255, 255)):
     widths, heights = zip(*(i.size for i in imgs))
-    total_w = sum(widths) + pad*(len(imgs)-1)
+    total_w = sum(widths) + pad * (len(imgs) - 1)
     max_h = max(heights)
     new_im = Image.new('RGB', (total_w, max_h), bg)
     x = 0
     for im in imgs:
-        new_im.paste(im, (x, (max_h-im.size[1])//2))
+        new_im.paste(im, (x, (max_h - im.size[1]) // 2))
         x += im.size[0] + pad
     return new_im
+
 
 import matplotlib.cm as cm
 import numpy as np
 
+
 def generate_alert_colors(alerts):
     reserved = [
-        (1.0, 0.3, 0.3),   # red
-        (1.0, 0.8, 0.3),   # orange
-        (0.8, 0.8, 0.8),   # gray
+        (1.0, 0.3, 0.3),  # red
+        (1.0, 0.8, 0.3),  # orange
+        (0.8, 0.8, 0.8),  # gray
     ]
     reserved = np.array(reserved)
 
@@ -443,20 +436,21 @@ def generate_alert_colors(alerts):
     for cand in rgb_candidates:
         cand_arr = np.array(cand)
         dists = np.linalg.norm(reserved - cand_arr, axis=1)
-        if np.all(dists > 0.25):   # threshold to avoid looking too similar
+        if np.all(dists > 0.25):  # threshold to avoid looking too similar
             safe_colors.append(cand)
         else:
             # tweak hue slightly if too close
-            new = ((cand[0]*0.7 + 0.3), (cand[1]*0.7), (cand[2]*0.7))
+            new = ((cand[0] * 0.7 + 0.3), (cand[1] * 0.7), (cand[2] * 0.7))
             safe_colors.append(new)
 
-    return {name: safe_colors[i] for i,(name,_) in enumerate(alerts)}
+    return {name: safe_colors[i] for i, (name, _) in enumerate(alerts)}
 
 
 # Plot summary
-def assemble_and_save_summary(per_task_dfs, per_task_impatoms, per_task_preds, per_task_labels, global_smiles, alerts_compiled, output_dir, alerts_list):
-    #cmap = cm.get_cmap("tab20", len(alerts_compiled))
-    #alert_colors = {name: tuple(cmap(i)[:3]) for i, (name, _) in enumerate(alerts_compiled)}
+def assemble_and_save_summary(per_task_dfs, per_task_impatoms, per_task_preds, per_task_labels, global_smiles,
+                              alerts_compiled, output_dir, alerts_list):
+    # cmap = cm.get_cmap("tab20", len(alerts_compiled))
+    # alert_colors = {name: tuple(cmap(i)[:3]) for i, (name, _) in enumerate(alerts_compiled)}
 
     alert_colors = generate_alert_colors(alerts_compiled)
 
@@ -464,11 +458,11 @@ def assemble_and_save_summary(per_task_dfs, per_task_impatoms, per_task_preds, p
 
     n_tasks = len(per_task_dfs)
     n_mols = len(global_smiles)
-    cell_size = (300,300)
+    cell_size = (300, 300)
 
     alerts_present_by_mol = []
     for s in global_smiles:
-        #mol = Chem.AddHs(Chem.MolFromSmiles(s))
+        # mol = Chem.AddHs(Chem.MolFromSmiles(s))
         mol = Chem.MolFromSmiles(s)
         atom_highlights = {}
         bond_highlights = {}
@@ -483,7 +477,7 @@ def assemble_and_save_summary(per_task_dfs, per_task_impatoms, per_task_preds, p
                     for bond in mol.GetBonds():
                         a1, a2 = bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()
                         if a1 in match and a2 in match:
-                            bond_highlights[bond.GetIdx()] = (0.6,0.6,0.6)
+                            bond_highlights[bond.GetIdx()] = (0.6, 0.6, 0.6)
         alerts_present_by_mol.append((present, atom_highlights, bond_highlights))
 
     all_row_imgs = []
@@ -494,7 +488,7 @@ def assemble_and_save_summary(per_task_dfs, per_task_impatoms, per_task_preds, p
     for mol_id in range(n_mols):
         df0 = per_task_dfs[0]
         df_0 = df0[0]
-        overall_rows = df_0[df_0['mol_id']==mol_id]
+        overall_rows = df_0[df_0['mol_id'] == mol_id]
         if overall_rows.empty:
             continue
         overall_label = int(overall_rows.iloc[0]['label_overall'])
@@ -502,13 +496,13 @@ def assemble_and_save_summary(per_task_dfs, per_task_impatoms, per_task_preds, p
             continue
 
         mol = Chem.MolFromSmiles(global_smiles[mol_id])
-        #mol = Chem.AddHs(Chem.MolFromSmiles(global_smiles[mol_id]))
+        # mol = Chem.AddHs(Chem.MolFromSmiles(global_smiles[mol_id]))
 
         strain_cells = []
         for task in range(n_tasks):
             pdf = per_task_dfs[task]
             pdf_task = pdf[task]
-            mol_df = pdf_task[pdf_task['mol_id']==mol_id]
+            mol_df = pdf_task[pdf_task['mol_id'] == mol_id]
             if mol_df.empty:
                 strain_cells.append(blank_image(cell_size))
                 continue
@@ -523,17 +517,17 @@ def assemble_and_save_summary(per_task_dfs, per_task_impatoms, per_task_preds, p
                 for _, row in mol_df.iterrows():
                     if row['alert_present']:
                         name = row['alert']
-                        patt = next((p for n,p in alerts_compiled if n==name), None)
+                        patt = next((p for n, p in alerts_compiled if n == name), None)
                         if patt is None:
                             continue
                         matches = mol.GetSubstructMatches(patt)
-                        color = alert_colors.get(name, (0.5,0.5,0.5))
+                        color = alert_colors.get(name, (0.5, 0.5, 0.5))
                         for match in matches:
                             for a in match:
                                 highlight_atoms.append(a)
                                 atom_colors[a] = color
                             for bond in mol.GetBonds():
-                                a1,a2 = bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()
+                                a1, a2 = bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()
                                 if a1 in match and a2 in match:
                                     bid = bond.GetIdx()
                                     highlight_bonds.append(bid)
@@ -559,8 +553,8 @@ def assemble_and_save_summary(per_task_dfs, per_task_impatoms, per_task_preds, p
                 except Exception:
                     font = ImageFont.load_default()
                 text = f"P:{pred} / L:{correct_label}"
-                draw.rectangle([(0,0),(im.size[0],18)], fill=(255,255,255))
-                draw.text((4,0), text, fill=(0,0,0), font=font)
+                draw.rectangle([(0, 0), (im.size[0], 18)], fill=(255, 255, 255))
+                draw.text((4, 0), text, fill=(0, 0, 0), font=font)
             strain_cells.append(im)
 
         preds = []
@@ -574,14 +568,15 @@ def assemble_and_save_summary(per_task_dfs, per_task_impatoms, per_task_preds, p
             font = ImageFont.truetype('DejaVuSans.ttf', 18)
         except Exception:
             font = ImageFont.load_default()
-        d.text((10,10), f"Consensus: {consensus}", fill=(0,0,0), font=font)
-        d.text((10,40), f"Overall label: {overall_label}", fill=(0,0,0), font=font)
+        d.text((10, 10), f"Consensus: {consensus}", fill=(0, 0, 0), font=font)
+        d.text((10, 40), f"Overall label: {overall_label}", fill=(0, 0, 0), font=font)
 
         present, atom_highlights, bond_highlights = alerts_present_by_mol[mol_id]
-        im_alerts_present = draw_with_colors(mol, list(atom_highlights.keys()), atom_highlights, list(bond_highlights.keys()), bond_highlights, size=cell_size)
+        im_alerts_present = draw_with_colors(mol, list(atom_highlights.keys()), atom_highlights,
+                                             list(bond_highlights.keys()), bond_highlights, size=cell_size)
 
-        #union_atoms, atom_cols = set(), {}
-        #for t in range(n_tasks):
+        # union_atoms, atom_cols = set(), {}
+        # for t in range(n_tasks):
         #    imp = per_task_impatoms[t]
         #    imp_t = imp[t]
         #    tight = imp_t[mol_id]['tight'] if mol_id < len(imp_t) else []
@@ -593,15 +588,15 @@ def assemble_and_save_summary(per_task_dfs, per_task_impatoms, per_task_preds, p
         #        if a not in atom_cols:
         #            atom_cols[a] = (1.0, 0.8, 0.3)
         #        union_atoms.add(a)
-        #im_imp = draw_with_colors(mol, list(union_atoms), atom_cols, [], {}, size=cell_size)
+        # im_imp = draw_with_colors(mol, list(union_atoms), atom_cols, [], {}, size=cell_size)
 
         row_imgs = strain_cells + [cons_im, im_alerts_present]
         row_concat = hstack_images(row_imgs, pad=4)
 
-        #outfn = os.path.join(output_dir, 'summary_rows', f'mol_{mol_id:04d}_cons_{consensus}_ovl_{overall_label}.png')
-        #row_concat.save(outfn)
-        #all_row_imgs.append(row_concat.convert('RGB'))
-        #print(f"Saved summary row for mol {mol_id} -> {outfn}")
+        # outfn = os.path.join(output_dir, 'summary_rows', f'mol_{mol_id:04d}_cons_{consensus}_ovl_{overall_label}.png')
+        # row_concat.save(outfn)
+        # all_row_imgs.append(row_concat.convert('RGB'))
+        # print(f"Saved summary row for mol {mol_id} -> {outfn}")
 
         if consensus == 1 and overall_label == 1:
             rows_correct_toxic.append(row_concat)
@@ -614,7 +609,8 @@ def assemble_and_save_summary(per_task_dfs, per_task_impatoms, per_task_preds, p
     plot_alert_confusion(counts)
     print(counts)
 
-    per_alert_confusions = compute_per_alert_confusions(global_smiles, alerts_compiled, alerts_present_by_mol, per_task_dfs, n_tasks)
+    per_alert_confusions = compute_per_alert_confusions(global_smiles, alerts_compiled, alerts_present_by_mol,
+                                                        per_task_dfs, n_tasks)
 
     # Convert to DataFrame
     records = []
@@ -636,7 +632,7 @@ def assemble_and_save_summary(per_task_dfs, per_task_impatoms, per_task_preds, p
     x = np.arange(len(df_alert_perf))
 
     plt.bar(x - bar_width / 2, df_alert_perf["sensitivity"], width=bar_width, label="Sensitivity (Recall)")
-    #plt.bar(x + bar_width / 2, df_alert_perf["precision"], width=bar_width, label="Precision")
+    # plt.bar(x + bar_width / 2, df_alert_perf["precision"], width=bar_width, label="Precision")
 
     plt.xticks(x, df_alert_perf["alert"], rotation=90)
     plt.ylabel("Score")
@@ -644,7 +640,6 @@ def assemble_and_save_summary(per_task_dfs, per_task_impatoms, per_task_preds, p
     plt.legend()
     plt.tight_layout()
     plt.show()
-
 
     plt.figure(figsize=(12, 6))
     bar_width = 0.4
@@ -659,6 +654,45 @@ def assemble_and_save_summary(per_task_dfs, per_task_impatoms, per_task_preds, p
     plt.legend()
     plt.tight_layout()
     plt.show()
+
+    # === Strain-specific structural alert detection analysis ===
+    detection_freqs = compute_alert_detection_by_strain(
+        global_smiles,
+        alerts_compiled,
+        alerts_present_by_mol,
+        per_task_dfs,
+        n_tasks
+    )
+
+    #plot_alert_detection_heatmap(detection_freqs_ordered, order)
+
+    # Save numerical table
+    #csv_path = os.path.join(args.output_dir, "strain_specific_alert_detection_frequencies.csv")
+    #detection_freqs.to_csv(csv_path)
+    #print(f"✅ Saved strain-specific alert detection frequencies → {csv_path}")
+
+
+    # === Overall alert detection performance ===
+    df_perf = compute_overall_alert_performance(
+        alerts_compiled,
+        alerts_present_by_mol,
+        per_task_dfs,
+        n_tasks
+    )
+
+    output_dir = '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/output'
+    df_perf = compute_overall_alert_performance(alerts_compiled, alerts_present_by_mol, per_task_dfs, n_tasks)
+    detection_freqs = compute_detection_frequencies(alerts_compiled, per_task_dfs, n_tasks)
+    order, _ = plot_alert_performance_bars(df_perf, detection_freqs, output_dir)
+    #plot_alert_detection_heatmap(detection_freqs, order, output_dir)
+
+    # Compute mean toxic overlap per alert per strain
+    overlap_scores = compute_toxic_overlap_by_strain(
+        alerts_compiled, per_task_dfs, n_tasks, alerts_present_by_mol
+    )
+
+    # Plot it using the same alert ordering as the bar plot
+    plot_toxic_overlap_heatmap(overlap_scores, order, output_dir=output_dir)
 
     # Save to CSV
     SA_alert_summary_csv = os.path.join(output_dir, f"SA_summary.csv")
@@ -685,11 +719,11 @@ def save_rows_to_pdf(row_imgs, pdf_path, alert_colors, rows_per_page=20):
     row_imgs = [im.convert("RGB") for im in row_imgs]
     page_imgs = []
     for i in range(0, len(row_imgs), rows_per_page):
-        batch = row_imgs[i:i+rows_per_page]
+        batch = row_imgs[i:i + rows_per_page]
         widths, heights = zip(*(im.size for im in batch))
         page_w = max(widths)
         page_h = sum(heights)
-        page = Image.new("RGB", (page_w, page_h), (255,255,255))
+        page = Image.new("RGB", (page_w, page_h), (255, 255, 255))
         y = 0
         for im in batch:
             page.paste(im, (0, y))
@@ -703,8 +737,9 @@ def save_rows_to_pdf(row_imgs, pdf_path, alert_colors, rows_per_page=20):
     page_imgs[0].save(pdf_path, save_all=True, append_images=page_imgs[1:])
     print(f"Saved PDF: {pdf_path} ({len(page_imgs)} pages)")
 
-def make_legend_page(alert_colors, size=(1200,1600)):
-    page = Image.new("RGB", size, (255,255,255))
+
+def make_legend_page(alert_colors, size=(1200, 1600)):
+    page = Image.new("RGB", size, (255, 255, 255))
     draw = ImageDraw.Draw(page)
     try:
         font = ImageFont.truetype("DejaVuSans.ttf", 20)
@@ -713,18 +748,288 @@ def make_legend_page(alert_colors, size=(1200,1600)):
 
     x, y = 50, 50
     # structural alerts
-    draw.text((x, y), "Structural Alerts:", fill=(0,0,0), font=font)
+    draw.text((x, y), "Structural Alerts:", fill=(0, 0, 0), font=font)
     y += 40
     for name, color in alert_colors.items():
-        rgb = tuple(int(c*255) for c in color)
-        draw.rectangle([x,y,x+40,y+40], fill=rgb)
-        draw.text((x+50, y), name, fill=(0,0,0), font=font)
+        rgb = tuple(int(c * 255) for c in color)
+        draw.rectangle([x, y, x + 40, y + 40], fill=rgb)
+        draw.text((x + 50, y), name, fill=(0, 0, 0), font=font)
         y += 50
-        if y > size[1]-50:
+        if y > size[1] - 50:
             y = 90
             x += 400
 
     return page
+
+def compute_alert_detection_by_strain(global_smiles, alerts_compiled, alerts_present_by_mol, per_task_dfs, n_tasks):
+    """
+    Returns a DataFrame of shape [n_alerts x n_strains] with values =
+    fraction of molecules in which each alert was detected by each strain.
+    """
+    all_alerts = [name for name, _ in alerts_compiled]
+    strain_names = [f"strain_{i+1}" for i in range(n_tasks)]
+
+    # Initialize counts
+    detection_counts = pd.DataFrame(0, index=all_alerts, columns=strain_names, dtype=float)
+    n_mols = len(global_smiles)
+
+    for mol_id, (present_alerts, _, _) in enumerate(alerts_present_by_mol):
+        for task in range(n_tasks):
+            df_task = per_task_dfs[task][task]
+            mol_df = df_task[df_task["mol_id"] == mol_id]
+
+            # Alerts detected by this strain in this molecule
+            detected_alerts = mol_df.loc[mol_df["alert_present"], "alert"].unique().tolist()
+            for alert in detected_alerts:
+                if alert in all_alerts:
+                    detection_counts.loc[alert, f"strain_{task+1}"] += 1
+
+    # Normalize by total number of molecules → fraction
+    detection_freqs = detection_counts / float(n_mols)
+    return detection_freqs
+
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+import os
+from collections import defaultdict
+
+
+def compute_overall_alert_performance(alerts_compiled, alerts_present_by_mol, per_task_dfs, n_tasks):
+    """
+    Compute overall alert-level metrics:
+      - % correctly identified = (alert present & overlap > 0) / (alert present)
+      - mean overlap score (overall)
+      - mean overlap score for toxic and non-toxic molecules
+    Returns DataFrame indexed by alert name.
+    """
+    all_alerts = [name for name, _ in alerts_compiled]
+    stats = {
+        a: {
+            "n_present": 0,
+            "n_detected": 0,
+            "overlaps": [],
+            "overlaps_toxic": [],
+            "overlaps_nontoxic": [],
+        }
+        for a in all_alerts
+    }
+
+    for mol_id, (present_alerts, _, label_list) in enumerate(alerts_present_by_mol):
+        is_toxic = any(l == 1 for l in label_list)
+        mol_overlaps = defaultdict(list)
+        mol_detected = defaultdict(bool)
+
+        # Loop through all tasks/strains
+        for task in range(n_tasks):
+            df_task = per_task_dfs[task][task]
+            mol_df = df_task[df_task["mol_id"] == mol_id]
+
+            for _, row in mol_df.iterrows():
+                a = row["alert"]
+                if a not in stats or not row["alert_present"]:
+                    continue
+                overlap = row.get("tight_score", 0.0)
+                mol_overlaps[a].append(overlap)
+                if overlap > 0:
+                    mol_detected[a] = True
+
+        # Aggregate per alert
+        for alert in present_alerts:
+            if alert not in stats:
+                continue
+            stats[alert]["n_present"] += 1
+            if mol_detected[alert]:
+                stats[alert]["n_detected"] += 1
+            if alert in mol_overlaps:
+                stats[alert]["overlaps"].extend(mol_overlaps[alert])
+                if is_toxic:
+                    stats[alert]["overlaps_toxic"].extend(mol_overlaps[alert])
+                else:
+                    stats[alert]["overlaps_nontoxic"].extend(mol_overlaps[alert])
+
+    # Convert to DataFrame
+    rows = []
+    for alert, v in stats.items():
+        n_pres = v["n_present"]
+        n_det = v["n_detected"]
+        pct_correct = (n_det / n_pres * 100) if n_pres > 0 else 0
+        mean_overlap = np.mean(v["overlaps"]) if v["overlaps"] else 0
+        mean_overlap_tox = np.mean(v["overlaps_toxic"]) if v["overlaps_toxic"] else 0
+        mean_overlap_non = np.mean(v["overlaps_nontoxic"]) if v["overlaps_nontoxic"] else 0
+        rows.append({
+            "alert": alert,
+            "percent_correct": pct_correct,
+            "mean_overlap": mean_overlap,
+            "mean_overlap_toxic": mean_overlap_tox,
+            "mean_overlap_nontoxic": mean_overlap_non
+        })
+
+    df_perf = pd.DataFrame(rows).set_index("alert")
+    return df_perf
+
+
+def compute_detection_frequencies(alerts_compiled, per_task_dfs, n_tasks):
+    """
+    Compute detection frequency for each alert per strain:
+    fraction of all molecules (not just ones where alert_present=True)
+    where alert overlap > 0.
+    """
+    all_alerts = [name for name, _ in alerts_compiled]
+    detection_freqs = pd.DataFrame(0.0, index=all_alerts, columns=[f"Strain {i+1}" for i in range(n_tasks)])
+
+    for task in range(n_tasks):
+        df_task = per_task_dfs[task][task].copy()
+        df_task["alert_detected"] = df_task["tight_score"] > 0
+
+        for alert in all_alerts:
+            df_alert = df_task[df_task["alert"] == alert]
+            if len(df_alert) == 0:
+                continue
+
+            # detection fraction across *all* molecules, not just where alert_present=True
+            mol_detected = df_alert.groupby("mol_id")["alert_detected"].max()
+            detection_freqs.loc[alert, f"Strain {task+1}"] = mol_detected.mean()  # average across all mols
+
+    return detection_freqs
+
+def compute_toxic_overlap_by_strain(alerts_compiled, per_task_dfs, n_tasks, alerts_present_by_mol):
+    """
+    Computes mean overlap score (tight_score) for toxic molecules only,
+    per alert × strain.
+    Returns a DataFrame with alerts as rows, strains as columns.
+    """
+    all_alerts = [name for name, _ in alerts_compiled]
+    overlap_scores = pd.DataFrame(0.0, index=all_alerts, columns=[f"Strain {i+1}" for i in range(n_tasks)])
+
+    # Identify toxic molecule IDs
+    toxic_mols = [i for i, (_, _, labels) in enumerate(alerts_present_by_mol) if any(l == 1 for l in labels)]
+
+    for task in range(n_tasks):
+        df_task = per_task_dfs[task][task].copy()
+        df_task = df_task[df_task["mol_id"].isin(toxic_mols)]
+
+        for alert in all_alerts:
+            df_alert = df_task[(df_task["alert"] == alert) & (df_task["alert_present"])]
+            if len(df_alert) == 0:
+                continue
+            mean_overlap = df_alert["tight_score"].mean()
+            overlap_scores.loc[alert, f"Strain {task+1}"] = mean_overlap
+
+    return overlap_scores
+
+
+
+def plot_alert_performance_bars(df_perf, detection_freqs=None, output_dir=None):
+    """
+    Plot horizontal bars for:
+      - % correctly identified
+      - mean overlap (toxic)
+      - mean overlap (non-toxic)
+    Alerts ordered by descending mean overlap (toxic).
+    """
+    order = df_perf.sort_values("mean_overlap_toxic", ascending=False).index
+    df_perf = df_perf.loc[order]
+    if detection_freqs is not None:
+        detection_freqs = detection_freqs.loc[order]
+
+    #fig, ax = plt.subplots(figsize=(12, 0.4 * len(df_perf)))  # longer and skinnier
+    fig, ax = plt.subplots(figsize=(5, 15))
+
+    y = np.arange(len(df_perf))
+    barh_kwargs = dict(height=0.25, edgecolor="black")
+
+    ax.barh(y - 0.25, df_perf["percent_correct"], color="#6baed6", label="% Correctly Identified", **barh_kwargs)
+    ax.barh(y, df_perf["mean_overlap_toxic"] * 100, color="#fd8d3c", label="Mean Overlap (Toxic)", **barh_kwargs)
+    ax.barh(y + 0.25, df_perf["mean_overlap_nontoxic"] * 100, color="#969696", label="Mean Overlap (Non-Toxic)", **barh_kwargs)
+
+    ax.set_yticks(y)
+    ax.set_yticklabels(df_perf.index)
+    ax.invert_yaxis()
+    ax.set_xlabel("Percentage / Overlap ×100")
+    ax.set_title("Structural Alert Detection Performance (Overlap > 0 Definition)")
+    #ax.legend()
+    plt.tight_layout()
+
+    if output_dir:
+        outpath = os.path.join(output_dir, "alert_performance_bars.png")
+        plt.savefig(outpath, dpi=300, transparent=True)
+        print(f"✅ Saved alert performance bars → {outpath}")
+        plt.close()
+    else:
+        plt.show()
+
+    return order, detection_freqs
+
+def plot_toxic_overlap_heatmap(overlap_scores, order, output_dir=None):
+    """
+    Plots a heatmap showing mean toxic overlap per alert per strain.
+    Alerts are ordered to match the bar plot ordering (descending toxic overlap).
+    """
+    overlap_scores = overlap_scores.loc[order]
+
+    plt.figure(figsize=(8,15))
+    sns.heatmap(
+        overlap_scores * 100,  # convert to percentage for readability
+        cmap="YlOrRd",
+        cbar_kws={"label": "Mean Overlap (Toxic, %)"},
+        linewidths=0.5,
+        linecolor="lightgray",
+        annot=True,
+        fmt=".1f"
+    )
+
+    plt.title("Mean Overlap Score (Toxic Molecules Only) per Strain")
+    plt.xlabel("Strain")
+    plt.ylabel("Structural Alert")
+    plt.tight_layout()
+
+    if output_dir:
+        outpath = os.path.join(output_dir, "toxic_overlap_by_strain_heatmap.png")
+        plt.savefig(outpath, dpi=600, transparent=True)  # high-res + transparent bg
+        print(f"✅ Saved toxic-overlap heatmap → {outpath}")
+        plt.close()
+    else:
+        plt.show()
+
+
+def plot_alert_detection_heatmap(detection_freqs, order, output_dir=None):
+    """
+    Heatmap showing fraction of molecules where each alert was detected (overlap > 0),
+    grouped by strain, ordered by mean toxic overlap.
+    """
+    detection_freqs = detection_freqs.loc[order]
+
+    fig_height = max(10, 0.4 * len(detection_freqs))
+    #plt.figure(figsize=(12, fig_height))
+    plt.figure(figsize=(8, 15))
+
+    sns.heatmap(
+        detection_freqs,
+        cmap="viridis",
+        cbar_kws={"label": "Fraction of Molecules (Overlap > 0)"},
+        linewidths=0.5,
+        linecolor="lightgray",
+        annot=True,
+        fmt=".2f"
+    )
+
+    plt.title("Structural Alerts Detected per Strain (Overlap > 0 Definition)")
+    plt.xlabel("Strain")
+    plt.ylabel("Structural Alert")
+    plt.tight_layout()
+
+    if output_dir:
+        outpath = os.path.join(output_dir, "strain_specific_alert_detection_heatmap.png")
+        plt.savefig(outpath, dpi=600, transparent=True)
+        print(f"✅ Saved strain-specific alert detection heatmap → {outpath}")
+        plt.close()
+    else:
+        plt.show()
+
+
 
 
 
@@ -734,10 +1039,10 @@ def main():
     os.makedirs(args.output_dir, exist_ok=True)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    
+
     input_file = args.input_file
 
-    with open( input_file, 'r' ) as input_stream:
+    with open(input_file, 'r') as input_stream:
         input_data = yaml.load(input_stream, Loader=yaml.Loader)
 
     # Set database path
@@ -746,24 +1051,24 @@ def main():
     # The database is described with its own yaml file; so read it
     database_file = database_path + '/graph_description.yml'
 
-    with open( database_file, 'r' ) as database_stream:
+    with open(database_file, 'r') as database_stream:
         database_data = yaml.load(database_stream, Loader=yaml.Loader)
 
     # Model parameters
-    n_graph_convolution_layers = input_data.get("nGraphConvolutionLayers", 0) # Number of graph convolutional layers
-    n_node_neurons = input_data.get("nNodeNeurons", None) # Number of neurons in GNN
-    n_edge_neurons = input_data.get("nEdgeNeurons", None) # Number of edges in GNN
-    dropout_GNN = input_data.get("dropoutGNN", None) # Dropout GNN
-    momentum_batch_norm = input_data.get("momentumBatchNorm", None) # Batch norm GNN
+    n_graph_convolution_layers = input_data.get("nGraphConvolutionLayers", 0)  # Number of graph convolutional layers
+    n_node_neurons = input_data.get("nNodeNeurons", None)  # Number of neurons in GNN
+    n_edge_neurons = input_data.get("nEdgeNeurons", None)  # Number of edges in GNN
+    dropout_GNN = input_data.get("dropoutGNN", None)  # Dropout GNN
+    momentum_batch_norm = input_data.get("momentumBatchNorm", None)  # Batch norm GNN
 
-    n_shared_layers = input_data.get("nSharedLayers", 4) # Number of layers in shared core
-    n_target_specific_layers = input_data.get("nTargetSpecificLayers", 2) # Number of layers in target specific core
-    n_shared = input_data.get("nShared", None) # Number of neurons in shared core
+    n_shared_layers = input_data.get("nSharedLayers", 4)  # Number of layers in shared core
+    n_target_specific_layers = input_data.get("nTargetSpecificLayers", 2)  # Number of layers in target specific core
+    n_shared = input_data.get("nShared", None)  # Number of neurons in shared core
     n_target = input_data.get("nTarget", None)  # Number of neurons in target specific core
-    dropout_shared = input_data.get("dropoutShared", None) # Dropout in shared core
-    dropout_target = input_data.get("dropoutTarget", None) # Dropout in target specific core
+    dropout_shared = input_data.get("dropoutShared", None)  # Dropout in shared core
+    dropout_target = input_data.get("dropoutTarget", None)  # Dropout in target specific core
 
-    activation = input_data.get("ActivationFunction", "ReLU") # Activation function
+    activation = input_data.get("ActivationFunction", "ReLU")  # Activation function
     weighted_loss_function = input_data.get("weightedCostFunction", False)
     w1 = input_data.get("w1", 1.0)
     w2 = input_data.get("w2", 1.0)
@@ -771,13 +1076,13 @@ def main():
     w4 = input_data.get("w4", 1.0)
     w5 = input_data.get("w5", 1.0)
     if weighted_loss_function:
-        #class_weights = {
+        # class_weights = {
         #    '98': {0: 1.0, 1: w1, -1: 0},
         #    '100': {0: 1.0, 1: w2, -1: 0},
         #    '102': {0: 1.0, 1: w3, -1: 0},
         #    '1535': {0: 1.0, 1: w4, -1: 0},
         #    '1537': {0: 1.0, 1: w5, -1: 0},
-        #}
+        # }
         class_weights = {
             '98': {0: 1.0, 1: 1.6599, -1: 0},
             '100': {0: 1.0, 1: 1.2982, -1: 0},
@@ -802,22 +1107,25 @@ def main():
     bond_angle_features = database_data.get("BondAngleFeatures", True)
     dihedral_angle_features = database_data.get("DihedralFeatures", True)
     n_edge_features = 1  # 1 for distance features
-    if bond_angle_features: n_edge_features += 1 # bond-angle feature
-    if dihedral_angle_features: n_edge_features += 1 # dihedral-angle feature
+    if bond_angle_features: n_edge_features += 1  # bond-angle feature
+    if dihedral_angle_features: n_edge_features += 1  # dihedral-angle feature
 
     # Training parameters
-    nEpochs = input_data.get("nEpochs", 10) # Number of epochs
-    nBatch = input_data.get("nBatch", 50) # Batch size
-    chkptFreq = input_data.get("nCheckpoint", 10) # Checkpoint frequency
-    seed = input_data.get("randomSeed", 42) # Random seed
-    nTrainMaxEntries = input_data.get("nTrainMaxEntries", None) # Number of training examples to use (if not using whole dataset)
-    nValMaxEntries = input_data.get("nValMaxEntries", None) # Number of validation examples to use (if not using whole dataset)
-    learningRate = input_data.get("learningRate", 0.0001) # Learning rate
-    weightedCostFunction = input_data.get("weightedCostFunction", None) # Use weighted  cost function
-    L2Regularization = input_data.get("L2Regularization", 0.005) # L2 regularization coefficient
+    nEpochs = input_data.get("nEpochs", 10)  # Number of epochs
+    nBatch = input_data.get("nBatch", 50)  # Batch size
+    chkptFreq = input_data.get("nCheckpoint", 10)  # Checkpoint frequency
+    seed = input_data.get("randomSeed", 42)  # Random seed
+    nTrainMaxEntries = input_data.get("nTrainMaxEntries",
+                                      None)  # Number of training examples to use (if not using whole dataset)
+    nValMaxEntries = input_data.get("nValMaxEntries",
+                                    None)  # Number of validation examples to use (if not using whole dataset)
+    learningRate = input_data.get("learningRate", 0.0001)  # Learning rate
+    weightedCostFunction = input_data.get("weightedCostFunction", None)  # Use weighted  cost function
+    L2Regularization = input_data.get("L2Regularization", 0.005)  # L2 regularization coefficient
     loadModel = input_data.get("loadModel", False)
     loadOptimizer = input_data.get("loadOptimizer", False)
-    useMolecularDescriptors = input_data.get("useMolecularDescriptors", False) # Use molecular descriptors instead of graphs for comparison to original MTL paper
+    useMolecularDescriptors = input_data.get("useMolecularDescriptors",
+                                             False)  # Use molecular descriptors instead of graphs for comparison to original MTL paper
 
     trainDir = database_path + '/train/'
     valDir = database_path + '/validate/'
@@ -853,12 +1161,16 @@ def main():
     g.manual_seed(seed)
 
     # Build model
-    model = BuildNN_GNN_MTL(n_graph_convolution_layers, n_node_neurons, n_edge_neurons, n_node_features, n_edge_features, dropout_GNN, momentum_batch_norm,
-                            n_shared_layers, n_target_specific_layers, n_shared, n_target, dropout_shared, dropout_target,
+    model = BuildNN_GNN_MTL(n_graph_convolution_layers, n_node_neurons, n_edge_neurons, n_node_features,
+                            n_edge_features, dropout_GNN, momentum_batch_norm,
+                            n_shared_layers, n_target_specific_layers, n_shared, n_target, dropout_shared,
+                            dropout_target,
                             activation, useMolecularDescriptors, n_inputs)
 
-    checkpoint = torch.load('/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/output_seed_8_20_25/checkpoints/metrics_45_1.pt', map_location=torch.device('cpu'))
-    
+    checkpoint = torch.load(
+        '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/output_seed_8_20_25/checkpoints/metrics_45_1.pt',
+        map_location=torch.device('cpu'))
+
     model.load_state_dict(checkpoint['model_state_dict'])
     model.eval()
 
@@ -873,7 +1185,8 @@ def main():
     for task_id in range(5):
 
         task = task_id
-        model_args = (n_node_neurons, n_node_features, n_edge_neurons, n_edge_features, n_graph_convolution_layers, n_shared_layers, n_target_specific_layers, useMolecularDescriptors)
+        model_args = (n_node_neurons, n_node_features, n_edge_neurons, n_edge_features, n_graph_convolution_layers,
+                      n_shared_layers, n_target_specific_layers, useMolecularDescriptors)
 
         task_model = TaskSpecificGNN(model, task_idx=task, model_args=model_args)
         task_model.eval()
@@ -885,9 +1198,9 @@ def main():
             node_mask_type='object',
             edge_mask_type='object',
             model_config=dict(
-            mode='binary_classification',
-            task_level='graph',
-            return_type='probs',
+                mode='binary_classification',
+                task_level='graph',
+                return_type='probs',
             ),
         )
 
@@ -908,7 +1221,7 @@ def main():
                 edge_index=data.edge_index,
                 edge_attr=data.edge_attr,
                 batch=data.batch,
-                #global_feats=data.global_feats
+                # global_feats=data.global_feats
             )
 
             with torch.no_grad():
@@ -917,7 +1230,7 @@ def main():
                     edge_index=data.edge_index,
                     edge_attr=data.edge_attr,
                     batch=data.batch,
-                    #global_feats=data.global_feats
+                    # global_feats=data.global_feats
                 )
 
                 prediction = int(task_output.item() > 0.5)  # 1 = toxic, 0 = non-toxic
@@ -926,7 +1239,7 @@ def main():
             edge_mask = explanation.edge_mask.detach().cpu().numpy()
 
             # Tight filter
-            k_edges_tight = int(0.15 * edge_mask.size) #max(8, int(0.15 * edge_mask.size))  # ~10–15%
+            k_edges_tight = int(0.15 * edge_mask.size)  # max(8, int(0.15 * edge_mask.size))  # ~10–15%
             top_e_tight = np.argsort(-edge_mask)[:k_edges_tight]
 
             imp_edges_tight = data.edge_index[:, torch.tensor(top_e_tight, device=data.edge_index.device)]
@@ -934,26 +1247,26 @@ def main():
 
             G = to_networkx(data, to_undirected=True)
             sub_tight = G.subgraph(imp_nodes_tight).copy()
-            #if sub_tight.number_of_nodes() > 0:
+            # if sub_tight.number_of_nodes() > 0:
             #    lcc_tight = max(nx.connected_components(sub_tight), key=len)
             #    important_atoms_tight = sorted(list(lcc_tight))
-            #else:
+            # else:
             #    important_atoms_tight = []
-            #if sub_tight.number_of_nodes() > 0:
+            # if sub_tight.number_of_nodes() > 0:
             #    important_atoms_tight = imp_nodes_tight
-            #else:
+            # else:
             #    important_atoms_tight = []
             if sub_tight.number_of_nodes() > 0:
                 # Keep *all* connected components, not just the largest
                 comps = max(nx.connected_components(sub_tight), key=len)
                 important_atoms_tight = sorted(list(comps))
-                #comps = list(nx.connected_components(sub_tight))
-                #important_atoms_tight = sorted(set().union(*comps))
+                # comps = list(nx.connected_components(sub_tight))
+                # important_atoms_tight = sorted(set().union(*comps))
             else:
                 important_atoms_tight = []
 
             # Loose filter
-            k_edges_loose = int(0.15 * edge_mask.size) #max(8, int(0.15 * edge_mask.size))  # ~25–30%
+            k_edges_loose = int(0.15 * edge_mask.size)  # max(8, int(0.15 * edge_mask.size))  # ~25–30%
             top_e_loose = np.argsort(-edge_mask)[:k_edges_loose]
 
             imp_edges_loose = data.edge_index[:, torch.tensor(top_e_loose, device=data.edge_index.device)]
@@ -964,13 +1277,13 @@ def main():
                 # Keep *all* connected components, not just the largest
                 comps = max(nx.connected_components(sub_loose), key=len)
                 important_atoms_loose = sorted(list(comps))
-                #comps = list(nx.connected_components(sub_loose))
-                #important_atoms_loose = sorted(set().union(*comps))
+                # comps = list(nx.connected_components(sub_loose))
+                # important_atoms_loose = sorted(set().union(*comps))
             else:
                 important_atoms_loose = []
-            #if sub_loose.number_of_nodes() > 0:
+            # if sub_loose.number_of_nodes() > 0:
             #    important_atoms_loose = imp_nodes_loose
-            #else:
+            # else:
             #    important_atoms_tight = []
 
             # Collect both sets
@@ -1001,7 +1314,6 @@ def main():
             correct_overall = df.iloc[molecule_index - 1, correct_val_overall_index]
             correct_val_overall.append(correct_overall)
 
-
         per_task_impatoms.append({task_id: important_atoms_per_mol})
         per_task_preds.append({task_id: predictions})
         per_task_labels.append({task_id: correct_val})
@@ -1009,13 +1321,15 @@ def main():
 
         alerts = load_alerts()
 
-        df = evaluate_alerts(smiles_list, important_atoms_per_mol, alerts, predictions, correct_val, correct_val_overall) # Compute overlap scores by comparing alerts and important nodes, store all in df
+        df = evaluate_alerts(smiles_list, important_atoms_per_mol, alerts, predictions, correct_val,
+                             correct_val_overall)  # Compute overlap scores by comparing alerts and important nodes, store all in df
         df = df[(df["label"] != -1) & (df["label_overall"] != -1)]
         per_task_dfs.append({task_id: df})
 
-        summary = df.groupby("alert")[["tight_score", "loose_score"]].mean().reset_index() #compute average scores for each alert
-        summary = summary.sort_values("loose_score", ascending=False) # sort by loose score
-        alerts_csv = os.path.join(args.output_dir, f"alerts_task_{task}.csv") # write to csv
+        summary = df.groupby("alert")[
+            ["tight_score", "loose_score"]].mean().reset_index()  # compute average scores for each alert
+        summary = summary.sort_values("loose_score", ascending=False)  # sort by loose score
+        alerts_csv = os.path.join(args.output_dir, f"alerts_task_{task}.csv")  # write to csv
         summary.to_csv(alerts_csv, index=False)
         alerts_list = summary["alert"].tolist()  # <- canonical order for ALL plots
         x = np.arange(len(alerts_list))
@@ -1023,7 +1337,7 @@ def main():
         ##### Plot per-strain results
         plt.figure(figsize=(12, 6))
         plt.bar(x, summary["tight_score"], alpha=0.6)
-        #plt.bar(x, summary["loose_score"], alpha=0.6, label="Loose")
+        # plt.bar(x, summary["loose_score"], alpha=0.6, label="Loose")
         plt.xticks(x, alerts_list, rotation=90)
         plt.ylabel("Mean overlap score")
         plt.title(f"Task {task}: GNN explanation overlap with functional alerts, all molecules")
@@ -1090,7 +1404,7 @@ def main():
 
         # Consider an alert present if tight_score > 0 or loose_score > 0
         df['alert_present'] = (df['tight_score'] > 0) | (df['loose_score'] > 0)
-        #df['alert_present'] = (df['tight_score'] > 0)
+        # df['alert_present'] = (df['tight_score'] > 0)
 
         alert_summary = df.groupby("alert").agg(
             n_positive_predictions=("prediction", lambda x: ((x == 1) & df.loc[x.index, 'alert_present']).sum()),
@@ -1121,14 +1435,14 @@ def main():
         plt.show()
 
         # Only include molecules with valid label_overall and label
-        #valid_mols = df[(df['label_overall'] != -1) & (df['label'] != -1)]['mol_id'].unique()
+        # valid_mols = df[(df['label_overall'] != -1) & (df['label'] != -1)]['mol_id'].unique()
         valid_mols = df['mol_id'].unique()
         # Use tab20 for distinct alert colors
         alert_names = df['alert'].unique()
         n_alerts = len(alert_names)
         cmap = cm.get_cmap('tab20', n_alerts)
         alert_color_dict = {alert_names[i]: cmap(i)[:3] for i in range(n_alerts)}
-        alert_color_dict['Heterocyclic/polycyclic aromatic hydrocarbons'] = (0.8,0.0,0.8)
+        alert_color_dict['Heterocyclic/polycyclic aromatic hydrocarbons'] = (0.8, 0.0, 0.8)
         present_alerts = set()
 
         correct_toxic_imgs = []
@@ -1136,11 +1450,11 @@ def main():
         incorrect_imgs = []
 
         for mol_id in valid_mols:
-            #mol_df = df[(df['mol_id'] == mol_id) & (df['alert_present'])]
+            # mol_df = df[(df['mol_id'] == mol_id) & (df['alert_present'])]
             mol_df = df[(df['mol_id'] == mol_id)]
             mol = Chem.MolFromSmiles(smiles_list[mol_id])
-            #mol = Chem.AddHs(Chem.MolFromSmiles(smiles_list[mol_id]))
-            #if mol is None or mol_df.empty:
+            # mol = Chem.AddHs(Chem.MolFromSmiles(smiles_list[mol_id]))
+            # if mol is None or mol_df.empty:
             #    #ax.axis('off')
             #    continue
 
@@ -1204,9 +1518,14 @@ def main():
         plot_group(correct_nontoxic_imgs, "Correct Nontoxic (pred=0,label=0)", alert_color_dict, present_alerts)
         plot_group(incorrect_imgs, "Incorrect Prediction (pred≠label)", alert_color_dict, present_alerts)
 
-    # === ADDITION: Fragment-discovery and cross-task comparison based on GNNExplainer important atoms ===
-    # Place this block after the per-task loop finishes (i.e., after per_task_impatoms, per_task_preds, per_task_labels, global_smiles are ready)
+
     alerts_compiled = load_alerts()
+
+
+
+
+
+
 
     def get_fragment_smiles(mol, atom_indices):
         """
@@ -1253,7 +1572,7 @@ def main():
     def compare_fragment_to_alerts(frag_smiles, alerts_compiled):
         if frag_smiles is None:
             return []
-        #frag_mol = Chem.MolFromSmiles(frag_smiles)
+        # frag_mol = Chem.MolFromSmiles(frag_smiles)
         try:
             frag_base = Chem.MolFromSmiles(frag_smiles)
             if frag_base is None:
@@ -1319,7 +1638,7 @@ def main():
                 if mol_id >= n_mols:
                     break
                 smiles = global_smiles[mol_id]
-                #mol = Chem.MolFromSmiles(smiles) if smiles is not None else None
+                # mol = Chem.MolFromSmiles(smiles) if smiles is not None else None
                 mol = Chem.AddHs(Chem.MolFromSmiles(smiles)) if smiles is not None else None
                 # combine tight and loose fragments separately: mark their source
                 for band in ("tight", "loose"):
@@ -1394,7 +1713,7 @@ def main():
         # Identify novel candidates: frequent in positives and not matching known alerts
         df_sorted = df_frags.sort_values("total_pos_count", ascending=False)
         novel = df_sorted[(df_sorted["total_pos_count"] >= min(3, max(3, int(len(global_smiles) * 0.005)))) & (
-                    df_sorted["matched_alerts"] == "")]
+                df_sorted["matched_alerts"] == "")]
         novel.to_csv(os.path.join(output_dir, "explainer_novel_fragment_candidates.csv"), index=False)
 
         # Jaccard matrix for top sets
@@ -1419,7 +1738,7 @@ def main():
         # Save grid image of top fragments (top by total_pos_count)
         try:
             top_frags = df_sorted.head(topN_grid)["fragment"].tolist()
-            #mols = [Chem.AddHs(Chem.MolFromSmiles(s)) for s in top_frags]
+            # mols = [Chem.AddHs(Chem.MolFromSmiles(s)) for s in top_frags]
             mols = [Chem.MolFromSmiles(s) for s in top_frags]
             legends = []
             for _, r in df_sorted.head(topN_grid).iterrows():
@@ -1435,8 +1754,9 @@ def main():
         with open(os.path.join(output_dir, "fragment_catalog.json"), "w") as fh:
             json.dump(small_map, fh, indent=2)
 
-    # ---------- Run the new analysis and save outputs ----------
-    # Use your computed variables: per_task_impatoms, per_task_preds, per_task_labels, global_smiles, alerts_compiled
+
+
+
     try:
         df_rows, per_task_top_sets, frag_examples = build_fragment_catalog(per_task_impatoms, per_task_preds,
                                                                            per_task_labels, global_smiles,
@@ -1447,112 +1767,207 @@ def main():
     except Exception as e:
         print("Fragment-discovery analysis failed:", e)
 
-    # === Extended Fragment Discovery Analysis ===
-    # (append this after your fragment discovery and before summary visualization)
 
-    def filter_meaningful_fragments(frag_smiles_list, alerts_compiled, min_heavy_atoms=4):
+    def filter_nontrivial_fragments_from_dfrows(df_rows, min_heavy_atoms=4, keep_alert_matches=True):
         """
-        Filter out trivial, duplicate, or known-alert fragments.
-        Keeps only chemically meaningful, novel candidates.
+        From df_rows (list of dicts produced by build_fragment_catalog),
+        return deduplicated canonical fragment SMILES that:
+          - have at least min_heavy_atoms heavy atoms
+          - are not purely hydrocarbon
+        If keep_alert_matches==False => also remove fragments that match any known alert (use compare_fragment_to_alerts).
         """
-        filtered = []
         seen = set()
-
-        for smi in frag_smiles_list:
-            if smi is None:
+        kept = []
+        for r in df_rows:
+            frag = r["fragment"]
+            if frag is None or frag == "":
                 continue
-            mol = Chem.MolFromSmiles(smi)
+            m = Chem.MolFromSmiles(frag)
+            if m is None:
+                # try a non-sanitized parse
+                try:
+                    m = Chem.MolFromSmiles(frag, sanitize=False)
+                    Chem.SanitizeMol(m, catchErrors=True)
+                except Exception:
+                    continue
+            if m is None:
+                continue
+            if m.GetNumHeavyAtoms() < min_heavy_atoms:
+                continue
+            if all(a.GetSymbol() in ("C", "H") for a in m.GetAtoms()):
+                continue
+            # If we must remove alert-matching fragments (for novel set), test:
+            if not keep_alert_matches:
+                matches = compare_fragment_to_alerts(frag, alerts_compiled)
+                if matches:
+                    continue
+            # deduplicate by canonical SMILES
+            can = Chem.MolToSmiles(m, canonical=True)
+            if can in seen:
+                continue
+            seen.add(can)
+            kept.append(can)
+        return kept
+
+    def cluster_fragments(frag_smiles_list, sim_threshold=0.8):
+        """Simple greedy clustering by Tanimoto on Morgan fingerprints. Returns list of (rep, members)."""
+        fps = []
+        for s in frag_smiles_list:
+            m = Chem.MolFromSmiles(s)
+            if m is None:
+                continue
+            fp = AllChem.GetMorganFingerprintAsBitVect(m, 2, nBits=2048)
+            fps.append((s, fp))
+        clusters = []  # list of [rep_smi, rep_fp, members_list]
+        for s, fp in fps:
+            placed = False
+            for cluster in clusters:
+                rep, rep_fp, members = cluster
+                if TanimotoSimilarity(fp, rep_fp) >= sim_threshold:
+                    members.append(s)
+                    placed = True
+                    break
+            if not placed:
+                clusters.append([s, fp, [s]])
+        # Convert to (representative, members) with counts
+        return [(c[0], c[2]) for c in clusters]
+
+    def plot_fragment_clusters(clusters, title, out_path, top_n=20, mols_per_row=5):
+        counts = [(rep, len(members)) for rep, members in clusters]
+        counts.sort(key=lambda x: x[1], reverse=True)
+        top = counts[:top_n]
+        mols = [Chem.MolFromSmiles(rep) for rep, _ in top if Chem.MolFromSmiles(rep)]
+        legends = [f"{rep}\n({cnt} variants)" for rep, cnt in top]
+        if mols:
+            img = Draw.MolsToGridImage(mols, molsPerRow=min(mols_per_row, len(mols)), subImgSize=(200, 200),
+                                       legends=legends)
+            try:
+                img.save(out_path)
+            except Exception:
+                # fallback: show (if running interactive)
+                pass
+        # also save a CSV of cluster counts
+        dfc = pd.DataFrame([{"rep": rep, "n_variants": cnt} for rep, cnt in counts])
+        dfc.to_csv(out_path.replace(".png", ".csv"), index=False)
+        return dfc
+
+    def compute_top_fragment_task_matrix(df_rows, top_k=50):
+        """
+        Build matrix indicating which tasks detected which top fragments.
+        df_rows: list of dicts with 'fragment' and per-task count_t{t}.
+        per_task_counts: optional mapping (not used here).
+        Returns:
+          - top_frags: list of canonical smiles (top by total_pos_count)
+          - matrix: pandas DataFrame rows=fragments, cols=tasks, values=counts (or binary presence)
+        """
+        df = pd.DataFrame(df_rows)
+        if df.empty:
+            return [], pd.DataFrame()
+        df_sorted = df.sort_values("total_count", ascending=False)
+        top = df_sorted.head(top_k)["fragment"].tolist()
+        # Build matrix
+        task_cols = [c for c in df.columns if c.startswith("count_t")]
+        data = []
+        for frag in top:
+            row = {"fragment": frag}
+            sub = df[df["fragment"] == frag]
+            if sub.empty:
+                # zeros
+                for tcol in task_cols:
+                    row[tcol] = 0
+            else:
+                for tcol in task_cols:
+                    row[tcol] = int(sub.iloc[0].get(tcol, 0))
+            data.append(row)
+        mat = pd.DataFrame(data).set_index("fragment")
+        # Optionally convert count -> binary presence
+        mat_bin = (mat > 0).astype(int)
+        return top, mat, mat_bin
+
+
+
+    # ---------- Use existing df_rows and frag_examples from build_fragment_catalog ----------
+    # df_rows is list of dicts OR DataFrame; ensure it's a DataFrame
+    if isinstance(df_rows, list):
+        df_all_frags = pd.DataFrame(df_rows)
+    else:
+        df_all_frags = df_rows.copy()
+
+    # === START: Combined plot of known vs novel fragments ===
+
+    def get_fragment_info_lists(df_rows, alerts_compiled, min_heavy_atoms=2):
+        """Split fragments into alert-matched and novel lists, with metadata for plotting."""
+        alert_frags, novel_frags = [], []
+        for r in df_rows:
+            frag = r["fragment"]
+            if not frag:
+                continue
+            mol = Chem.MolFromSmiles(frag)
             if mol is None:
                 continue
-
-            # Skip very small or trivial fragments
             if mol.GetNumHeavyAtoms() < min_heavy_atoms:
                 continue
-            if all(a.GetSymbol() in ["C", "H"] for a in mol.GetAtoms()):
+            if all(a.GetSymbol() in ("C", "H") for a in mol.GetAtoms()):
                 continue
 
-            # Deduplicate canonicalized SMILES
-            can_smi = Chem.MolToSmiles(mol, canonical=True)
-            if can_smi in seen:
-                continue
-            seen.add(can_smi)
+            # See if it matches alerts
+            matches = compare_fragment_to_alerts(frag, alerts_compiled)
+            alerts = [m[0] for m in matches] if matches else []
+            entry = {
+                "fragment": frag,
+                "mol": mol,
+                "alerts": alerts,
+                "total_pos_count": r.get("total_pos_count", 0),
+                "total_count": r.get("total_count", 0),
+            }
+            if alerts:
+                alert_frags.append(entry)
+            else:
+                novel_frags.append(entry)
 
-            # Skip if fragment matches any known structural alert
-            matches_alert = any(mol.HasSubstructMatch(patt) for _, patt in alerts_compiled)
-            if matches_alert:
-                continue
+        # sort by total_pos_count descending
+        alert_frags.sort(key=lambda x: x["total_pos_count"], reverse=True)
+        novel_frags.sort(key=lambda x: x["total_pos_count"], reverse=True)
+        return alert_frags, novel_frags
 
-            filtered.append(can_smi)
+    def plot_combined_known_vs_novel(alert_frags, novel_frags, out_path, top_n_each=12):
+        """Create a single grid image showing known (alert) and novel fragments grouped."""
+        n_show_alert = min(len(alert_frags), top_n_each)
+        n_show_novel = min(len(novel_frags), top_n_each)
+        show_list = alert_frags[:n_show_alert] + novel_frags[:n_show_novel]
 
-        return filtered
+        mols = [e["mol"] for e in show_list]
+        legends = []
+        for e in show_list:
+            smi = e["fragment"]
+            if e["alerts"]:
+                alerts_str = ", ".join(e["alerts"])
+                legends.append(f"{smi}\n(alerts: {alerts_str})")
+            else:
+                legends.append(f"{smi}\n(novel)")
+        img = Draw.MolsToGridImage(
+            mols,
+            molsPerRow=6,
+            subImgSize=(220, 220),
+            legends=legends,
+            useSVG=False,
+        )
+        try:
+            img.save(out_path)
+        except Exception:
+            pass
+        return n_show_alert, n_show_novel
 
-    def cluster_fragments_by_similarity(frag_smiles_list, sim_threshold=0.8):
-        """
-        Cluster fragments by Tanimoto similarity of Morgan fingerprints.
-        Returns list of (representative_smi, cluster_members) tuples.
-        """
-        fps = []
-        for smi in frag_smiles_list:
-            mol = Chem.MolFromSmiles(smi)
-            if mol is not None:
-                fp = AllChem.GetMorganFingerprintAsBitVect(mol, 2)
-                fps.append((smi, fp))
+    # Compute fragment sets and plot
+    alert_frags, novel_frags = get_fragment_info_lists(df_rows, alerts_compiled, min_heavy_atoms=4)
+    out_combined_img = os.path.join(args.output_dir, "fragments_known_vs_novel_combined.png")
+    n_alert, n_novel = plot_combined_known_vs_novel(alert_frags, novel_frags, out_combined_img, top_n_each=12)
+    print(
+        f"Saved combined fragment grid with {n_alert} known (alert-matched) and {n_novel} novel fragments -> {out_combined_img}")
 
-        clusters = []
-        for smi, fp in fps:
-            matched_cluster = None
-            for rep, rep_fp, members in clusters:
-                if TanimotoSimilarity(fp, rep_fp) >= sim_threshold:
-                    members.append(smi)
-                    matched_cluster = True
-                    break
-            if not matched_cluster:
-                clusters.append([smi, fp, [smi]])  # new cluster
+    # === END: Combined plot of known vs novel fragments ===
 
-        # Simplify to (representative, members)
-        clustered = [(rep, members) for rep, _, members in clusters]
-        return clustered
-
-    def plot_top_novel_fragments(clustered, top_n=20, output_path=None):
-        """
-        Plot top novel fragment clusters and their frequencies.
-        """
-        cluster_counts = [(rep, len(members)) for rep, members in clustered]
-        cluster_counts.sort(key=lambda x: x[1], reverse=True)
-        top = cluster_counts[:top_n]
-
-        mols = [Chem.MolFromSmiles(rep) for rep, _ in top if Chem.MolFromSmiles(rep)]
-        legends = [f"{rep}\n({count} variants)" for rep, count in top]
-
-        img = Draw.MolsToGridImage(mols, molsPerRow=5, subImgSize=(200, 200), legends=legends)
-        img.show()
-        #display(img)
-        #if output_path:
-        #    img.save(output_path)
-        #else:
-        #    display(img)
-
-        return cluster_counts
-
-    # === Run filtering + clustering + plotting ===
-    # assumes `all_fragments` = list of all fragment SMILES found
-    # and `alerts_compiled` is your list of SMARTS patterns compiled earlier
-
-
-    filtered_frags = filter_meaningful_fragments(frag_examples, alerts_compiled, min_heavy_atoms=4)
-    clustered = cluster_fragments_by_similarity(filtered_frags, sim_threshold=0.8)
-
-    out_img = os.path.join(output_dir, "top_novel_fragment_clusters.png")
-    cluster_counts = plot_top_novel_fragments(clustered, top_n=20, output_path=out_img)
-
-    print(f"Discovered {len(filtered_frags)} novel fragments after filtering.")
-    print(f"Collapsed into {len(clustered)} clusters (Tanimoto ≥ 0.8).")
-    print(f"Saved top cluster image to: {out_img}")
-
-    # Optionally call your existing assembler/plotter after we have made the fragment files
-    assemble_and_save_summary(per_task_dfs, per_task_impatoms, per_task_preds, per_task_labels, global_smiles,
-                              alerts_compiled, args.output_dir, alerts_list)
-    # === END ADDITION ===
+    assemble_and_save_summary(per_task_dfs, per_task_impatoms, per_task_preds, per_task_labels, global_smiles, alerts_compiled, args.output_dir, alerts_list)
 
 
 if __name__ == "__main__":
