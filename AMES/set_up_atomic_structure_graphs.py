@@ -9,7 +9,9 @@ from atomic_structure_graphs import AtomicStructureGraphs
 #from pbc_graphs import PBCGraphs
 #from QM9_ERH_graphs import QM9ERH
 #from QM9_ERH_graphs import QM9ERHDerivatives
-from XG_graphs_global import XG
+#from XG_graphs_global import XG
+#from XG_graphs_global import XG
+from XG_graphs import XG
 #from QM9_XG_graphs import QM9XieGrossmanGraphs
 #from QM9_simple_XG_graphs import QM9SimpleXieGrossmanGraphs
 #from QM9_simple_XG_graphs import QM9SimpleXieGrossmanDerivatives

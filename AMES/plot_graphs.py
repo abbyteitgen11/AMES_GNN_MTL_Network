@@ -1,117 +1,107 @@
+import os
+import re
 import pickle
 import torch
-from torch_geometric.data import Data
 from torch_geometric.utils import to_networkx
 import networkx as nx
-from networkx.drawing import nx_agraph
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from rdkit import Chem
 from rdkit.Chem import Draw
-from rdkit.Chem import AllChem
-import re
+
 from graph_dataset import GraphDataSet
 
-#database_path = "/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/GraphDataBase_AMES"
-#trainDir = database_path + '/train/'
-#valDir = database_path + '/validate/'
-#testDir = database_path + '/test/'
+# Define dataset and directories
+database_path = "/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/GraphDataBase_AMES_additional_data"
+xyz_dir = "/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/Additional_data/FILES_XYZ_new"
+csv_file = "/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/Additional_data/final_additional_dataset.csv"
 
-# Read in graph data
-#trainDataset = GraphDataSet(trainDir, nMaxEntries=None, seed=42, transform=None)
+testDataset = GraphDataSet(database_path, nMaxEntries=None, seed=45, transform=None)
 
-#valDataset = GraphDataSet(valDir, nMaxEntries=None, seed=42, transform=None)
+df = pd.read_csv(csv_file)
 
-#testDataset = GraphDataSet(testDir, nMaxEntries=None, seed=42, transform=None)
+for idx, graph in enumerate(testDataset):
+    filepath = testDataset.filenames[idx]
+    base_name = os.path.basename(filepath).replace(".pkl", "")  # e.g. "1_additional_data_1"
 
-#mismatched_molecules = []
+    try:
+        # Load the graph
+        with open(filepath, "rb") as f:
+            graph = pickle.load(f)
 
-#for idx, graph in enumerate(valDataset): #3870
-#    idx = idx
-#    filepath = valDataset.filenames[idx]
+        nx_graph = to_networkx(graph, to_undirected=True)
+
+        # Load matching XYZ file
+        xyz_path = os.path.join(xyz_dir, f"{base_name}.xyz")
+
+        coords = []
+        with open(xyz_path, "r") as f:
+            lines = f.readlines()
+            for line in lines[2:]:  # skip atom count + comment
+                parts = line.strip().split()
+                if len(parts) >= 4:
+                    coords.append((float(parts[1]), float(parts[2]), float(parts[3])))
+
+        if len(coords) != graph.num_nodes:
+            print(f"⚠️ Mismatch in {base_name}: {len(coords)} coords vs {graph.num_nodes} nodes")
+            continue
+
+        # 2D projection for plotting (XY plane)
+        pos = {i: coords[i][:2] for i in range(len(coords))}
+
+        # Map element types (optional)
+        element_mapping = {
+            0: "N", 1: "C", 2: "H", 3: "O", 4: "S", 5: "Cl", 6: "Be",
+            7: "Br", 8: "Pt", 9: "P", 10: "F", 11: "As", 12: "Hg",
+            13: "Zn", 14: "Si", 15: "V", 16: "I", 17: "B", 18: "Sn",
+            19: "Ge", 20: "Ag", 21: "Sb", 22: "Cu", 23: "Cr", 24: "Pb",
+            25: "Mo", 26: "Se", 27: "Al", 28: "Cd", 29: "Mn", 30: "Fe",
+            31: "Ga", 32: "Pd", 33: "Na", 34: "Ti", 35: "Bi", 36: "Co",
+            37: "Ni", 38: "Ce", 39: "Ba", 40: "Zr", 41: "Rh"
+        }
+
+        element_types = [
+            element_mapping.get(int(spec_id.item()), "X") for spec_id in graph.spec_id
+        ]
+
+        # Plot molecule and graph side by side
+        fig, ax = plt.subplots(1, 2, figsize=(15, 7))
+
+        # Plot chemical structure from SMILES for comparison
+        molecule_index = int(re.search(r'(\d+)_', base_name).group(1))
+        smiles_string = df.iloc[molecule_index - 1, 0]
+        molecule = Chem.MolFromSmiles(smiles_string)
+        molecule = Chem.AddHs(molecule)
+        Chem.rdDepictor.Compute2DCoords(molecule)
+        img = Draw.MolToImage(molecule, size=(300, 300))
+        ax[0].imshow(img)
+        ax[0].axis("off")
+        ax[0].set_title(base_name)
+
+        # Plot networkx graph
+        nx.draw(
+            nx_graph,
+            pos,
+            with_labels=True,
+            node_size=700,
+            font_size=10,
+            font_weight="bold",
+            ax=ax[1],
+            node_color="lightblue",
+        )
+
+        plt.tight_layout()
+        plt.show()
+
+    except Exception as e:
+        print(f"❌ Error in {base_name}: {type(e).__name__} - {e}")
+        continue
+
+    if idx > 200:
+        break
 
 
-df = pd.read_csv('/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/metrics/Common_Files_Summary.csv')
-file_names = df['file_name']
-for file in file_names:
-    filepath = file
-
-#filepath = '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/GraphDataBase_AMES/test/1929_ames_mutagenicity_data_1872.pkl'
-
-    # Load the graph from pickle file
-    with open(filepath, 'rb') as f:
-        graph = pickle.load(f)
-
-    num_nodes_in_graph = len(graph.x)
-
-    # Convert to networkx for visualization
-    nx_graph = to_networkx(graph, to_undirected=True)
-
-    # Elements
-    element_mapping = {0: "N", 1: "C", 2: "H", 3: "O", 4: "S", 5: "Cl", 6: "Be",
-                       7: "Br", 8: "Pt", 9: "P", 10: "F", 11: "As", 12: "Hg",
-                       13: "Zn", 14: "Si", 15: "V", 16: "I", 17: "B", 18: "Sn",
-                       19: "Ge", 20: "Ag", 21: "Sb", 22: "Cu", 23: "Cr", 24: "Pb",
-                       25: "Mo", 26: "Se", 27: "Al", 28: "Cd", 29: "Mn", 30: "Fe",
-                       31: "Ga", 32: "Pd", 33: "Na", 34: "Ti", 35: "Bi", 36: "Co",
-                       37: "Ni", 38: "Ce", 39: "Ba", 40: "Zr", 41: "Rh"}
-    element_types = [element_mapping[spec_id.item()] for spec_id in graph.spec_id]
-
-    # CSV file with structure data
-    csv_file = '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/data.csv'
-
-    df = pd.read_csv(csv_file)
-
-    molecule_index = int(
-        re.search(r'(\d+)_', filepath).group(1))  # get molecule number from input file name
-    smiles_column_index = 3
-
-    # Extract the SMILES string from the specific row and column
-    smiles_string = df.iloc[molecule_index - 1, smiles_column_index]
-
-    print(smiles_string)
-
-    # Convert the SMILES string to an RDKit molecule
-    molecule = Chem.MolFromSmiles(smiles_string)
-
-    # Add hydrogens
-    molecule = Chem.AddHs(molecule)
-
-    num_atoms_in_smiles = molecule.GetNumAtoms()
-
-    # Convert graph to networkx for visualization
-    nx_graph = to_networkx(graph, to_undirected=True)
-
-    # Generate the molecule's 2D coordinates (needed for drawing in a graph)
-    AllChem.Compute2DCoords(molecule)
-
-    # Plot chemical structure with graph
-    # Plot chemical structure
-    pos = {i: (molecule.GetConformer().GetAtomPosition(i).x, molecule.GetConformer().GetAtomPosition(i).y)
-           for i in range(molecule.GetNumAtoms())}
-
-    fig, ax = plt.subplots(1, 2, figsize=(15, 7))
-
-    # Draw the chemical structure using RDKit
-    img = Draw.MolToImage(molecule, size=(300, 300))
-    ax[0].imshow(img)
-    ax[0].axis('off')  # Hide axes
-    # ax[0].set_title('Chemical Structure')
-    ax[0].set_title(filepath)
-
-    # Plot graph (using RDKit for node positions)
-    node_labels = nx.get_node_attributes(nx_graph, 'label')
-    nx.draw(nx_graph, pos, with_labels=True, labels=node_labels, node_size=700, font_size=10, font_weight='bold', ax=ax[1],
-            node_color='lightblue')
-    # ax[1].set_title('Graph Representation')
-
-    # plt.title(filepath)
-    plt.tight_layout()
-    plt.show()
-
-    #if idx > 200:
-    #    break
     #if num_nodes_in_graph < num_atoms_in_smiles:
     #    mismatched_molecules.append({
     #        'filepath': filepath,

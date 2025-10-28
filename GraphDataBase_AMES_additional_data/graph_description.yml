@@ -1,0 +1,71 @@
+BondAngleFeatures: true
+DataBaseDirectory: /Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/Additional_data/FILES_XYZ
+DihedralAngleFeatures: true
+InputFileExtension: .xyz
+OutputFileExtension: .pkl
+TargetDirectory: /Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/GraphDataBase_AMES_additional_data
+descriptionText: "\n\n\n------------------------------------------------\n#      \
+  \        Graph Description                \n------------------------------------------------\n\
+  \n\n- graph construction style: XG  \n- nNodeFeatures: 29  \nUsing Bond Angle Features\
+  \ \nUsing Dihedral Features \n\n\n------------------------------------------------\n\
+  #           End of Graph Description            \n------------------------------------------------\n\
+  \n\n"
+generate_graphs: true
+graphType: XG
+nMaxNeighbours: 850
+nNodeFeatures: 29
+nodeFeatures:
+- atomic_number
+- atomic_radius
+- atomic_weight
+- covalent_radius
+- density
+- en_pauling
+- mass_number
+- period
+- vdw_radius
+- block
+- series
+species:
+- N
+- C
+- H
+- O
+- S
+- Cl
+- Be
+- Br
+- Pt
+- P
+- F
+- As
+- Hg
+- Zn
+- Si
+- V
+- I
+- B
+- Sn
+- Ge
+- Ag
+- Sb
+- Cu
+- Cr
+- Pb
+- Mo
+- Se
+- Al
+- Cd
+- Mn
+- Fe
+- Ga
+- Pd
+- Na
+- Ti
+- Bi
+- Co
+- Ni
+- Ce
+- Ba
+- Zr
+- Rh

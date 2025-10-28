@@ -686,6 +686,19 @@ def assemble_and_save_summary(per_task_dfs, per_task_impatoms, per_task_preds, p
     order, _ = plot_alert_performance_bars(df_perf, detection_freqs, output_dir)
     #plot_alert_detection_heatmap(detection_freqs, order, output_dir)
 
+
+    df_summary = summarize_alert_strain_stats_to_csv(
+        alerts_compiled=alerts_compiled,
+        alerts_present_by_mol=alerts_present_by_mol,
+        per_task_dfs=per_task_dfs,
+        n_tasks=n_tasks,
+        output_dir=output_dir
+    )
+
+    analyze_per_atom_overlap_by_alert(
+        per_task_impatoms, alerts_compiled, global_smiles, output_dir
+    )
+
     # Compute mean toxic overlap per alert per strain
     overlap_scores = compute_toxic_overlap_by_strain(
         alerts_compiled, per_task_dfs, n_tasks, alerts_present_by_mol
@@ -1029,8 +1042,203 @@ def plot_alert_detection_heatmap(detection_freqs, order, output_dir=None):
     else:
         plt.show()
 
+def summarize_alert_strain_stats_to_csv(
+    alerts_compiled,
+    alerts_present_by_mol,
+    per_task_dfs,
+    n_tasks,
+    output_dir=None
+):
+    """
+    For each alert × strain, compute:
+      - number of molecules with the alert
+      - number correctly identified (overlap > 0)
+      - mean overlap (toxic only)
+      - mean overlap (non-toxic only)
+    and save to a CSV file.
+    """
 
+    all_alerts = [name for name, _ in alerts_compiled]
+    rows = []
 
+    # Identify toxic vs non-toxic molecules
+    toxic_mols = {i for i, (_, _, labels) in enumerate(alerts_present_by_mol) if any(l == 1 for l in labels)}
+    nontoxic_mols = {i for i, (_, _, labels) in enumerate(alerts_present_by_mol) if all(l != 1 for l in labels)}
+
+    for task in range(n_tasks):
+        strain_name = f"Strain {task+1}"
+        df_task = per_task_dfs[task][task].copy()
+        df_task["alert_detected"] = df_task["tight_score"] > 0
+
+        for alert in all_alerts:
+            df_alert = df_task[df_task["alert"] == alert]
+
+            # Only consider molecules where the alert is actually present
+            df_present = df_alert[df_alert["alert_present"] == True]
+            if len(df_present) == 0:
+                continue
+
+            n_total = len(df_present["mol_id"].unique())
+            n_detected = len(df_present[df_present["alert_detected"]]["mol_id"].unique())
+
+            # Toxic-only overlap mean
+            df_toxic = df_present[df_present["mol_id"].isin(toxic_mols)]
+            mean_overlap_tox = df_toxic["tight_score"].mean() if len(df_toxic) > 0 else 0
+
+            # Non-toxic-only overlap mean
+            df_non = df_present[df_present["mol_id"].isin(nontoxic_mols)]
+            mean_overlap_non = df_non["tight_score"].mean() if len(df_non) > 0 else 0
+
+            rows.append({
+                "alert": alert,
+                "strain": strain_name,
+                "n_molecules_with_alert": n_total,
+                "n_correctly_identified": n_detected,
+                "percent_correct": (n_detected / n_total * 100) if n_total > 0 else 0,
+                "mean_overlap_toxic_%": mean_overlap_tox * 100,
+                "mean_overlap_nontoxic_%": mean_overlap_non * 100
+            })
+
+    df_summary = pd.DataFrame(rows)
+
+    if output_dir:
+        outpath = os.path.join(output_dir, "alert_strain_summary.csv")
+        df_summary.to_csv(outpath, index=False)
+        print(f"✅ Saved alert × strain summary → {outpath}")
+    else:
+        print(df_summary.head())
+
+    return df_summary
+
+from rdkit import Chem
+from rdkit.Chem import Draw
+import numpy as np
+import matplotlib.pyplot as plt
+import os
+from collections import defaultdict
+
+import os, io
+import numpy as np
+import pandas as pd
+from collections import defaultdict
+from rdkit import Chem
+from rdkit.Chem import Draw
+from matplotlib import cm
+from PIL import Image
+
+def analyze_per_atom_overlap_by_alert(per_task_impatoms, alerts_compiled, global_smiles, output_dir):
+    """
+    Compute per-atom overlap frequencies between structural alerts and important atoms across tasks.
+
+    - Counts each (task, molecule) instance where the alert occurs.
+    - For each atom matched by the alert, counts how often it is included in the 'tight' or 'loose' important atom sets.
+    - Produces PNG visualizations and a CSV summary (alert_atom_overlap_summary.csv).
+    """
+    import os
+    from collections import defaultdict
+    import numpy as np
+    import pandas as pd
+    from rdkit import Chem
+    from rdkit.Chem.Draw import rdMolDraw2D
+
+    alert_instance_counts = defaultdict(int)
+    alert_atom_counts_tight = defaultdict(lambda: defaultdict(int))
+    alert_atom_counts_loose = defaultdict(lambda: defaultdict(int))
+
+    # Iterate over tasks and molecules (task_dict is {task_id: [mol_dicts]})
+    for task_dict in per_task_impatoms:
+        task_id = list(task_dict.keys())[0]
+        imp_list = task_dict[task_id]
+        for mol_id, smi in enumerate(global_smiles):
+            if mol_id >= len(imp_list):
+                continue
+            mol = Chem.MolFromSmiles(smi)
+            if mol is None:
+                continue
+            imp_entry = imp_list[mol_id] if mol_id < len(imp_list) else {"tight": [], "loose": []}
+            tight_set = set(imp_entry.get('tight', []))
+            loose_set = set(imp_entry.get('loose', []))
+
+            for alert_name, patt in alerts_compiled:
+                if patt is None:
+                    continue
+                matches = mol.GetSubstructMatches(patt)
+                if not matches:
+                    continue
+                alert_atom_indices = sorted(set([idx for match in matches for idx in match]))
+                if not alert_atom_indices:
+                    continue
+
+                alert_instance_counts[alert_name] += 1
+                for idx in alert_atom_indices:
+                    if idx in tight_set:
+                        alert_atom_counts_tight[alert_name][idx] += 1
+                    if idx in loose_set:
+                        alert_atom_counts_loose[alert_name][idx] += 1
+
+    # Normalize frequencies and save plots + CSV
+    plot_dir = os.path.join(output_dir, "alert_atom_overlap_plots")
+    os.makedirs(plot_dir, exist_ok=True)
+
+    records = []
+    for alert_name, instance_count in alert_instance_counts.items():
+        if instance_count == 0:
+            continue
+        tight_counts = alert_atom_counts_tight.get(alert_name, {})
+        loose_counts = alert_atom_counts_loose.get(alert_name, {})
+        # find a representative molecule for visualization
+        rep_mol = None
+        rep_idx = None
+        for mol_id, smi in enumerate(global_smiles):
+            mol = Chem.MolFromSmiles(smi) if smi else None
+            if mol is None:
+                continue
+            patt = next((p for n, p in alerts_compiled if n == alert_name), None)
+            if patt and mol.HasSubstructMatch(patt):
+                rep_mol = mol
+                rep_idx = mol_id
+                break
+        if rep_mol is None:
+            continue
+
+        atom_scores = np.zeros(rep_mol.GetNumAtoms(), dtype=float)
+        # use max(tight, loose) for visualization intensity
+        for idx in range(rep_mol.GetNumAtoms()):
+            t = tight_counts.get(idx, 0) / float(instance_count)
+            l = loose_counts.get(idx, 0) / float(instance_count)
+            atom_scores[idx] = max(t, l)
+            records.append({
+                'alert': alert_name,
+                'rep_mol_id': rep_idx,
+                'atom_index': idx,
+                'tight_overlap_freq': tight_counts.get(idx, 0) / float(instance_count),
+                'loose_overlap_freq': loose_counts.get(idx, 0) / float(instance_count),
+            })
+
+        # normalize to [0,1]
+        max_v = atom_scores.max()
+        norm_vals = atom_scores / (max_v + 1e-12) if max_v > 0 else atom_scores
+        atom_colors = {i: (1.0, 1.0 - float(norm_vals[i]), 1.0 - float(norm_vals[i])) for i in range(rep_mol.GetNumAtoms())}
+
+        drawer = rdMolDraw2D.MolDraw2DCairo(600, 600)
+        rdMolDraw2D.PrepareAndDrawMolecule(
+            drawer,
+            rep_mol,
+            highlightAtoms=list(atom_colors.keys()),
+            highlightAtomColors=atom_colors,
+            highlightAtomRadii={i: 0.4 for i in atom_colors.keys()},
+        )
+        drawer.FinishDrawing()
+        png_bytes = drawer.GetDrawingText()
+        outpath = os.path.join(plot_dir, f"{alert_name.replace('/', '_')}_atom_overlap.png")
+        with open(outpath, "wb") as fh:
+            fh.write(png_bytes)
+
+    # write CSV
+    csv_path = os.path.join(output_dir, "alert_atom_overlap_summary.csv")
+    pd.DataFrame.from_records(records).to_csv(csv_path, index=False)
+
+    print(f"✅ Per-atom overlap analysis complete. Plots saved to: {plot_dir}  CSV: {csv_path}")
 
 
 def main():
@@ -1744,7 +1952,7 @@ def main():
             for _, r in df_sorted.head(topN_grid).iterrows():
                 legends.append(f"pos:{r['total_pos_count']},tot:{r['total_count']}")
             img = Draw.MolsToGridImage(mols, molsPerRow=min(6, len(mols)), subImgSize=(200, 200), legends=legends)
-            img.save(os.path.join(output_dir, "top_discovered_fragments_grid.png"))
+            img.save(os.path.join(output_dir, "top_discovered_fragments_grid.png"),dpi=300)
         except Exception:
             pass
 
