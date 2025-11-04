@@ -68,13 +68,14 @@ def get_args():
 
 # Load structural alerts as SMARTS
 def load_alerts():
+    """
     alerts = [
         ("Alkyl esters of phosphonic or sulphonic acids", "C[OX2]P(=O)(O)O or C[OX2]S(=O)(=O)O"),
         ("Aromatic nitro groups", "[c][NX3](=O)=O"),
         ("Aromatic N-oxides", "[n+](=O)[O-]"),
         ("Aromatic mono- and dialkyl amino groups", "[c][NX3;H0,H1;!$(NC=O)]"),
         ("Alkyl hydrazines", "[NX3][NX3]"),
-        ("Simple aldehyde", "[CX3H1](=O)[#6]"),
+        ("Simple aldehydes", "[CX3H1](=O)[#6]"),
         ("N-methylol derivatives", "[NX3]CO"),
         ("Monohaloalkenes", "C=C[F,Cl,Br,I]"),
         ("S- or N- mustards", "N(CCCl)CCCl or S(CCCl)CCCl"),
@@ -83,7 +84,7 @@ def load_alerts():
         ("Epoxides and aziridines", "C1OC1 or C1NC1"),
         ("Heterocyclic/polycyclic aromatic hydrocarbons", "c1ccccc1"),
         ("Aliphatic halogens", "[CX4;!c][F,Cl,Br,I]"),
-        ("Alkyl nitrite", "[CX4][OX2]N=O"),
+        ("Alkyl nitrites", "[CX4][OX2]N=O"),
         ("Quinones", "O=C1C=CC(=O)C=C1"),
         ("N-nitroso", "[NX3;H0,H1][NX2]=O"),
         ("Aromatic amines and hydroxylamines", "[c][NX3H2] or [c][NX3H1]O"),
@@ -98,6 +99,40 @@ def load_alerts():
         ("Acrylamides", "C=CC(=O)N"),
         ("Alkylating sulfonates/mesylates/tosylates", "OS(=O)(=O)C"),
     ]
+    """
+    # Updated
+    alerts = [
+        ("Acyl halides", "[Br,Cl,F,I][CX3](=[OX1])[#1,*&!$([OH1])&!$([SH1])]"),
+        ("Alkyl and aryl N-nitroso groups", "[#6][NX3][NX2]=[OX1]"),
+        ("Alkyl or benzyl esters of phosphonic or sulphonic acids","[$([Sv6X4;!$([Sv6X4][OH]);!$([Sv6X4][SH]);!$([Sv6X4][O-]);!$([Sv6X4][S-])](=[OX1])(=[OX1])[$([OX2]C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])[#1,F,Cl,Br,I]),$([OX2]C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])[#1,F,Cl,Br,I]),$([OX2]C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])[#1,F,Cl,Br,I]),$([OX2]C([#1,F,Cl,Br,I])(C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])[#1,F,Cl,Br,I])C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])[#1,F,Cl,Br,I]),$([OX2]C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])[#1,F,Cl,Br,I]),$([OX2]C([#1,F,Cl,Br,I])(C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])[#1,F,Cl,Br,I])C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])[#1,F,Cl,Br,I]),$([OX2][CH0](C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])[#1,F,Cl,Br,I])(C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])[#1,F,Cl,Br,I])C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])[#1,F,Cl,Br,I]),$([OX2]C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])C([#1,F,Cl,Br,I])(C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])[#1,F,Cl,Br,I])C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])[#1,F,Cl,Br,I]),$([OX2][CH2]c1ccccc1)]),$([Pv5X4;!$([Pv5X4][OH]);!$([Pv5X4][SH]);!$([Pv5X4][O-]);!$([Pv5X4][S-])](=[OX1])([$([OX2]C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])[#1,F,Cl,Br,I]),$([OX2]C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])[#1,F,Cl,Br,I]),$([OX2]C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])[#1,F,Cl,Br,I]),$([OX2]C([#1,F,Cl,Br,I])(C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])[#1,F,Cl,Br,I])C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])[#1,F,Cl,Br,I]),$([OX2]C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])[#1,F,Cl,Br,I]),$([OX2]C([#1,F,Cl,Br,I])(C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])[#1,F,Cl,Br,I])C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])[#1,F,Cl,Br,I]),$([OX2][CH0](C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])[#1,F,Cl,Br,I])(C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])[#1,F,Cl,Br,I])C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])[#1,F,Cl,Br,I]),$([OX2]C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])C([#1,F,Cl,Br,I])(C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])[#1,F,Cl,Br,I])C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])[#1,F,Cl,Br,I]),$([OX2][CH2]c1ccccc1)])[$([OX2]C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])[#1,F,Cl,Br,I]),$([OX2]C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])[#1,F,Cl,Br,I]),$([OX2]C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])[#1,F,Cl,Br,I]),$([OX2]C([#1,F,Cl,Br,I])(C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])[#1,F,Cl,Br,I])C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])[#1,F,Cl,Br,I]),$([OX2]C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])[#1,F,Cl,Br,I]),$([OX2]C([#1,F,Cl,Br,I])(C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])[#1,F,Cl,Br,I])C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])[#1,F,Cl,Br,I]),$([OX2][CH0](C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])[#1,F,Cl,Br,I])(C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])[#1,F,Cl,Br,I])C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])[#1,F,Cl,Br,I]),$([OX2]C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])C([#1,F,Cl,Br,I])(C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])[#1,F,Cl,Br,I])C([#1,F,Cl,Br,I])([#1,F,Cl,Br,I])[#1,F,Cl,Br,I]),$([OX2][CH2]c1ccccc1)])]"),
+        ("Alkyl carbamate and thiocarbamates", "[NX3]([C,#1])([C,#1])[CX3](=[OX1,Sv2X1])[OX2,Sv2X2]C"),
+        ("Hydrazines", "[NX3;!$([NX3](=[OX1])=[OX1]);!$([NX3+](=[OX1])[O-])][NX3;!$([NX3](=[OX1])=[OX1]);!$([NX3+](=[OX1])[O-])]"),
+        ("Alkyl nitrites", "[OX1]=[NX2][OX2][CX4]"),
+        ("Aliphatic azo and azoxy groups", "[$([C,#1][NX2]=[NX2][C,#1]),$([CX3]=[NX2+]=N),$([CX3]=[NX2+]=[NX1-]),$([CX3-][NX2+]#[NX1]),$([CX3][NX2]#[NX1]),$(C[NX2]=N(=O)[*]),$(C[NX2]=[N+]([O-])[*])]"),
+        ("Aliphatic halogens", "[CX4;!H0][Br,Cl,I]"),
+        ("Aliphatic N-nitro groups", "[NX3]([#1,C])([#1,C])[$([NX3+](=[OX1])[O-]),$([NX3](=O)=O)]"),
+        ("Alpha, beta unsaturated aliphatic alkoxy groups", "C[CX3;H1]=[CX3;H1][OX2][#6]"),
+        ("Alpha, beta unsaturated carbonyls", " [CX3]([!$([OH]);!$([O-])])(=[OX1])[CX3H1]=[CX3]([$([CH3]),$([CH2][CH3]),$([CH2][CH2][CH3]),$([CH]([CH3])[CH3]),$([CH2][CH2][CH2][CH3]),$([CH]([CH3])[CH2][CH3]),$([CH2][CH]([CH3])[CH3]),$([CH0]([CH3])([CH3])[CH3]),$([CH2][CH2][CH2][CH2][CH3]),$([CH]([CH3])[CH2][CH2][CH3]),$([CH2][CH]([CH3])[CH2][CH3]),$([CH2][CH2][CH]([CH3])[CH3]),$([CH]([CH2][CH3])[CH2][CH3]),$([CH]([CH3])[CH]([CH3])[CH3]),$([CH0]([CH3])([CH3])[CH2][CH3]),$([CH2][CH0]([CH3])([CH3])[CH3]),$([#1,#7,#8,F,Cl,Br,I,#15,#16,#5]),$([CH]=[CH][#6]);!$([a!r0])])[$([CH3]),$([CH2][CH3]),$([CH2][CH2][CH3]),$([CH]([CH3])[CH3]),$([CH2][CH2][CH2][CH3]),$([CH]([CH3])[CH2][CH3]),$([CH2][CH]([CH3])[CH3]),$([CH0]([CH3])([CH3])[CH3]),$([CH2][CH2][CH2][CH2][CH3]),$([CH]([CH3])[CH2][CH2][CH3]),$([CH2][CH]([CH3])[CH2][CH3]),$([CH2][CH2][CH]([CH3])[CH3]),$([CH]([CH2][CH3])[CH2][CH3]),$([CH]([CH3])[CH]([CH3])[CH3]),$([CH0]([CH3])([CH3])[CH2][CH3]),$([CH2][CH0]([CH3])([CH3])[CH3]),$([#1,#7,#8,F,Cl,Br,I,#15,#16,#5]),$([CH]=[CH][#6]);!$([a!r0])]"),
+        ("Aromatic amines and hydroxylamines", "[a!r0][$([NH2]),$([NX3][OX2H1]),$([NX3][OX2][CX3H1](=[OX1])),$([NX2]=[CH2]),$([NX2]=C=[OX1]);!$([NX3,NX2]a(a-[!#1])a-[!#1]);!$([NX3,NX2]aa-C(=[OX1])[OH]);!$([NX3,NX2]aa-[Sv6X4](=[OX1])(=[OX1])[OH]);!$([NX3,NX2]aaa-[Sv6X4](=[OX1])(=[OX1])[OH]);!$([NX3,NX2]aaaa-[Sv6X4](=[OX1])(=[OX1])[OH])]"),
+        ("Aromatic diazo groups", "[$([NX2]([a!r0])=[NX2][a!r0]);!$([NX2](aaS(=O)(=O)[OH])=[NX2]aaS(=O)(=O)[OH]);!$([NX2](aaS(=O)(=O)[OH])=[NX2]aaaS(=O)(=O)[OH]);!$([NX2](aaaS(=O)(=O)[OH])=[NX2]aaS(=O)(=O)[OH]);!$([NX2](aaS(=O)(=O)[OH])=[NX2]aaaaS(=O)(=O)[OH])!$([NX2](aaaaS(=O)(=O)[OH])=[NX2]aaS(=O)(=O)[OH]);!$([NX2](aaaS(=O)(=O)[OH])=[NX2]aaaS(=O)(=O)[OH]);!$([NX2](aaaS(=O)(=O)[OH])=[NX2]aaaaS(=O)(=O)[OH]);!$([NX2](aaaaS(=O)(=O)[OH])=[NX2]aaaS(=O)(=O)[OH]);!$([NX2](aaaaS(=O)(=O)[OH])=[NX2]aaaaS(=O)(=O)[OH])]"),
+        ("Aromatic nitro groups", "[a!r0][$([NX3+](=[OX1])[O-]),$([NX3](=[OX1])=[OX1]);!$([NX3]a(a-[!#1])a-[!#1]);!$([NX3]aa-C(=[OX1])[OH]);!$([NX3]aa-[Sv6X4](=[OX1])(=[OX1])[OH]);!$([NX3]aaa-[Sv6X4](=[OX1])(=[OX1])[OH]);!$([NX3]aaaa-[Sv6X4](=[OX1])(=[OX1])[OH])]"),
+        ("Aromatic nitroso groups", "[a!r0][NX2]=[OX1]"),
+        ("Aromatic mono- and dialkyl amino groups", "[a!r0][$([NX3;H1][CH3]),$([NX3;H1][CH2][CH3]),$([NX3]([CH3])[CH3]),$([NX3]([CH3])[CH2][CH3]),$([NX3]([CH2][CH3])[CH2][CH3]);!$([NX3]a(a-[!#1])a-[!#1]);!$([NX3]aa-C(=[OX1])[OH]);!$([NX3]aa-[Sv6X4](=[OX1])(=[OX1])[OH]);!$([NX3]aaa-[Sv6X4](=[OX1])(=[OX1])[OH]);!$([NX3]aaaa-[Sv6X4](=[OX1])(=[OX1])[OH])]"),
+        ("Aromatic N-acyl amines", "[a!r0][$([NX3;H1]),$([NX3][CH3]);!$([NX3]a(a-[!#1])a-[!#1]);!$([NX3]aa-C(=[OX1])[OH]);!$([NX3]aa-[Sv6X4](=[OX1])(=[OX1])[OH]);!$([NX3]aaa-[Sv6X4](=[OX1])(=[OX1])[OH]);!$([NX3]aaaa-[Sv6X4](=[OX1])(=[OX1])[OH])][CX3](=[OX1])([$([#1]),$([CH3])])"),
+        ("Aromatic N-oxides", "[O-][N+]1=CC=CC=C1"),
+        ("Azide and triazene groups", "[$([NX2!R]=[NX2!R][NX3!R]),$([NX2]=[NX2+]=[NX1-]),$([NX2]=[NX2+]=N)]"),
+        ("Coumarins and Furocoumarins", "[$(c1cccc2c1oc(=O)cc2),$(C1=CC(=O)OC2=CC=CC=C12),$(C1=CC(=O)Oc2ccccc12)]"),
+        ("Epoxides and aziridines", "[CX4]1[OX2,NX3][CX4]1"),
+        ("Polycyclic aromatic hydrocarbons", "[$([cX3R3]),$([cX3;R1,R2,R3]1[cX3;R1,R2,R3][cX3;R1,R2,R3][cX3;R1,R2,R3][cX3;R2,R3]2[cX3;R2,R3]1[cX3;R1,R2,R3][cX3;R2,R3]3[cX3;R2,R3]([cX3;R1,R2,R3]2)[cX3;R1,R2,R3][cX3;R1,R2,R3][cX3;R1,R2,R3][cX3;R1,R2,R3]3)].[!$([n,o,s])]"),
+        ("Heterocyclic polycyclic aromatic hydrocarbons", "[$([aR3].[n,o,s]),$([$([aR2]([aR])([aR])([aR]))].[$([aR2]([aR])([aR])([aR]))].[$([aR2]([aR])([aR])([aR]))].[$([aR2]([aR])([aR])([aR]))].[n,o,s])]"),
+        ("Isocyanate and isothiocyanate groups", "[NX2]=[CX2]=[OX1,Sv2X1]"),
+        ("Monohaloalkenes", "[CX3]([CX4,#1])([F,Cl,Br,I])=[CX3]([CX4,#1])[!F!Cl!Br!I]"),
+        ("N-methylol derivatives", "[OX2;H1][CH2][NX3]"),
+        ("Propiolactones and propiosultones", "[$([OX2]1[CX4][CX4][CX3]1(=[OX1])),$([CX4]1[CX4][CX4][Sv6;X4](=[OX1])(=[OX1])[OX2]1)]"),
+        ("Quinones", "[$([#6X3]1=,:[#6X3]-,:[#6X3](=[OX1])-,:[#6X3]=,:[#6X3]-,:[#6X3]1(=[OX1])),$([#6X3]1(=[OX1])-,:[#6X3](=[OX1])-,:[#6X3]=,:[#6X3]-,:[#6X3]=,:[#6X3]1)]"),
+        ("Simple aldehydes", "[CX3]([H])(=[OX1])[#1,#6&!$([CX3]=[CX3])]"),
+        ("S- or N- mustards", "[F,Cl,Br,I][CH2][CH2][NX3,SX2][CH2][CH2][F,Cl,Br,I]")
+    ]
 
     compiled = []
 
@@ -106,6 +141,7 @@ def load_alerts():
         if patt:
             compiled.append((name, patt))
     return compiled
+
 
 # Compute overlap between substructure matches and important atoms
 def compute_overlap_score(mol, smarts, highlighted_atoms):
@@ -168,7 +204,7 @@ def build_fragment_catalog(per_task_impatoms, per_task_preds, per_task_labels, g
             # mol = Chem.MolFromSmiles(smiles) if smiles is not None else None
             mol = Chem.AddHs(Chem.MolFromSmiles(smiles)) if smiles is not None else None
             # combine tight and loose fragments separately: mark their source
-            atom_list = impdict.get("tight", [])
+            atom_list = impdict.get("loose", [])
             if not atom_list:
                 continue
             frag_smi = get_fragment_smiles(mol, atom_list) # Generate submol based on important atoms
@@ -424,10 +460,16 @@ def plot_combined_known_vs_novel(alert_frags, novel_frags, output_dir, top_n_eac
     for e in show_list:
         smi = e["fragment"]
         if e["alerts"]:
-            alerts_str = ", ".join(e["alerts"])
-            legends.append(f"{smi}\n(alerts: {alerts_str})")
+            #alerts_str = ", ".join(e["alerts"])
+            #legends.append(f"{smi}\n(alerts: {alerts_str})")
+            legends.append(f"alerts: {e["alerts"]}")
         else:
-            legends.append(f"{smi}\n(novel)")
+            #alerts_str = ", novel".join(e["total_pos_count"])
+            #legends.append(f"{smi}\n(novel) {alerts_str}")
+            #legends.append(f"{smi}\n(novel)")
+            #legends.append(f"{e[n_pos_count]})
+            legends.append(f"novel, total pos count: {e["total_pos_count"]}")
+
     img = Draw.MolsToGridImage(
         mols,
         molsPerRow=6,
@@ -783,7 +825,7 @@ def analyze_per_atom_overlap_by_alert(per_task_impatoms, alerts_compiled, global
         for idx in range(rep_mol.GetNumAtoms()):
             t = tight_counts.get(idx, 0) / float(instance_count)
             l = loose_counts.get(idx, 0) / float(instance_count)
-            atom_scores[idx] = max(t, l)
+            atom_scores[idx] = l #max(t, l)
             records.append({
                 'alert': alert_name,
                 'rep_mol_id': rep_idx,
@@ -797,25 +839,61 @@ def analyze_per_atom_overlap_by_alert(per_task_impatoms, alerts_compiled, global
         norm_vals = atom_scores / (max_v + 1e-12) if max_v > 0 else atom_scores
         atom_colors = {i: (1.0, 1.0 - float(norm_vals[i]), 1.0 - float(norm_vals[i])) for i in range(rep_mol.GetNumAtoms())}
 
-        drawer = rdMolDraw2D.MolDraw2DCairo(600, 600)
-        rdMolDraw2D.PrepareAndDrawMolecule(
-            drawer,
+        #drawer = rdMolDraw2D.MolDraw2DCairo(600, 600)
+        #rdMolDraw2D.PrepareAndDrawMolecule(
+        #    drawer,
+        #    rep_mol,
+        #    highlightAtoms=list(atom_colors.keys()),
+        #    highlightAtomColors=atom_colors,
+        #    highlightAtomRadii={i: 0.4 for i in atom_colors.keys()},
+        #)
+        #drawer.FinishDrawing()
+        #png_bytes = drawer.GetDrawingText()
+        #outpath = os.path.join(plot_dir, f"{alert_name.replace('/', '_')}_atom_overlap.png")
+        #with open(outpath, "wb") as fh:
+        #    fh.write(png_bytes)
+
+        # Highlight structural alert region
+        alert_atom_indices = []
+        alert_bond_indices = []
+        if patt is not None:
+            matches = rep_mol.GetSubstructMatches(patt)
+            for match in matches:
+                alert_atom_indices.extend(match)
+                for bond in rep_mol.GetBonds():
+                    a1, a2 = bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()
+                    if a1 in match and a2 in match:
+                        alert_bond_indices.append(bond.GetIdx())
+        alert_atom_indices = sorted(set(alert_atom_indices))
+        alert_bond_indices = sorted(set(alert_bond_indices))
+
+        # Build alert colors (gray), but ensure red atoms (importance) stay on top
+        alert_atom_colors = {a: (0.8, 0.8, 0.8) for a in alert_atom_indices if
+                             a not in atom_colors or np.allclose(atom_colors[a], (1.0, 1.0, 1.0))}
+        alert_bond_colors = {b: (0.6, 0.6, 0.6) for b in alert_bond_indices}
+
+        # Merge — importance (red) overrides alert (gray)
+        final_atom_colors = {**alert_atom_colors, **atom_colors}  # red overwrites gray
+        highlight_atoms = list(final_atom_colors.keys())
+
+        # Use draw_with_colors to render final image
+        im = draw_with_colors(
             rep_mol,
-            highlightAtoms=list(atom_colors.keys()),
-            highlightAtomColors=atom_colors,
-            highlightAtomRadii={i: 0.4 for i in atom_colors.keys()},
+            highlight_atoms=highlight_atoms,
+            highlight_atom_colors=final_atom_colors,
+            highlight_bonds=alert_bond_indices,
+            highlight_bond_colors=alert_bond_colors,
+            size=(600, 600)
         )
-        drawer.FinishDrawing()
-        png_bytes = drawer.GetDrawingText()
+
         outpath = os.path.join(plot_dir, f"{alert_name.replace('/', '_')}_atom_overlap.png")
-        with open(outpath, "wb") as fh:
-            fh.write(png_bytes)
+        im.save(outpath)
 
     # write CSV
     csv_path = os.path.join(output_dir, "alert_atom_overlap_summary.csv")
     pd.DataFrame.from_records(records).to_csv(csv_path, index=False)
 
-def compute_overall_alert_performance(alerts_compiled, alerts_present_by_mol, per_task_dfs, n_tasks, output_dir):
+def compute_overall_alert_performance(alerts_compiled, alerts_present_by_mol, per_task_dfs, n_tasks, global_smiles, output_dir):
     all_alerts = [name for name, _ in alerts_compiled]
     stats = {
         a: {
@@ -829,22 +907,28 @@ def compute_overall_alert_performance(alerts_compiled, alerts_present_by_mol, pe
     }
 
     for mol_id, (present_alerts, _, label_list) in enumerate(alerts_present_by_mol):
-        #is_toxic = any(l == 1 for l in label_list)
-        mol_overlaps = defaultdict(list)
-        mol_detected = defaultdict(bool)
 
+        # Determine which alerts are present in molecule
+        alerts_present_by_mol = []
+        smiles = global_smiles[mol_id]
+        mol = Chem.MolFromSmiles(smiles)
+        for name, patt in alerts_compiled:
+            matches = mol.GetSubstructMatches(patt)
+            if matches:
+                stats[name]["n_present"] += 5
+
+        mol_overlaps = defaultdict(list)
         # Loop through all tasks/strains
         for task in range(n_tasks):
             df_task = per_task_dfs[task][task]
             mol_df = df_task[df_task["mol_id"] == mol_id]
             for _, row in mol_df.iterrows():
                 a = row["alert"]
-                if a not in stats or not row["alert_present"]:
+                if not row["alert_present"]: # Only consider alerts with overlap > 0
                     continue
                 overlap = row.get("tight_score", 0.0)
                 mol_overlaps[a].append(overlap)
-                if overlap > 0:
-                    mol_detected[a] = True
+                stats[a]["n_detected"] += 1
 
                 if row["label_overall"] > 0:
                     is_toxic = True
@@ -855,9 +939,6 @@ def compute_overall_alert_performance(alerts_compiled, alerts_present_by_mol, pe
         for alert in present_alerts:
             if alert not in stats:
                 continue
-            stats[alert]["n_present"] += 1
-            if mol_detected[alert]:
-                stats[alert]["n_detected"] += 1
             if alert in mol_overlaps:
                 stats[alert]["overlaps"].extend(mol_overlaps[alert])
                 if is_toxic:
@@ -872,8 +953,8 @@ def compute_overall_alert_performance(alerts_compiled, alerts_present_by_mol, pe
         n_det = v["n_detected"]
         pct_correct = (n_det / n_pres * 100) if n_pres > 0 else 0
         mean_overlap = np.mean(v["overlaps"]) if v["overlaps"] else 0
-        mean_overlap_tox = np.mean(v["overlaps_toxic"]) if v["overlaps_toxic"] else 0
-        mean_overlap_non = np.mean(v["overlaps_nontoxic"]) if v["overlaps_nontoxic"] else 0
+        mean_overlap_tox = (np.sum(v["overlaps_toxic"]))/5 if v["overlaps_toxic"] else 0
+        mean_overlap_non = (np.sum(v["overlaps_nontoxic"]))/5 if v["overlaps_nontoxic"] else 0
         rows.append({
             "n_present": n_pres,
             "n_detected": n_det,
@@ -912,7 +993,7 @@ def compute_detection_frequencies(alerts_compiled, per_task_dfs, n_tasks):
     return detection_freqs
 
 def plot_alert_performance_bars(df_perf, output_dir=None):
-    order = df_perf.sort_values("mean_overlap_toxic", ascending=False).index
+    order = df_perf.sort_values(ascending=False).index
     df_perf = df_perf.loc[order]
 
     #fig, ax = plt.subplots(figsize=(12, 0.4 * len(df_perf)))  # longer and skinnier
@@ -921,9 +1002,9 @@ def plot_alert_performance_bars(df_perf, output_dir=None):
     y = np.arange(len(df_perf))
     barh_kwargs = dict(height=0.25, edgecolor="black")
 
-    ax.barh(y - 0.25, df_perf["percent_correct"], color="#6baed6", label="% Correctly Identified", **barh_kwargs)
-    ax.barh(y, df_perf["mean_overlap_toxic"] * 100, color="#fd8d3c", label="Mean Overlap (Toxic)", **barh_kwargs)
-    ax.barh(y + 0.25, df_perf["mean_overlap_nontoxic"] * 100, color="#969696", label="Mean Overlap (Non-Toxic)", **barh_kwargs)
+    #ax.barh(y - 0.25, df_perf["percent_correct"], color="#6baed6", label="% Correctly Identified", **barh_kwargs)
+    ax.barh(y, df_perf * 100, color="#fd8d3c", label="Mean Overlap (Toxic)", **barh_kwargs)
+    #ax.barh(y + 0.25, df_perf["mean_overlap_nontoxic"] * 100, color="#969696", label="Mean Overlap (Non-Toxic)", **barh_kwargs)
 
     ax.set_yticks(y)
     ax.set_yticklabels(df_perf.index)
@@ -950,15 +1031,18 @@ def compute_toxic_overlap_by_strain(alerts_compiled, per_task_dfs, n_tasks, aler
         df_task = per_task_dfs[task][task].copy()
 
         for alert in all_alerts:
-            df_alert = df_task[(df_task["alert"] == alert) & (df_task["alert_present"])]
+            df_alert = df_task[(df_task["alert"] == alert) & (df_task["alert_present"]) & (df_task["label_overall"] == 1)]
             if len(df_alert) == 0:
                 continue
             mean_overlap = df_alert["tight_score"].mean()
             overlap_scores.loc[alert, f"Strain {task+1}"] = mean_overlap
 
-    return overlap_scores
+    mean_overlap_scores = overlap_scores.mean(axis=1)
 
-def plot_toxic_overlap_heatmap(overlap_scores, order, output_dir=None):
+    return overlap_scores, mean_overlap_scores
+
+def plot_toxic_overlap_heatmap(overlap_scores, mean_overlap_scores, output_dir=None):
+    order = mean_overlap_scores.sort_values(ascending=False).index
     overlap_scores = overlap_scores.loc[order]
 
     plt.figure(figsize=(8,15))
@@ -1193,7 +1277,7 @@ def main():
             imp_nodes_tight = sorted(set(imp_edges_tight.view(-1).tolist()))
 
             G = to_networkx(data, to_undirected=True)
-            sub_tight = G.subgraph(imp_nodes_tight).copy()
+            #sub_tight = G.subgraph(imp_nodes_tight).copy()
             # if sub_tight.number_of_nodes() > 0:
             #    lcc_tight = max(nx.connected_components(sub_tight), key=len)
             #    important_atoms_tight = sorted(list(lcc_tight))
@@ -1203,14 +1287,15 @@ def main():
             #    important_atoms_tight = imp_nodes_tight
             # else:
             #    important_atoms_tight = []
-            if sub_tight.number_of_nodes() > 0:
+            #if sub_tight.number_of_nodes() > 0:
                 # Keep *all* connected components, not just the largest
-                comps = max(nx.connected_components(sub_tight), key=len)
-                important_atoms_tight = sorted(list(comps))
+                #comps = max(nx.connected_components(sub_tight), key=len)
+                #important_atoms_tight = sorted(list(comps))
+            important_atoms_tight = imp_nodes_tight
                 # comps = list(nx.connected_components(sub_tight))
                 # important_atoms_tight = sorted(set().union(*comps))
-            else:
-                important_atoms_tight = []
+            #else:
+                #important_atoms_tight = []
 
             # Loose filter
             k_edges_loose = int(0.15 * edge_mask.size)  # max(8, int(0.15 * edge_mask.size))  # ~25–30%
@@ -1273,8 +1358,8 @@ def main():
         per_task_dfs.append({task_id: df})
 
         # Consider an alert present if tight_score > 0 or loose_score > 0
-        df['alert_present'] = (df['tight_score'] > 0) | (df['loose_score'] > 0)
-        # df['alert_present'] = (df['tight_score'] > 0)
+        #df['alert_present'] = (df['tight_score'] > 0) | (df['loose_score'] > 0)
+        df['alert_present'] = (df['tight_score'] > 0)
 
     # Known structural alerts
     alerts_compiled = load_alerts()
@@ -1301,15 +1386,17 @@ def main():
 
     ### Strain-specific structural alert detection analysis
     # For each alert, calculate % correctly identified and mean overlap score (toxic vs nontoxic)
-    df_perf = compute_overall_alert_performance(alerts_compiled, alerts_present_by_mol, per_task_dfs, 5, args.output_dir)
+    #df_perf = compute_overall_alert_performance(alerts_compiled, alerts_present_by_mol, per_task_dfs, 5, global_smiles, args.output_dir)
 
     # Save and plot per-alert bar graph, output order of alerts for second plot (sorted by mean toxic overlap)
-    order = plot_alert_performance_bars(df_perf, args.output_dir)
+    #order = plot_alert_performance_bars(df_perf, args.output_dir)
 
-    overlap_scores = compute_toxic_overlap_by_strain(alerts_compiled, per_task_dfs, 5, alerts_present_by_mol)
+    overlap_scores, mean_overlap_scores = compute_toxic_overlap_by_strain(alerts_compiled, per_task_dfs, 5, alerts_present_by_mol)
 
     # Save and plot heatmap of % overlap for each strain
-    plot_toxic_overlap_heatmap(overlap_scores, order, args.output_dir)
+    plot_toxic_overlap_heatmap(overlap_scores, mean_overlap_scores, args.output_dir)
+
+    plot_alert_performance_bars(mean_overlap_scores, args.output_dir)
 
 if __name__ == "__main__":
     main()
