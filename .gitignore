@@ -1,12 +1,14 @@
 DataBase/
-DataBase_AMES/
+Database_AMES/FILES_DEV
 Additional_data/
 GraphDataBase_AMES/
 GraphDataBase_AMES_global/
 GraphDataBase_AMES_global_extra/
+GraphDataBase_AMES_additional_data/
 QM9ERHGraphDataBase/
 AMES/__pycache__/
 MTL_publication/
+AMES_1081629/
 AMES/runs/
 AMES/logs/
 AMES/data.csv
@@ -25,6 +27,9 @@ AMES/output_seed_8_20_25/
 AMES/performance/
 AMES/output_seed_SAVE/
 AMES/output_crossfold_val/
+AMES/paper_submission/
+AMES/output/
+AMES/MTL_GNN_for_AMES_Mutagenicity_Prediction/
 *.DS_Store
 *.pt
 *.csv
@@ -34,8 +39,10 @@ AMES/output_crossfold_val/
 *.pyo
 *.log
 *.tar
+*.tar.gz
 *.xlsx
 *.xls
 *.png
 *.jpg
 *.pdf
+*.docx
