@@ -525,7 +525,7 @@ def main():
     #callbacks = set_up_callbacks(anyCallBacks, optimizer)
 
 
-    checkpoint = torch.load('/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/output_seed_8_20_25/checkpoints/metrics_79_3.pt', map_location=torch.device('cpu'))
+    checkpoint = torch.load('/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/output_seed_8_20_25/checkpoints/metrics_90_4.pt', map_location=torch.device('cpu'))
     model.load_state_dict(checkpoint['model_state_dict'])
 
     model = model.to(device)

@@ -41,7 +41,7 @@ from graph_dataset import GraphDataSet
 from compute_metrics import *
 from data import load_data
 #from BuildNN_GNN_MTL import BuildNN_GNN_MTL
-from BuildNN_GNN_MTL_global import BuildNN_GNN_MTL
+from BuildNN_GNN_MTL_GINEConv import BuildNN_GNN_MTL
 from masked_loss_function import masked_loss_function
 from set_seed import set_seed
 from MTLDataset import MTLDataset
@@ -269,17 +269,17 @@ def main():
         g = torch.Generator()
         g.manual_seed(seed)
 
-        all_global_feats_train = torch.stack([g.global_feats for g in trainDataset])
-        global_mean_train = all_global_feats_train.mean(dim=0).to(device)
-        global_std_train = all_global_feats_train.std(dim=0).to(device)
+        #all_global_feats_train = torch.stack([g.global_feats for g in trainDataset])
+        #global_mean_train = all_global_feats_train.mean(dim=0).to(device)
+        #global_std_train = all_global_feats_train.std(dim=0).to(device)
 
-        all_global_feats_val = torch.stack([g.global_feats for g in valDataset])
-        global_mean_val = all_global_feats_val.mean(dim=0).to(device)
-        global_std_val = all_global_feats_val.std(dim=0).to(device)
+        #all_global_feats_val = torch.stack([g.global_feats for g in valDataset])
+        #global_mean_val = all_global_feats_val.mean(dim=0).to(device)
+        #global_std_val = all_global_feats_val.std(dim=0).to(device)
 
-        all_global_feats_test = torch.stack([g.global_feats for g in testDataset])
-        global_mean_test = all_global_feats_test.mean(dim=0).to(device)
-        global_std_test = all_global_feats_test.std(dim=0).to(device)
+        #all_global_feats_test = torch.stack([g.global_feats for g in testDataset])
+        #global_mean_test = all_global_feats_test.mean(dim=0).to(device)
+        #global_std_test = all_global_feats_test.std(dim=0).to(device)
 
         # Set up train and val loader
         trainLoader = DataLoader(trainDataset, batch_size=nBatch, generator=g)
@@ -379,8 +379,8 @@ def main():
         n_start = 0
 
     # setup callbacks, if any
-    anyCallBacks = input_data.get("callbacks", None)
-    callbacks = set_up_callbacks(anyCallBacks, optimizer)
+    #anyCallBacks = input_data.get("callbacks", None)
+    #callbacks = set_up_callbacks(anyCallBacks, optimizer)
 
     # move to GPU
     model = model.to(device)
@@ -392,7 +392,7 @@ def main():
             model.train()
             train_loss = 0
             for sample in trainLoader:
-                pred = model(sample.x.to(device), sample.edge_index.to(device), sample.edge_attr.to(device), sample.batch.to(device), n_node_neurons, n_node_features, n_edge_neurons, n_edge_features, n_graph_convolution_layers, n_shared_layers, n_target_specific_layers, useMolecularDescriptors, sample.global_feats.to(device), global_mean_train, global_std_train)
+                pred = model(sample.x.to(device), sample.edge_index.to(device), sample.edge_attr.to(device), sample.batch.to(device), n_node_neurons, n_node_features, n_edge_neurons, n_edge_features, n_graph_convolution_layers, n_shared_layers, n_target_specific_layers, useMolecularDescriptors)
                 losses = 0
 
                 for i in range(5):
@@ -415,7 +415,7 @@ def main():
             val_loss = 0
             with torch.no_grad():
                 for sample in valLoader:
-                    pred = model(sample.x.to(device), sample.edge_index.to(device), sample.edge_attr.to(device), sample.batch.to(device), n_node_neurons, n_node_features, n_edge_neurons, n_edge_features, n_graph_convolution_layers, n_shared_layers, n_target_specific_layers, useMolecularDescriptors, sample.global_feats.to(device), global_mean_val, global_std_val)
+                    pred = model(sample.x.to(device), sample.edge_index.to(device), sample.edge_attr.to(device), sample.batch.to(device), n_node_neurons, n_node_features, n_edge_neurons, n_edge_features, n_graph_convolution_layers, n_shared_layers, n_target_specific_layers, useMolecularDescriptors)
                     losses = 0
                     for i in range(5):
                         output_key = output_keys[i]
@@ -440,101 +440,101 @@ def main():
                 )
 
             # If there are any callbacks, act them if needed
-            for callback in callbacks:
-                callback(train_loss)
-                # check for early stopping; if true, we return to main function
-                if (
-                        callback.early_stop
-                ):  # if we are to stop, make sure we save model/optimizer
-                    check_point_path = os.path.join(args.output_dir, f"checkpoint_epoch_{epoch+1}.pt")
-                    torch.save(
-                        {
-                            "epoch": epoch,
-                            "model_state_dict": model.state_dict(),
-                            "optimizer_state_dict": optimizer.state_dict(),
-                            "train_loss": train_loss,
-                            "val_loss": val_loss,
-                        },
-                        check_point_path,
-                    )
+            #for callback in callbacks:
+            #    callback(train_loss)
+            #    # check for early stopping; if true, we return to main function
+            #    if (
+            #            callback.early_stop
+            #    ):  # if we are to stop, make sure we save model/optimizer
+            #        check_point_path = os.path.join(args.output_dir, f"checkpoint_epoch_{epoch+1}.pt")
+            #        torch.save(
+            #            {
+            #                "epoch": epoch,
+            #                "model_state_dict": model.state_dict(),
+            #                "optimizer_state_dict": optimizer.state_dict(),
+            #                "train_loss": train_loss,
+            #                "val_loss": val_loss,
+            #            },
+            #            check_point_path,
+            #        )
 
-                    y_pred_logit = []
-                    y_pred = []
-                    y_true = []
+            #        y_pred_logit = []
+            #        y_pred = []
+            #        y_true = []
 
-                    model.eval()
-                    with torch.no_grad():
-                        for sample in testLoader:
-                            pred = model(sample.x.to(device), sample.edge_index.to(device), sample.edge_attr.to(device),
-                                         sample.batch.to(device), n_node_neurons, n_node_features, n_edge_neurons,
-                                         n_edge_features, n_graph_convolution_layers, n_shared_layers,
-                                         n_target_specific_layers, useMolecularDescriptors, sample.global_feats.to(device), global_mean_test, global_std_test)
-                            y_pred_t = tuple(torch.where(tensor > 0.5, torch.tensor(1), torch.tensor(0)) for tensor in
-                                             pred)  # convert to 0 or 1
-                            y_pred.append(y_pred_t)
-                            y_pred_logit.append(pred)
-                            y_true.append(sample.y)
+            #        model.eval()
+            #        with torch.no_grad():
+            #            for sample in testLoader:
+            #                pred = model(sample.x.to(device), sample.edge_index.to(device), sample.edge_attr.to(device),
+            #                             sample.batch.to(device), n_node_neurons, n_node_features, n_edge_neurons,
+            #                             n_edge_features, n_graph_convolution_layers, n_shared_layers,
+            #                             n_target_specific_layers, useMolecularDescriptors)
+            #                y_pred_t = tuple(torch.where(tensor > 0.5, torch.tensor(1), torch.tensor(0)) for tensor in
+            #                                 pred)  # convert to 0 or 1
+            #                y_pred.append(y_pred_t)
+            #                y_pred_logit.append(pred)
+            #                y_true.append(sample.y)
 
-                    y_logit_cat = [np.concatenate([t.cpu().numpy() for t in tensors], axis=0) for tensors in
-                                   zip(*y_pred_logit)]  # concatenate predictions for all examples into single array
-                    y_logit_cat = np.hstack(y_logit_cat)
+            #        y_logit_cat = [np.concatenate([t.cpu().numpy() for t in tensors], axis=0) for tensors in
+            #                       zip(*y_pred_logit)]  # concatenate predictions for all examples into single array
+            #        y_logit_cat = np.hstack(y_logit_cat)
 
-                    y_pred_cat = [np.concatenate([t.cpu().numpy() for t in tensors], axis=0) for tensors in
-                                  zip(*y_pred)]  # concatenate predictions for all examples into single array
-                    y_pred_cat = np.hstack(y_pred_cat)
+            #        y_pred_cat = [np.concatenate([t.cpu().numpy() for t in tensors], axis=0) for tensors in
+            #                      zip(*y_pred)]  # concatenate predictions for all examples into single array
+            #        y_pred_cat = np.hstack(y_pred_cat)
 
-                    y_true_cat = torch.cat(y_true)
-                    y_true_cat = y_true_cat.numpy()
+            #        y_true_cat = torch.cat(y_true)
+            #        y_true_cat = y_true_cat.numpy()
 
                     # Print to csv
-                    csv_file = os.path.join(args.output_dir, "metrics_early.csv")
-                    headers = ['Strain', 'TP', 'TN', 'FP', 'FN', 'Sp', 'Sn', 'Prec', 'Acc', 'Bal acc', 'F1 score',
-                               'H score']
+            #        csv_file = os.path.join(args.output_dir, "metrics_early.csv")
+            #        headers = ['Strain', 'TP', 'TN', 'FP', 'FN', 'Sp', 'Sn', 'Prec', 'Acc', 'Bal acc', 'F1 score',
+            #                   'H score']
 
-                    with open(csv_file, mode='w', newline='') as file:
-                        writer = csv.writer(file)
+            #        with open(csv_file, mode='w', newline='') as file:
+            #            writer = csv.writer(file)
 
                         # Write the header row
-                        writer.writerow(headers)
-                        _, new_real, new_y_pred, new_prob = filter_nan(y_true_cat[:, 0], y_pred_cat[:, 0],
-                                                                       y_logit_cat[:, 0])
-                        metrics = get_metrics(new_real, new_y_pred)
-                        metrics1 = [int(m) for m in metrics[0]]
-                        metrics2 = [round(float(m), 2) for m in metrics[1]]
-                        writer.writerow(['Strain TA98'] + list(metrics1) + list(metrics2))
+            #            writer.writerow(headers)
+            #            _, new_real, new_y_pred, new_prob = filter_nan(y_true_cat[:, 0], y_pred_cat[:, 0],
+            #                                                           y_logit_cat[:, 0])
+            #            metrics = get_metrics(new_real, new_y_pred)
+            #            metrics1 = [int(m) for m in metrics[0]]
+            #            metrics2 = [round(float(m), 2) for m in metrics[1]]
+            #            writer.writerow(['Strain TA98'] + list(metrics1) + list(metrics2))
 
-                        _, new_real, new_y_pred, new_prob = filter_nan(y_true_cat[:, 1], y_pred_cat[:, 1],
-                                                                       y_logit_cat[:, 1])
-                        metrics = get_metrics(new_real, new_y_pred)
-                        metrics1 = [int(m) for m in metrics[0]]
-                        metrics2 = [round(float(m), 2) for m in metrics[1]]
-                        writer.writerow(['Strain TA100'] + list(metrics1) + list(metrics2))
+            #            _, new_real, new_y_pred, new_prob = filter_nan(y_true_cat[:, 1], y_pred_cat[:, 1],
+            #                                                           y_logit_cat[:, 1])
+            #            metrics = get_metrics(new_real, new_y_pred)
+            #            metrics1 = [int(m) for m in metrics[0]]
+            #            metrics2 = [round(float(m), 2) for m in metrics[1]]
+            #            writer.writerow(['Strain TA100'] + list(metrics1) + list(metrics2))
 
-                        _, new_real, new_y_pred, new_prob = filter_nan(y_true_cat[:, 2], y_pred_cat[:, 2],
-                                                                       y_logit_cat[:, 2])
-                        metrics = get_metrics(new_real, new_y_pred)
-                        metrics1 = [int(m) for m in metrics[0]]
-                        metrics2 = [round(float(m), 2) for m in metrics[1]]
-                        writer.writerow(['Strain TA102'] + list(metrics1) + list(metrics2))
+            #            _, new_real, new_y_pred, new_prob = filter_nan(y_true_cat[:, 2], y_pred_cat[:, 2],
+            #                                                           y_logit_cat[:, 2])
+            #            metrics = get_metrics(new_real, new_y_pred)
+            #            metrics1 = [int(m) for m in metrics[0]]
+            #            metrics2 = [round(float(m), 2) for m in metrics[1]]
+            #            writer.writerow(['Strain TA102'] + list(metrics1) + list(metrics2))
 
-                        _, new_real, new_y_pred, new_prob = filter_nan(y_true_cat[:, 3], y_pred_cat[:, 3],
-                                                                       y_logit_cat[:, 3])
-                        metrics = get_metrics(new_real, new_y_pred)
-                        metrics1 = [int(m) for m in metrics[0]]
-                        metrics2 = [round(float(m), 2) for m in metrics[1]]
-                        writer.writerow(['Strain TA1535'] + list(metrics1) + list(metrics2))
+            #            _, new_real, new_y_pred, new_prob = filter_nan(y_true_cat[:, 3], y_pred_cat[:, 3],
+            #                                                           y_logit_cat[:, 3])
+            #            metrics = get_metrics(new_real, new_y_pred)
+            #            metrics1 = [int(m) for m in metrics[0]]
+            #            metrics2 = [round(float(m), 2) for m in metrics[1]]
+            #            writer.writerow(['Strain TA1535'] + list(metrics1) + list(metrics2))
 
-                        _, new_real, new_y_pred, new_prob = filter_nan(y_true_cat[:, 4], y_pred_cat[:, 4],
-                                                                       y_logit_cat[:, 4])
-                        metrics = get_metrics(new_real, new_y_pred)
-                        metrics1 = [int(m) for m in metrics[0]]
-                        metrics2 = [round(float(m), 2) for m in metrics[1]]
-                        writer.writerow(['Strain TA1537'] + list(metrics1) + list(metrics2))
+            #            _, new_real, new_y_pred, new_prob = filter_nan(y_true_cat[:, 4], y_pred_cat[:, 4],
+            #                                                           y_logit_cat[:, 4])
+            #            metrics = get_metrics(new_real, new_y_pred)
+            #            metrics1 = [int(m) for m in metrics[0]]
+            #            metrics2 = [round(float(m), 2) for m in metrics[1]]
+            #            writer.writerow(['Strain TA1537'] + list(metrics1) + list(metrics2))
 
-                        file.flush()
-                        file.close()
+            #            file.flush()
+            #            file.close()
 
-                        break
+            #            break
 
 
             # Tensorboard
@@ -563,7 +563,7 @@ def main():
         model.eval()
         with torch.no_grad():
             for sample in testLoader:
-                pred = model(sample.x.to(device), sample.edge_index.to(device), sample.edge_attr.to(device), sample.batch.to(device), n_node_neurons, n_node_features, n_edge_neurons, n_edge_features, n_graph_convolution_layers, n_shared_layers, n_target_specific_layers, useMolecularDescriptors, sample.global_feats.to(device), global_mean_test, global_std_test)
+                pred = model(sample.x.to(device), sample.edge_index.to(device), sample.edge_attr.to(device), sample.batch.to(device), n_node_neurons, n_node_features, n_edge_neurons, n_edge_features, n_graph_convolution_layers, n_shared_layers, n_target_specific_layers, useMolecularDescriptors)
                 y_pred_t = tuple(torch.where(tensor > 0.5, torch.tensor(1), torch.tensor(0)) for tensor in pred) # convert to 0 or 1
                 y_pred.append(y_pred_t)
                 y_pred_logit.append(pred)

@@ -8,7 +8,8 @@ import seaborn as sns
 
 # SINGLE
 # Load the study
-study = joblib.load('/Volumes/Seagate/Postdoc/AMES_GNN_MTL_Network/AMES/optuna/HP_opt_nonglobal/study6.pkl')
+#study = joblib.load('/Volumes/Seagate/Postdoc/AMES_GNN_MTL_Network/AMES/optuna/HP_opt_nonglobal/study6.pkl')
+study = joblib.load('/Users/abigailteitgen/Desktop/optuna/study9.pkl')
 
 # Plot optimization history
 vis.plot_optimization_history(study).show()
@@ -69,11 +70,20 @@ print("Best parameters:")
 for k, v in best_params.items():
     print(f"  {k}: {v}")
 
-"""
+
 # Load multiple studies
 study_paths = [
-    '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/optuna/study_5_28_25.pkl',
-    '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/optuna/study6.pkl'
+    '/Users/abigailteitgen/Desktop/optuna/study_5_28_25.pkl',
+    '/Users/abigailteitgen/Desktop/optuna/study1.pkl',
+    '/Users/abigailteitgen/Desktop/optuna/study2.pkl',
+    '/Users/abigailteitgen/Desktop/optuna/study3.pkl',
+    '/Users/abigailteitgen/Desktop/optuna/study4.pkl',
+    '/Users/abigailteitgen/Desktop/optuna/study5.pkl',
+    '/Users/abigailteitgen/Desktop/optuna/study6.pkl',
+    '/Users/abigailteitgen/Desktop/optuna/study7.pkl',
+    '/Users/abigailteitgen/Desktop/optuna/study8.pkl',
+    '/Users/abigailteitgen/Desktop/optuna/study9.pkl',
+    '/Users/abigailteitgen/Desktop/optuna/study10.pkl'
 ]
 
 all_trials = []
@@ -111,4 +121,3 @@ plt.show()
 sns.boxplot(data=df_combined, x="study_source", y="best_fold_loss")
 plt.title("Validation Loss by Study")
 plt.show()
-"""

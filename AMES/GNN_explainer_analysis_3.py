@@ -1,6 +1,7 @@
 from datetime import datetime
 import faulthandler
 import os
+import io
 import pdb
 import re
 import sys
@@ -254,7 +255,8 @@ def get_fragment_smiles(mol, atom_indices):
 
     n_atoms = mol.GetNumAtoms()
     if any(a >= n_atoms or a < 0 for a in atom_indices):
-        raise ValueError(f"Invalid atom index in {atom_indices} (mol has {n_atoms} atoms)")
+        #raise ValueError(f"Invalid atom index in {atom_indices} (mol has {n_atoms} atoms)")
+        return None
 
     # Create a submol by copying only selected atoms and connecting bonds
     atom_indices_set = set(atom_indices)
@@ -449,7 +451,7 @@ def get_fragment_info_lists(df_rows, alerts_compiled, global_smiles, min_heavy_a
     novel_frags.sort(key=lambda x: x["total_pos_count"], reverse=True)
     return alert_frags, novel_frags
 
-def plot_combined_known_vs_novel(alert_frags, novel_frags, output_dir, top_n_each=12):
+def plot_combined_known_vs_novel(alert_frags, novel_frags, output_dir, top_n_each=30):
     out_path = os.path.join(output_dir, "fragments_known_vs_novel_combined.png")
     n_show_alert = min(len(alert_frags), top_n_each)
     n_show_novel = min(len(novel_frags), top_n_each)
@@ -759,139 +761,405 @@ def hstack_images(imgs, pad=6, bg=(255, 255, 255)):
         x += im.size[0] + pad
     return new_im
 
-def analyze_per_atom_overlap_by_alert(per_task_impatoms, alerts_compiled, global_smiles, output_dir):
-    alert_instance_counts = defaultdict(int)
-    alert_atom_counts_tight = defaultdict(lambda: defaultdict(int))
-    alert_atom_counts_loose = defaultdict(lambda: defaultdict(int))
-
-    # Iterate over tasks and molecules (task_dict is {task_id: [mol_dicts]})
-    for task_dict in per_task_impatoms:
-        task_id = list(task_dict.keys())[0]
-        imp_list = task_dict[task_id]
-        for mol_id, smi in enumerate(global_smiles):
-            if mol_id >= len(imp_list):
-                continue
-            mol = Chem.MolFromSmiles(smi)
-            if mol is None:
-                continue
-            imp_entry = imp_list[mol_id] if mol_id < len(imp_list) else {"tight": [], "loose": []}
-            tight_set = set(imp_entry.get('tight', []))
-            loose_set = set(imp_entry.get('loose', []))
-
-            for alert_name, patt in alerts_compiled:
-                if patt is None:
-                    continue
-                matches = mol.GetSubstructMatches(patt)
-                if not matches:
-                    continue
-                alert_atom_indices = sorted(set([idx for match in matches for idx in match]))
-                if not alert_atom_indices:
-                    continue
-
-                alert_instance_counts[alert_name] += 1
-                for idx in alert_atom_indices:
-                    if idx in tight_set:
-                        alert_atom_counts_tight[alert_name][idx] += 1
-                    if idx in loose_set:
-                        alert_atom_counts_loose[alert_name][idx] += 1
-
-    # Normalize frequencies and save plots + CSV
-    plot_dir = os.path.join(output_dir, "alert_atom_overlap_plots")
+def analyze_per_atom_overlap_by_alert(per_task_impatoms, alerts_compiled, global_smiles, per_task_dfs, per_task_labels, output_dir):
+    os.makedirs(output_dir, exist_ok=True)
+    # Renamed output directory for clarity that this is POSITIONAL averaging
+    plot_dir = os.path.join(output_dir, "alert_averaged_plots_positional")
     os.makedirs(plot_dir, exist_ok=True)
-
     records = []
-    for alert_name, instance_count in alert_instance_counts.items():
-        if instance_count == 0:
-            continue
-        tight_counts = alert_atom_counts_tight.get(alert_name, {})
-        loose_counts = alert_atom_counts_loose.get(alert_name, {})
-        # find a representative molecule for visualization
-        rep_mol = None
-        rep_idx = None
-        for mol_id, smi in enumerate(global_smiles):
-            mol = Chem.MolFromSmiles(smi) if smi else None
-            if mol is None:
-                continue
-            patt = next((p for n, p in alerts_compiled if n == alert_name), None)
-            if patt and mol.HasSubstructMatch(patt):
-                rep_mol = mol
-                rep_idx = mol_id
-                break
-        if rep_mol is None:
-            continue
+    alert_dict = defaultdict(list)
+    for name, patt in alerts_compiled:
+        alert_dict[name].append(patt)
 
-        atom_scores = np.zeros(rep_mol.GetNumAtoms(), dtype=float)
-        # use max(tight, loose) for visualization intensity
-        for idx in range(rep_mol.GetNumAtoms()):
-            t = tight_counts.get(idx, 0) / float(instance_count)
-            l = loose_counts.get(idx, 0) / float(instance_count)
-            atom_scores[idx] = l #max(t, l)
+    ALIPHATIC_ALERTS = {
+        "Aliphatic azo and azoxy groups",
+        "Aliphatic halogens",
+        "Aliphatic N-nitro groups",
+        "Alpha, beta unsaturated aliphatic alkoxy groups",
+    }
+
+    #EXCLUDED_MOLECULES = {
+    #    "Aliphatic azo and azoxy groups": {85},
+    #    "Alpha, beta unsaturated aliphatic alkoxy groups": {239, 821, 850},
+    #    "Aromatic amines and hydroxylamines": {53, 180}
+    #}
+
+
+    # --- NEW: Store aggregated importance by HASHED FINGERPRINT KEY ---
+    # {alert_name: {fp_hash_key: count}}
+    environment_importance_freq = defaultdict(lambda: defaultdict(int))
+    total_instances_by_alert = defaultdict(int)
+    rep_mol_info = {}
+
+    # --- Step 1: Aggregate Environmental Importance Across All Molecules (Hashing Logic) ---
+    for alert_name, patt_list in alert_dict.items():
+
+#        skip_ids = EXCLUDED_MOLECULES.get(alert_name, set())
+
+        for task_dict in per_task_impatoms:
+            task_id = list(task_dict.keys())[0]
+            imp_list = task_dict[task_id]
+
+            for mol_id, smi in enumerate(global_smiles):
+                if mol_id >= len(imp_list): continue
+
+ #               if mol_id in skip_ids:
+  #                  continue
+
+                mol = Chem.MolFromSmiles(smi)
+                if mol is None: continue
+
+                # remove undefined
+                per_task_labels_t = per_task_labels[task_id]
+                correct_label = int(per_task_labels_t[task_id][mol_id])
+                if correct_label == -1:
+                    continue
+
+                df0 = per_task_dfs[task_id]
+                df_0 = df0[task_id]
+                overall_rows = df_0[df_0['mol_id'] == mol_id]
+                if overall_rows.empty:
+                    continue
+                overall_label = int(overall_rows.iloc[0]['label_overall'])
+                if overall_label == 0:
+                    continue
+
+                max_valid_idx = mol.GetNumAtoms() - 1
+                imp_entry = imp_list[mol_id]
+                tight_set = set(imp_entry.get("tight", []))
+
+                # --- Index Validation (Guarding against RDKit Range Error) ---
+                valid_tight_set = {idx for idx in tight_set if 0 <= idx <= max_valid_idx}
+
+                matched_in_mol = False
+                all_match_atoms_in_mol = set()
+
+                valid_matches = []
+                for patt in patt_list:
+                    matches = mol.GetSubstructMatches(patt)
+                    if not matches: continue
+
+                    # --- SAFEGUARD & FILTERING LOGIC ---
+                    for match in matches:
+                        is_aromatic = False
+                        is_in_ring_alkoxy = False
+
+                        # --- SAFEGUARD & FILTERING LOGIC ---
+                        for match in matches:
+
+                            if alert_name in ALIPHATIC_ALERTS:
+                                # Use the consolidated function for aliphatic rules
+                                if is_aliphatic_context_valid(mol, match, alert_name):
+                                    valid_matches.append(match)
+                            else:
+                                # For non-aliphatic alerts, keep all matches
+                                valid_matches.append(match)
+
+                    # Process the aggregated valid matches for this molecule
+                if valid_matches:
+
+                    matched_in_mol = True
+                    patt_smarts = Chem.MolToSmarts(patt_list[0])  # Use the first pattern's SMARTS for context
+
+                    matched_in_mol = True
+                    patt_smarts = Chem.MolToSmarts(patt)
+
+                    for match in valid_matches:
+                        all_match_atoms_in_mol.update(match)
+
+                if matched_in_mol:
+
+                    # --- NEW FIX: EXPAND THE ALERT ATOM SET FOR COUNTING ---
+                    # We create a maximal set of atoms that belong to the structural alert boundary.
+                    all_alert_atoms_expanded = set(all_match_atoms_in_mol)
+
+                    # 1. Expand to include all atoms in any ring that contains an alert atom
+                    for atom_idx in all_match_atoms_in_mol:
+                        atom = mol.GetAtomWithIdx(atom_idx)
+                        if atom.IsInRing():
+                            for ring_idx in range(mol.GetRingInfo().NumRings()):
+                                if mol.GetRingInfo().IsAtomInRingOfSize(atom_idx, 0):  # 0 checks all sizes
+                                    all_alert_atoms_expanded.update(mol.GetRingInfo().AtomRings()[ring_idx])
+
+                    # 2. Explicitly include all direct heavy-atom neighbors
+                    # (Captures O in C=O, or entire N=N=N chain)
+                    temp_neighbors = set()
+                    for atom_idx in all_match_atoms_in_mol:
+                        atom = mol.GetAtomWithIdx(atom_idx)
+                        for neighbor in atom.GetNeighbors():
+                            if neighbor.GetAtomicNum() > 1:  # Only heavy atoms
+                                temp_neighbors.add(neighbor.GetIdx())
+                    all_alert_atoms_expanded.update(temp_neighbors)
+                    # -----------------------------------------------------
+
+                    total_instances_by_alert[alert_name] += 1
+
+                    # --- CORE LOGIC: Hashing and Aggregation (Counting) ---
+                    for alert_atom_idx in all_alert_atoms_expanded:
+
+                        try:
+                            # Use the RDKit hash of the circular atom environment
+                            env_id = AllChem.GetAtomSmi(mol, alert_atom_idx, allHsExplicit=False, isomericSmiles=False)
+                            hash_key = env_id
+
+                        except Exception:
+                            hash_key = f"atom_{alert_atom_idx}_fail"
+
+                            # Count the hash key if the atom's index was in the GNN's tight set
+                        if alert_atom_idx in valid_tight_set:
+                            environment_importance_freq[alert_name][hash_key] += 1
+
+                    # Store info about the first molecule found to use as the rep_mol (Visualization Set is now Expanded Set)
+                    if alert_name not in rep_mol_info:
+                        rep_hash_map = {}
+                        for a_idx in all_alert_atoms_expanded:  # Use expanded set for visualization mapping
+                            try:
+                                env_id = AllChem.GetAtomSmi(mol, a_idx, allHsExplicit=False, isomericSmiles=False)
+                                rep_hash_map[a_idx] = env_id
+                            except Exception:
+                                rep_hash_map[a_idx] = f"atom_{a_idx}_fail"
+
+                        rep_mol_info[alert_name] = {
+                            'mol': mol,
+                            'rep_hash_map': rep_hash_map,
+                            'all_alert_atoms_in_rep_mol': all_alert_atoms_expanded
+                            # Store the expanded set for coloring
+                        }
+
+    # --- Step 2: Normalize, Map, and Plot Hashed Average (Visualization) ---
+    for alert_name, total_instances in total_instances_by_alert.items():
+        if total_instances == 0: continue
+
+        env_freq = environment_importance_freq[alert_name]
+        rep_data = rep_mol_info.get(alert_name)
+        if rep_data is None: continue
+
+        rep_mol = rep_data['mol']
+        rep_hash_map = rep_data['rep_hash_map']
+        all_alert_atoms_in_rep_mol = rep_data['all_alert_atoms_in_rep_mol']
+
+        # 1. Determine the highest observed frequency (max count) for any environment in this alert.
+        max_observed_count = max(env_freq.values()) if env_freq else 1
+        max_scaling_factor = max(max_observed_count, 1)
+
+        atom_colors = {}
+        highlight_atoms = []
+        records = []
+
+        # --- Visualization Logic: Iterate over ALL expanded alert atoms in the representative molecule ---
+
+        for atom_idx in all_alert_atoms_in_rep_mol:
+
+            hash_key = rep_hash_map.get(atom_idx)
+            if hash_key is None: continue
+
+            count = env_freq.get(hash_key, 0)
+
+            # 1. Calculate True Linear Score (Count / Total Instances for CSV)
+            val_true_freq = count / total_instances
+
+            # 2. Calculate Visual Color Scale (Normalize against MAX OBSERVED COUNT)
+            val_color_scale = count / max_scaling_factor
+
+            # 3. Apply Power Scaling (Visual Fix: x^2)
+            val_contrast = val_color_scale * val_color_scale
+
+            # 4. Coloring and Highlight (Threshold = 0.1)
+            if val_contrast > 0.0025:  # Corresponds to 5% linear frequency
+
+                # Use (1.0, 1.0 - val_contrast, 1.0 - val_contrast) for red scaling (R, G, B)
+                R = 1.0
+                G = 1.0 - val_contrast
+                B = 1.0 - val_contrast
+
+                atom_colors[atom_idx] = (R, G, B)
+                highlight_atoms.append(atom_idx)
+
+            # 5. Record keeping for CSV
             records.append({
-                'alert': alert_name,
-                'rep_mol_id': rep_idx,
-                'atom_index': idx,
-                'tight_overlap_freq': tight_counts.get(idx, 0) / float(instance_count),
-                'loose_overlap_freq': loose_counts.get(idx, 0) / float(instance_count),
+                "alert": alert_name,
+                "atom_index_rep_mol": atom_idx,
+                "environment_hash_key": hash_key,
+                "importance_freq_normalized": val_true_freq,
+                "total_instances": total_instances,
             })
 
-        # normalize to [0,1]
-        max_v = atom_scores.max()
-        norm_vals = atom_scores / (max_v + 1e-12) if max_v > 0 else atom_scores
-        atom_colors = {i: (1.0, 1.0 - float(norm_vals[i]), 1.0 - float(norm_vals[i])) for i in range(rep_mol.GetNumAtoms())}
+        # Draw the molecule (Code for drawing is assumed to be present and correct)
+        try:
+            drawer = rdMolDraw2D.MolDraw2DCairo(600, 600)
+        except AttributeError:
+            drawer = rdMolDraw2D.MolDraw2D(600, 600)
 
-        #drawer = rdMolDraw2D.MolDraw2DCairo(600, 600)
-        #rdMolDraw2D.PrepareAndDrawMolecule(
-        #    drawer,
-        #    rep_mol,
-        #    highlightAtoms=list(atom_colors.keys()),
-        #    highlightAtomColors=atom_colors,
-        #    highlightAtomRadii={i: 0.4 for i in atom_colors.keys()},
-        #)
-        #drawer.FinishDrawing()
-        #png_bytes = drawer.GetDrawingText()
-        #outpath = os.path.join(plot_dir, f"{alert_name.replace('/', '_')}_atom_overlap.png")
-        #with open(outpath, "wb") as fh:
-        #    fh.write(png_bytes)
-
-        # Highlight structural alert region
-        alert_atom_indices = []
-        alert_bond_indices = []
-        if patt is not None:
-            matches = rep_mol.GetSubstructMatches(patt)
-            for match in matches:
-                alert_atom_indices.extend(match)
-                for bond in rep_mol.GetBonds():
-                    a1, a2 = bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()
-                    if a1 in match and a2 in match:
-                        alert_bond_indices.append(bond.GetIdx())
-        alert_atom_indices = sorted(set(alert_atom_indices))
-        alert_bond_indices = sorted(set(alert_bond_indices))
-
-        # Build alert colors (gray), but ensure red atoms (importance) stay on top
-        alert_atom_colors = {a: (0.8, 0.8, 0.8) for a in alert_atom_indices if
-                             a not in atom_colors or np.allclose(atom_colors[a], (1.0, 1.0, 1.0))}
-        alert_bond_colors = {b: (0.6, 0.6, 0.6) for b in alert_bond_indices}
-
-        # Merge — importance (red) overrides alert (gray)
-        final_atom_colors = {**alert_atom_colors, **atom_colors}  # red overwrites gray
-        highlight_atoms = list(final_atom_colors.keys())
-
-        # Use draw_with_colors to render final image
-        im = draw_with_colors(
+        rdMolDraw2D.PrepareAndDrawMolecule(
+            drawer,
             rep_mol,
-            highlight_atoms=highlight_atoms,
-            highlight_atom_colors=final_atom_colors,
-            highlight_bonds=alert_bond_indices,
-            highlight_bond_colors=alert_bond_colors,
-            size=(600, 600)
+            highlightAtoms=highlight_atoms,
+            highlightAtomColors=atom_colors,
+            highlightAtomRadii={i: 0.4 for i in highlight_atoms}
+        )
+        drawer.FinishDrawing()
+        png_bytes = drawer.GetDrawingText()
+
+        outpath = os.path.join(plot_dir, f"{alert_name.replace('/', '_')}_avg_hashed_env.png")
+        with open(outpath, "wb") as fh:
+            fh.write(png_bytes)
+
+        # --- Step 3: Call the NEW plotting function for individual instances ---
+        plot_important_atoms_by_alert(
+            alert_name,
+            alert_dict[alert_name],
+            global_smiles,
+            per_task_impatoms,
+            per_task_labels,
+            output_dir
         )
 
-        outpath = os.path.join(plot_dir, f"{alert_name.replace('/', '_')}_atom_overlap.png")
-        im.save(outpath)
-
-    # write CSV
-    csv_path = os.path.join(output_dir, "alert_atom_overlap_summary.csv")
+    csv_path = os.path.join(output_dir, "alert_atom_overlap_avg_hashed_env_summary.csv")
     pd.DataFrame.from_records(records).to_csv(csv_path, index=False)
+
+# --- NEW FUNCTION: plot_important_atoms_by_alert ---
+def plot_important_atoms_by_alert(alert_name, patt_list, global_smiles, per_task_impatoms, per_task_labels, output_dir, mols_per_row=6,
+                                  max_mols=48):
+    mols_to_plot = []
+
+    alert_plot_dir = os.path.join(output_dir, "alert_instance_grids")
+    os.makedirs(alert_plot_dir, exist_ok=True)
+
+    # Collect tight important atoms and predictions by mol_id and task_id
+    mol_task_data = defaultdict(lambda: defaultdict(dict))
+
+    for task_idx in range(len(per_task_impatoms)):
+        imp_list = per_task_impatoms[task_idx][task_idx]
+
+        # NOTE: If predictions are needed, they would need to be passed here as well.
+        # Since they are not, we only plot if the tight set is non-empty.
+
+        for mol_id, imp_entry in enumerate(imp_list):
+            mol_task_data[mol_id][task_idx]['tight'] = imp_entry.get("tight", [])
+
+    # Iterate through all molecules to find matches
+    for mol_id, smi in enumerate(global_smiles):
+        mol = Chem.MolFromSmiles(smi)
+        if mol is None: continue
+
+        is_matched = False
+        for patt in patt_list:
+            if mol.HasSubstructMatch(patt):
+                is_matched = True
+                break
+
+        if is_matched:
+            # Check all tasks for this molecule
+            for task_idx in range(len(per_task_impatoms)):
+                imp_atoms_set = mol_task_data[mol_id][task_idx]['tight']
+
+                # Only plot if the GNN found atoms important in this instance
+                if imp_atoms_set:
+                    if len(mols_to_plot) >= max_mols:
+                        break
+
+                    mol_copy = Chem.Mol(mol)
+                    atom_colors = {a: (1.0, 0.3, 0.3) for a in imp_atoms_set}
+
+                    per_task_labels_t = per_task_labels[task_idx]
+                    correct_label = int(per_task_labels_t[task_idx][mol_id])
+                    if correct_label == -1:
+                        continue
+
+                    mols_to_plot.append({
+                        'mol': mol_copy,
+                        'highlight_atoms': list(imp_atoms_set),
+                        'atom_colors': atom_colors,
+                        'legend': f"Mol ID: {mol_id}, Task: {task_idx + 1}, Smiles: {smi}"
+                    })
+            if len(mols_to_plot) >= max_mols: break
+
+    if not mols_to_plot:
+        print(f"  No molecules found for alert '{alert_name}'. Skipping grid plot.")
+        return
+
+    # Draw the grid image
+    grid_images = []
+    cell_size = (300, 300)
+    for m in mols_to_plot:
+        im = draw_with_colors(
+            m['mol'],
+            m['highlight_atoms'],
+            m['atom_colors'],
+            highlight_bonds=[],
+            highlight_bond_colors={},
+            size=cell_size
+        )
+        # Add legend text to the top of the image
+        draw = ImageDraw.Draw(im)
+        try:
+            font = ImageFont.truetype('DejaVuSans.ttf', 14)
+        except Exception:
+            font = ImageFont.load_default()
+        draw.rectangle([(0, 0), (im.size[0], 18)], fill=(255, 255, 255))
+        draw.text((4, 0), m['legend'], fill=(0, 0, 0), font=font)
+
+        grid_images.append(im)
+
+    # Stitch images into a grid
+    num_mols = len(grid_images)
+    mols_per_row = min(mols_per_row, num_mols)
+    num_rows = (num_mols + mols_per_row - 1) // mols_per_row
+
+    grid_w = mols_per_row * cell_size[0]
+    grid_h = num_rows * cell_size[1]
+
+    grid_img = Image.new('RGB', (grid_w, grid_h), (255, 255, 255))
+
+    for idx, img in enumerate(grid_images):
+        row = idx // mols_per_row
+        col = idx % mols_per_row
+        x = col * cell_size[0]
+        y = row * cell_size[1]
+        grid_img.paste(img, (x, y))
+
+    outpath = os.path.join(alert_plot_dir, f"{alert_name.replace('/', '_')}_instance_grid.png")
+    grid_img.save(outpath)
+    print(f"  Grid plot saved for alert: '{alert_name}' to {outpath}")
+
+    # If many molecules, also save as PDF for better viewing
+    if num_mols > mols_per_row * 3:
+        pdf_path = os.path.join(alert_plot_dir, f"{alert_name.replace('/', '_')}_instance_grid.pdf")
+        # Simple save: one image per page
+        grid_img.save(pdf_path, save_all=True, append_images=[grid_img.convert("RGB")])
+        print(f"  PDF plot saved for alert: '{alert_name}' to {pdf_path}")
+
+
+def is_aliphatic_context_valid(mol, match, alert_name):
+    """
+    Checks if a match for an ALIPHATIC alert is structurally valid (i.e., not attached
+    to or part of an aromatic ring, and acyclic if required by the alert type).
+    """
+
+    # 1. Aromaticity Check (Match Atoms + Neighbors)
+    atoms_to_check = set(match)
+    # Check neighbors for aromaticity (Benzylic/Azo attachments)
+    for atom_idx in match:
+        atom = mol.GetAtomWithIdx(atom_idx)
+        for neighbor in atom.GetNeighbors():
+            if neighbor.GetAtomicNum() > 1:  # Heavy atoms only
+                atoms_to_check.add(neighbor.GetIdx())
+
+    # Perform aromatic check on the expanded environment
+    for atom_idx in atoms_to_check:
+        atom = mol.GetAtomWithIdx(atom_idx)
+        if atom.GetIsAromatic():
+            return False  # Reject if any matched atom or neighbor is aromatic
+
+    # 2. Alkoxy Ring Check (Specific Alert)
+    if alert_name == "Alpha, beta unsaturated aliphatic alkoxy groups":
+        for atom_idx in match:
+            atom = mol.GetAtomWithIdx(atom_idx)
+            # Check if the atom is in ANY ring (aliphatic or aromatic)
+            if atom.IsInRing():
+                return False  # Reject if any matched atom is in any ring
+
+    return True  # Passed all aliphatic/acyclic constraints
 
 def compute_overall_alert_performance(alerts_compiled, alerts_present_by_mol, per_task_dfs, n_tasks, global_smiles, output_dir):
     all_alerts = [name for name, _ in alerts_compiled]
@@ -904,6 +1172,11 @@ def compute_overall_alert_performance(alerts_compiled, alerts_present_by_mol, pe
             "overlaps_nontoxic": [],
         }
         for a in all_alerts
+    }
+
+    EXCLUDED_MOLECULES = {
+        "Aliphatic azo and azoxy groups": {85},
+        "Alpha, beta unsaturated aliphatic alkoxy groups": {239, 821, 850}
     }
 
     for mol_id, (present_alerts, _, label_list) in enumerate(alerts_present_by_mol):
@@ -926,6 +1199,11 @@ def compute_overall_alert_performance(alerts_compiled, alerts_present_by_mol, pe
                 a = row["alert"]
                 if not row["alert_present"]: # Only consider alerts with overlap > 0
                     continue
+
+                skip_ids = EXCLUDED_MOLECULES.get(a, set())
+                if mol_id in skip_ids:
+                    continue
+
                 overlap = row.get("tight_score", 0.0)
                 mol_overlaps[a].append(overlap)
                 stats[a]["n_detected"] += 1
@@ -1024,6 +1302,12 @@ def plot_alert_performance_bars(df_perf, output_dir=None):
     return order
 
 def compute_toxic_overlap_by_strain(alerts_compiled, per_task_dfs, n_tasks, alerts_present_by_mol):
+    EXCLUDED_MOLECULES = {
+        "Aliphatic azo and azoxy groups": {85},
+        "Alpha, beta unsaturated aliphatic alkoxy groups": {239, 821, 850},
+        "Aromatic amines and hydroxylamines": {53, 180}
+    }
+
     all_alerts = [name for name, _ in alerts_compiled]
     overlap_scores = pd.DataFrame(0.0, index=all_alerts, columns=[f"Strain {i+1}" for i in range(n_tasks)])
 
@@ -1034,8 +1318,22 @@ def compute_toxic_overlap_by_strain(alerts_compiled, per_task_dfs, n_tasks, aler
             df_alert = df_task[(df_task["alert"] == alert) & (df_task["alert_present"]) & (df_task["label_overall"] == 1)]
             if len(df_alert) == 0:
                 continue
-            mean_overlap = df_alert["tight_score"].mean()
-            overlap_scores.loc[alert, f"Strain {task+1}"] = mean_overlap
+
+            skip_ids = EXCLUDED_MOLECULES.get(alert, set())
+
+            # 2. Apply the exclusion filter if there are IDs to skip
+            if skip_ids:
+                # Use the negation (~) of the isin() method to keep only rows NOT in skip_ids
+                # We do not need a separate loop; Pandas handles the whole set at once.
+                df_alert = df_alert[~df_alert["mol_id"].isin(skip_ids)]
+
+            # Check if any data remains after filtering
+            if len(df_alert) == 0:
+                mean_overlap = 0.0
+            else:
+                mean_overlap = df_alert["tight_score"].mean()
+
+            overlap_scores.loc[alert, f"Strain {task + 1}"] = mean_overlap
 
     mean_overlap_scores = overlap_scores.mean(axis=1)
 
@@ -1243,7 +1541,7 @@ def main():
         correct_val = []
         correct_val_overall = []
 
-        for i, data in enumerate(testDataset):  # limit if needed for speed
+        for i, data in enumerate(testDataset[25:35]):  # limit if needed for speed
             data = data.to(device)
             data.batch = torch.zeros(data.x.size(0), dtype=torch.long)
 
@@ -1375,14 +1673,14 @@ def main():
     alert_frags, novel_frags = get_fragment_info_lists(df_rows, alerts_compiled, global_smiles, min_heavy_atoms=4)
 
     # Save and plot novel vs not fragments
-    n_alert, n_novel = plot_combined_known_vs_novel(alert_frags, novel_frags, args.output_dir, top_n_each=12)
+    n_alert, n_novel = plot_combined_known_vs_novel(alert_frags, novel_frags, args.output_dir, top_n_each=30)
 
     ### Overlap with known structural alerts per molecule per task
     # Save PDF summary for all molecules with highlighted alerts
     alerts_present_by_mol = assemble_and_save_summary(per_task_dfs, per_task_impatoms, per_task_preds, per_task_labels, global_smiles, alerts_compiled, args.output_dir)
 
     # Plot per-atom overlap on known structural alerts
-    analyze_per_atom_overlap_by_alert(per_task_impatoms, alerts_compiled, global_smiles, args.output_dir)
+    analyze_per_atom_overlap_by_alert(per_task_impatoms, alerts_compiled, global_smiles, per_task_dfs, per_task_labels, args.output_dir)
 
     ### Strain-specific structural alert detection analysis
     # For each alert, calculate % correctly identified and mean overlap score (toxic vs nontoxic)
