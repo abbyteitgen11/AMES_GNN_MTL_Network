@@ -9,6 +9,7 @@ QM9ERHGraphDataBase/
 AMES/__pycache__/
 MTL_publication/
 AMES_1081629/
+AMES_GNN_MTL_Network-dev/
 AMES/runs/
 AMES/logs/
 AMES/data.csv
