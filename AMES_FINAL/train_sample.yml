@@ -1,0 +1,71 @@
+
+# Input file for model training
+
+nGraphConvolutionLayers: 3 # Number of graph convolutional layers
+nNodeNeurons: 78 # Number of node neurons for GNN
+nEdgeNeurons: 109 # Number of edge neurons for GNN
+dropoutGNN: 0.0176 # Dropout in graph convolutional layers
+momentumBatchNorm: 0.6003 # Batch normalization in graph convolutional layers
+
+nSharedLayers: 2  # Number of layers in shared core
+nTargetSpecificLayers: 2 # Number of layers in target specific core
+nShared: [167, 108] # Number of neurons in shared core
+nTarget: [96, 104] # Number of neurons in target specific core
+dropoutShared: [0.074, 0.240] # Dropout in shared core
+dropoutTarget: [0.463, 0.065]
+ # Dropout in target specific core
+
+# Weights for weighted cost function
+w1: 5.88
+w2: 5.67
+w3: 1.57
+w4: 1.02
+w5: 2.16
+
+# Activation function
+ActivationFunction: "Tanh" #"Tanh"
+
+nEpochs: 1 #np.iinfo(np.int32). # Number of epochs
+nBatch: 32 # Ba15h size
+nCheckpoint: 1 # Checkpoint frequency
+randomSeed: 45 # Random seed
+#nTrainMaxEntries: 1500 # Number of training samples to use
+#nValMaxEntries: 300 # Number of validation examples to  use
+
+learningRate: 0.00027 #0.0000924993113995373 #0.0001 #5e-4
+
+weightedCostFunction: True # Include weighted cost function
+L2Regularization: 0.005 # L2 regularization coefficient
+
+# the following command specifies if the model.state_dict() and optimizer.state_dict() are to be loaded
+# from a checkpoint file from a previous run 
+loadModel: False
+loadOptimizer: False
+StateDictFileName: '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/output/checkpoint_epoch_1.pt'
+
+# warmStart: "GraphPotential-nn-2gcl-2fcl-31102023-173821.tar"
+
+useMolecularDescriptors: False # Use molecular features instead of graphs for comparison to original MTL paper
+
+useGlobalFeatures: False
+
+callbacks: 
+   earlyStopping:
+      patience: 10 #1000
+      min_delta: 1.0e-5 #5e-4
+   LRScheduler:
+      patience: 1
+      min_lr: 1.0e-8
+      factor: 0.1
+   UserStopping:
+
+descriptionText: 'No data transformation'
+
+# where the graph data-base resides
+database: '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/GraphDataBase_AMES/' #'/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/GraphDataBase_AMES_additional_data' 
+
+# file with molecular data
+data_file: '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/data.csv' #'/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/Additional_data/final_additional_dataset.csv' 
+
+# transformData: std
+
