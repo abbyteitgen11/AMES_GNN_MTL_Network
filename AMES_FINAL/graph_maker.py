@@ -66,7 +66,7 @@ input_file = sys.argv[1]  # input_file is a yaml compliant file
 with open( input_file, 'r' ) as input_stream:
     input_data = yaml.load(input_stream, Loader=yaml.Loader)
 
-data_path = '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/data.csv' #'/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/data.csv'
+data_path = '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES_FINAL/data_new_with_split.csv' #'/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/data.csv'
 
 source_directory = input_data.get("DataBaseDirectory", "./DataBase_AMES/FILES_XYZ")
 target_directory = input_data.get("TargetDirectory", "./GraphDataBase_AMES/")

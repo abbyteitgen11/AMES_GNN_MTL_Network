@@ -291,6 +291,36 @@ def load_graph_datasets(database_path, nTrainMaxEntries, nValMaxEntries, seed):
     return trainDataset, valDataset, testDataset
 
 
+def scan_and_filter_nan_graphs(dataset, name):
+    """
+    Scan all graphs in dataset for NaN node/edge features.
+    Logs and removes any bad graphs from dataset.filenames in place.
+    """
+    bad = []
+    for fpath in dataset.filenames:
+        try:
+            with open(fpath, "rb") as f:
+                data = pickle.load(f)
+            has_nan = (
+                (data.x is not None and torch.isnan(data.x).any()) or
+                (data.edge_attr is not None and torch.isnan(data.edge_attr).any())
+            )
+            if has_nan:
+                bad.append(fpath)
+        except Exception as e:
+            logging.warning(f"[{name}] Could not load {fpath}: {e}")
+            bad.append(fpath)
+    if bad:
+        logging.warning(f"[{name}] {len(bad)} graph(s) with NaN features will be skipped:")
+        for p in bad:
+            logging.warning(f"  {p}")
+        bad_set = set(bad)
+        dataset.filenames = [f for f in dataset.filenames if f not in bad_set]
+        dataset.n_structures = len(dataset.filenames)
+    else:
+        logging.info(f"[{name}] No NaN graphs found ({len(dataset.filenames)} graphs OK).")
+
+
 def count_trainable_parameters(model):
     """Return total number of trainable parameters in a PyTorch model."""
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -469,6 +499,9 @@ def run_train(args):
         trainDataset, valDataset, testDataset = load_graph_datasets(
             database_path, nTrainMaxEntries, nValMaxEntries, seed
         )
+        scan_and_filter_nan_graphs(trainDataset, "train")
+        scan_and_filter_nan_graphs(valDataset,   "validate")
+        scan_and_filter_nan_graphs(testDataset,  "test")
         trainLoader = DataLoader(trainDataset, batch_size=nBatch, generator=g)
         valLoader = DataLoader(valDataset, batch_size=nBatch, generator=g)
         testLoader = DataLoader(testDataset, batch_size=nBatch, generator=g)
@@ -844,6 +877,7 @@ def run_hp_opt(args):
         os.path.join(database_path, "train/"),
         nMaxEntries=nTrainMaxEntries, seed=seed_global
     )
+    scan_and_filter_nan_graphs(trainDataset, "train")
 
     # Precompute multilabel targets for stratified splitting
     X_indices = np.arange(len(trainDataset))
@@ -1020,6 +1054,8 @@ def run_seeds_cfv(args):
     valDataset = GraphDataSet(
         os.path.join(database_path, "validate/"), nMaxEntries=nValMaxEntries, seed=42
     )
+    scan_and_filter_nan_graphs(trainDataset, "train")
+    scan_and_filter_nan_graphs(valDataset,   "validate")
     full_dataset = trainDataset + valDataset
 
     X_indices = np.arange(len(full_dataset))
@@ -1344,7 +1380,7 @@ def plot_eval_curves(y_true_cat, y_prob_cat, output_dir, prefix=""):
     axes_pr  = axes_pr.flatten()
 
     for i, label in enumerate(STRAIN_LABELS):
-        mask = y_true_cat[:, i] != -1
+        mask = (y_true_cat[:, i] != -1) & ~np.isnan(y_prob_cat[:, i])
         yt = y_true_cat[mask, i].astype(int)
         yp = y_prob_cat[mask, i]
         if len(np.unique(yt)) < 2:
@@ -1370,7 +1406,7 @@ def plot_eval_curves(y_true_cat, y_prob_cat, output_dir, prefix=""):
     # Consensus: max task probability as consensus score
     y_cons_score = np.max(y_prob_cat, axis=1)
     y_cons_true_arr = consensus_truth(y_true_cat)
-    mask_cons = y_cons_true_arr != -1
+    mask_cons = (y_cons_true_arr != -1) & ~np.isnan(y_cons_score)
     yt_cons = y_cons_true_arr[mask_cons]
     yp_cons = y_cons_score[mask_cons]
     if len(np.unique(yt_cons)) >= 2:
@@ -1444,6 +1480,8 @@ def run_eval(args):
     trainDataset, valDataset, testDataset = load_graph_datasets(
         database_path, nTrainMaxEntries, nValMaxEntries, seed
     )
+    scan_and_filter_nan_graphs(valDataset,  "validate")
+    scan_and_filter_nan_graphs(testDataset, "test")
     g = torch.Generator()
     g.manual_seed(seed)
     valLoader = DataLoader(valDataset, batch_size=nBatch, generator=g)
@@ -1499,16 +1537,16 @@ def run_eval(args):
         y_true_cat, y_pred_cat, y_logit_cat
     )
 
-    # Read overall labels from data.csv
+    # Read overall labels from data CSV (works with both data.csv and data_new_with_split.csv)
     df_data = pd.read_csv(data_path)
-    y_overall = df_data["Overall"].values
-    index = []
+    id_to_overall = df_data.set_index("Id")["Overall"].to_dict()
+    y_labels_overall = []
     for file_path in file_names:
         filename = os.path.basename(file_path)
         match = re.match(r"^(\d+)_", filename)
-        first_number = int(match.group(1))
-        index.append(first_number - 1)
-    y_labels_overall = y_overall[index]
+        file_id = int(match.group(1))
+        y_labels_overall.append(id_to_overall.get(file_id, -1))
+    y_labels_overall = np.array(y_labels_overall)
 
     # Consensus prediction and metrics
     y_cons = np.where(np.any(y_pred_cat == 1, axis=1), 1,
@@ -1536,9 +1574,6 @@ def run_eval(args):
         writer_csv.writerow(metrics_row("Consensus", m1, m2))
 
     # Raw model outputs
-    external = load_data(data_path, model="MTL", stage="EVAL")
-    x_test = external[0]
-
     csv_file = os.path.join(args.output_dir, "model_output_raw.csv")
     headers_raw = [
         "file", "logits_98", "logits_100", "logits_102", "logits_1535", "logits_1537",
@@ -1614,6 +1649,8 @@ def run_top_seeds_eval(args):
     nValMaxEntries = input_data.get("nValMaxEntries", None)
 
     _, valDataset, testDataset = load_graph_datasets(database_path, None, nValMaxEntries, seed_yaml)
+    scan_and_filter_nan_graphs(valDataset,  "validate")
+    scan_and_filter_nan_graphs(testDataset, "test")
     g = torch.Generator()
     g.manual_seed(seed_yaml)
     valLoader = DataLoader(valDataset, batch_size=nBatch, generator=g)

@@ -24,7 +24,7 @@ w5: 2.16
 # Activation function
 ActivationFunction: "Tanh" #"Tanh"
 
-nEpochs: 1 #np.iinfo(np.int32). # Number of epochs
+nEpochs: 20 #np.iinfo(np.int32). # Number of epochs
 nBatch: 32 # Batch size
 nCheckpoint: 1 # Checkpoint frequency
 randomSeed: 45 # Random seed

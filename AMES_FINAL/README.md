@@ -92,7 +92,7 @@ pip install \
 The model reads pre-computed molecular graphs from `GraphDataBase_AMES/`. If graphs do not yet exist for your molecules, generate them:
 
 ```bash
-python graph_maker.py --input_file graph_maker_sample.yml
+python graph_maker.py graph_maker_sample.yml
 ```
 
 The database path is set in the YAML config file (`database` key). The default points to:
