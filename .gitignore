@@ -32,6 +32,7 @@ AMES/paper_submission/
 AMES/output/
 AMES/MTL_GNN_for_AMES_Mutagenicity_Prediction/
 events.out*
+AMES_FINAL/output/train_run1/tensorboard/
 *.DS_Store
 *.pt
 *.csv
