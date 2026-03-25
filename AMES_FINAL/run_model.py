@@ -40,6 +40,9 @@ import seaborn as sns
 import torch
 import torch.nn as nn
 import yaml
+from scipy.optimize import minimize_scalar
+from sklearn.metrics import (roc_curve, roc_auc_score,
+                              precision_recall_curve, average_precision_score)
 from iterstrat.ml_stratifiers import MultilabelStratifiedKFold
 from optuna.trial import TrialState
 from torch.utils.data import DataLoader, Subset, TensorDataset, Dataset
@@ -131,6 +134,13 @@ def get_args():
                              "ppv=positive predictive value, npv=negative predictive value, "
                              "mcc=Matthews correlation coefficient, f1=F1 score, h=H1 score. "
                              "Default: sn (recommended for mutagenicity: prioritise catching mutagens).")
+    parser.add_argument("--temperature_scaling", action="store_true",
+                        help="Fit a scalar temperature T on the validation set (minimising NLL) "
+                             "and apply to probabilities before threshold selection. "
+                             "Works in eval and top_seeds_eval modes.")
+    parser.add_argument("--tune_consensus_threshold", action="store_true",
+                        help="When --use_thresholds is set, optimise a single shared threshold "
+                             "on the consensus (OR) outcome instead of 5 separate per-task thresholds.")
 
     return parser.parse_args()
 
@@ -1168,15 +1178,22 @@ def consensus_truth(y_true_cat):
     return y_cons_true
 
 
-def eval_consensus_metric(y_true_cat, y_logit_cat, thresholds, metric="balanced_accuracy"):
+def eval_consensus_metric(y_true_cat, y_logit_cat, thresholds, metric="sn"):
     """Apply per-task thresholds, compute consensus, and return the specified metric."""
     y_pred_cat = (y_logit_cat >= np.array(thresholds)[None, :]).astype(int)
     y_cons_pred = consensus_from_heads(y_pred_cat)
     y_cons_true = consensus_truth(y_true_cat)
     _, new_real, new_y_pred, _ = filter_nan(y_cons_true, y_cons_pred, y_cons_pred)
     counts, scores = get_metrics(new_real, new_y_pred)
-    sp, sn, prec, acc, balacc, f1, h = scores
-    return (balacc if metric == "bal_acc" else h), (sp, sn, prec, acc, balacc, f1, h)
+    tp, tn, fp, fn = [int(c) for c in counts]
+    sp, sn, ppv, acc, balacc, f1, h = scores
+    npv, mcc = compute_npv_mcc([tp, tn, fp, fn])
+    metric_map = {
+        "sp": float(sp), "sn": float(sn), "ppv": float(ppv), "npv": float(npv),
+        "acc": float(acc), "bal_acc": float(balacc), "mcc": float(mcc),
+        "f1": float(f1), "h": float(h),
+    }
+    return metric_map.get(metric, float(balacc)), (sp, sn, ppv, acc, balacc, f1, h)
 
 
 def one_se_choice(th_grid, scores):
@@ -1241,6 +1258,145 @@ def crossfit_thresholds_for_consensus(y_true_cat, y_prob_cat, K=5, metric="sn", 
 
 
 # ==============================================================================
+# Temperature scaling helpers
+# ==============================================================================
+
+def fit_temperature(y_true_cat, y_prob_cat):
+    """
+    Fit a scalar temperature T on the validation set by minimising BCE (NLL).
+    y_prob_cat: (N, 5) probabilities (post-sigmoid). y_true_cat: (N, 5) labels (-1/0/1).
+    Returns scalar T > 0.
+    """
+    mask = y_true_cat != -1
+    y_true_flat = y_true_cat[mask].astype(float)
+    y_prob_flat = np.clip(y_prob_cat[mask], 1e-7, 1 - 1e-7)
+    logits_flat = np.log(y_prob_flat / (1 - y_prob_flat))
+
+    def nll(T):
+        p = 1 / (1 + np.exp(-logits_flat / T))
+        return -np.mean(y_true_flat * np.log(p) + (1 - y_true_flat) * np.log(1 - p))
+
+    result = minimize_scalar(nll, bounds=(0.01, 10.0), method="bounded")
+    return float(result.x)
+
+
+def apply_temperature(y_prob_cat, T):
+    """Apply temperature T to a probability array (post-sigmoid). Returns calibrated probs."""
+    logits = np.log(np.clip(y_prob_cat, 1e-7, 1 - 1e-7) /
+                    (1 - np.clip(y_prob_cat, 1e-7, 1 - 1e-7)))
+    return 1 / (1 + np.exp(-logits / T))
+
+
+# ==============================================================================
+# Consensus threshold helpers (single shared threshold)
+# ==============================================================================
+
+def tune_single_consensus_threshold(y_true_cat, y_prob_cat, metric="sn"):
+    """
+    Grid-search a single shared threshold that maximises `metric` on the consensus
+    (OR) prediction across all 5 tasks. Returns scalar threshold.
+    """
+    grid = np.linspace(0.05, 0.95, 19)
+    scores = []
+    for t in grid:
+        val, _ = eval_consensus_metric(y_true_cat, y_prob_cat, [float(t)] * 5, metric)
+        scores.append(val)
+    return one_se_choice(grid, scores)
+
+
+def crossfit_single_threshold(y_true_cat, y_prob_cat, K=5, metric="sn", seed=0):
+    """
+    K-fold cross-fitting version of tune_single_consensus_threshold.
+    Aggregates per-fold thresholds via median. Returns scalar threshold.
+    """
+    N = len(y_true_cat)
+    idx = np.arange(N)
+    rng = np.random.RandomState(seed)
+    rng.shuffle(idx)
+    folds = np.array_split(idx, K)
+
+    ths_per_fold = []
+    for k in range(K):
+        tr_idx = np.concatenate([folds[j] for j in range(K) if j != k])
+        t = tune_single_consensus_threshold(y_true_cat[tr_idx], y_prob_cat[tr_idx], metric)
+        ths_per_fold.append(t)
+
+    return float(np.median(ths_per_fold))
+
+
+# ==============================================================================
+# ROC and Precision-Recall curve plots
+# ==============================================================================
+
+STRAIN_LABELS = ["TA98", "TA100", "TA102", "TA1535", "TA1537"]
+
+
+def plot_eval_curves(y_true_cat, y_prob_cat, output_dir, prefix=""):
+    """
+    Save ROC and Precision-Recall curves for each of the 5 strains and the
+    consensus (OR) prediction. Consensus score = max task probability.
+
+    Outputs: {prefix}roc_curves.png, {prefix}pr_curves.png
+    """
+    fig_roc, axes_roc = plt.subplots(2, 3, figsize=(15, 10))
+    fig_pr,  axes_pr  = plt.subplots(2, 3, figsize=(15, 10))
+    axes_roc = axes_roc.flatten()
+    axes_pr  = axes_pr.flatten()
+
+    for i, label in enumerate(STRAIN_LABELS):
+        mask = y_true_cat[:, i] != -1
+        yt = y_true_cat[mask, i].astype(int)
+        yp = y_prob_cat[mask, i]
+        if len(np.unique(yt)) < 2:
+            axes_roc[i].set_title(f"{label} (insufficient data)")
+            axes_pr[i].set_title(f"{label} (insufficient data)")
+            continue
+        fpr, tpr, _ = roc_curve(yt, yp)
+        auc_val = roc_auc_score(yt, yp)
+        axes_roc[i].plot(fpr, tpr, label=f"AUC={auc_val:.3f}")
+        axes_roc[i].plot([0, 1], [0, 1], "k--", lw=0.8)
+        axes_roc[i].set_title(label)
+        axes_roc[i].set_xlabel("FPR")
+        axes_roc[i].set_ylabel("TPR")
+        axes_roc[i].legend()
+        prec, rec, _ = precision_recall_curve(yt, yp)
+        ap = average_precision_score(yt, yp)
+        axes_pr[i].plot(rec, prec, label=f"AP={ap:.3f}")
+        axes_pr[i].set_title(label)
+        axes_pr[i].set_xlabel("Recall")
+        axes_pr[i].set_ylabel("Precision")
+        axes_pr[i].legend()
+
+    # Consensus: max task probability as consensus score
+    y_cons_score = np.max(y_prob_cat, axis=1)
+    y_cons_true_arr = consensus_truth(y_true_cat)
+    mask_cons = y_cons_true_arr != -1
+    yt_cons = y_cons_true_arr[mask_cons]
+    yp_cons = y_cons_score[mask_cons]
+    if len(np.unique(yt_cons)) >= 2:
+        fpr, tpr, _ = roc_curve(yt_cons, yp_cons)
+        auc_val = roc_auc_score(yt_cons, yp_cons)
+        axes_roc[5].plot(fpr, tpr, label=f"AUC={auc_val:.3f}")
+        axes_roc[5].plot([0, 1], [0, 1], "k--", lw=0.8)
+        axes_roc[5].set_title("Consensus")
+        axes_roc[5].set_xlabel("FPR")
+        axes_roc[5].set_ylabel("TPR")
+        axes_roc[5].legend()
+        prec, rec, _ = precision_recall_curve(yt_cons, yp_cons)
+        ap = average_precision_score(yt_cons, yp_cons)
+        axes_pr[5].plot(rec, prec, label=f"AP={ap:.3f}")
+        axes_pr[5].set_title("Consensus")
+        axes_pr[5].set_xlabel("Recall")
+        axes_pr[5].set_ylabel("Precision")
+        axes_pr[5].legend()
+
+    for fig, name in [(fig_roc, "roc_curves"), (fig_pr, "pr_curves")]:
+        fig.tight_layout()
+        fig.savefig(os.path.join(output_dir, f"{prefix}{name}.png"), dpi=300)
+        plt.close(fig)
+
+
+# ==============================================================================
 # MODE: eval
 # ==============================================================================
 
@@ -1300,45 +1456,42 @@ def run_eval(args):
     model = model.to(device)
     model.eval()
 
+    # --- Val inference ---
+    y_logit_val, _, y_true_val, _ = run_inference(model, valLoader, device, params)
+
+    # --- Temperature scaling ---
+    if args.temperature_scaling:
+        T = fit_temperature(y_true_val, y_logit_val)
+        logging.info(f"Temperature scaling: T = {T:.4f}")
+        y_logit_val = apply_temperature(y_logit_val, T)
+    else:
+        T = None
+
     # --- Threshold selection ---
     if args.use_thresholds:
-        # Collect validation set logits for cross-fit threshold optimization
-        y_pred_logit_val = []
-        y_true_val = []
-        with torch.no_grad():
-            for sample in valLoader:
-                pred = model(
-                    sample.x.to(device), sample.edge_index.to(device),
-                    sample.edge_attr.to(device), sample.batch.to(device),
-                    params["n_node_neurons"], n_node_features,
-                    params["n_edge_neurons"], n_edge_features,
-                    params["n_graph_convolution_layers"],
-                    params["n_shared_layers"], params["n_target_specific_layers"], False
-                )
-                y_pred_logit_val.append(pred)
-                y_true_val.append(sample.y)
-
-        y_logit_val = np.hstack([
-            np.concatenate([t.cpu().numpy() for t in tensors], axis=0)
-            for tensors in zip(*y_pred_logit_val)
-        ])
-        y_true_val = torch.cat(y_true_val).numpy()
-
-        best_ths = crossfit_thresholds_for_consensus(
-            y_true_cat=y_true_val, y_prob_cat=y_logit_val, K=5, metric="sp", seed=42
-        )
-        logging.info(f"Cross-fit consensus thresholds: {best_ths}")
+        if args.tune_consensus_threshold:
+            t = crossfit_single_threshold(
+                y_true_val, y_logit_val, K=5, metric=args.threshold_metric, seed=42
+            )
+            best_ths = [t] * 5
+            logging.info(f"Single consensus threshold (optimising {args.threshold_metric}): {t:.4f}")
+        else:
+            best_ths = crossfit_thresholds_for_consensus(
+                y_true_cat=y_true_val, y_prob_cat=y_logit_val, K=5, metric=args.threshold_metric, seed=42
+            )
+            logging.info(f"Per-task thresholds (optimising {args.threshold_metric}): {best_ths}")
         _, val_scores = eval_consensus_metric(y_true_val, y_logit_val, best_ths, metric="bal_acc")
         logging.info(f"Validation consensus scores (Sp, Sn, PPV, Acc, BalAcc, F1, H): {val_scores}")
     else:
         best_ths = [0.5] * 5
-        logging.info("Using default thresholds [0.5] x5. Pass --use_thresholds to enable optimization.")
+        logging.info("Using default thresholds [0.5] x5. Pass --use_thresholds to enable optimisation.")
 
     # --- Test set evaluation ---
     logging.info(f"Evaluating test set with thresholds: {best_ths}")
-    y_logit_cat, y_pred_cat, y_true_cat, file_names = run_inference(
-        model, testLoader, device, params, thresholds=best_ths
-    )
+    y_logit_cat, _, y_true_cat, file_names = run_inference(model, testLoader, device, params)
+    if T is not None:
+        y_logit_cat = apply_temperature(y_logit_cat, T)
+    y_pred_cat = (y_logit_cat >= np.array(best_ths)).astype(int)
 
     # Per-strain metrics
     write_metrics_csv(
@@ -1405,6 +1558,10 @@ def run_eval(args):
             np.array(y_cons).flatten()
         )
         writer_csv.writerows(rows)
+
+    # ROC and PR curves
+    plot_eval_curves(y_true_cat, y_logit_cat, args.output_dir)
+    logging.info("Saved roc_curves.png and pr_curves.png")
 
     logging.info("eval mode complete.")
     sys.stdout.flush()
@@ -1479,17 +1636,41 @@ def run_top_seeds_eval(args):
             model = model.to(device)
             model.eval()
 
+            # Val inference
+            y_logit_val, _, y_true_val, _ = run_inference(model, valLoader, device, params)
+
+            # Temperature scaling
+            if args.temperature_scaling:
+                T = fit_temperature(y_true_val, y_logit_val)
+                logging.info(f"  Seed {seed} Fold {fold}: T = {T:.4f}")
+                y_logit_val = apply_temperature(y_logit_val, T)
+            else:
+                T = None
+
+            # Threshold selection
             if args.use_thresholds:
-                y_logit_val, _, y_true_val, _ = run_inference(model, valLoader, device, params)
-                fold_ths = crossfit_thresholds_for_consensus(
-                    y_true_cat=y_true_val, y_prob_cat=y_logit_val, K=5, metric="sp", seed=42
-                )
-                logging.info(f"  Seed {seed} Fold {fold} thresholds: {fold_ths}")
+                if args.tune_consensus_threshold:
+                    t = crossfit_single_threshold(
+                        y_true_val, y_logit_val, K=5, metric=args.threshold_metric, seed=42
+                    )
+                    fold_ths = [t] * 5
+                else:
+                    fold_ths = crossfit_thresholds_for_consensus(
+                        y_true_cat=y_true_val, y_prob_cat=y_logit_val, K=5,
+                        metric=args.threshold_metric, seed=42
+                    )
+                logging.info(f"  Seed {seed} Fold {fold} thresholds (optimising {args.threshold_metric}): {fold_ths}")
             else:
                 fold_ths = None
-            y_logit_cat, y_pred_cat, y_true_cat, _ = run_inference(
-                model, testLoader, device, params, thresholds=fold_ths
-            )
+
+            # Test inference
+            y_logit_cat, _, y_true_cat, _ = run_inference(model, testLoader, device, params)
+            if T is not None:
+                y_logit_cat = apply_temperature(y_logit_cat, T)
+            if fold_ths is not None:
+                y_pred_cat = (y_logit_cat >= np.array(fold_ths)).astype(int)
+            else:
+                y_pred_cat = (y_logit_cat >= 0.5).astype(int)
 
             for i, strain in enumerate(strain_names):
                 _, new_real, new_y_pred, _ = filter_nan(

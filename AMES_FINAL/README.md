@@ -208,7 +208,7 @@ Checkpoints are saved to `--checkpoints_dir/metrics_{seed}_{fold}.pt`.
 
 ### `eval` — Evaluate a single checkpoint on the test set
 
-Loads a checkpoint and evaluates on the test set. By default, uses a decision threshold of 0.5 for all tasks. Pass `--use_thresholds` to learn per-task thresholds via cross-fitting on the validation set and apply them to the test set.
+Loads a checkpoint and evaluates on the test set. ROC curves and Precision-Recall curves are always saved. By default uses a threshold of 0.5; use `--use_thresholds` to optimise thresholds on the validation set.
 
 ```bash
 # Default: 0.5 threshold for all tasks
@@ -218,24 +218,42 @@ python run_model.py \
     --output_dir ./output/eval_results \
     --checkpoint_file ./checkpoints/metrics_45_1.pt
 
-# With threshold optimization
+# Temperature scaling + per-task threshold optimisation (maximise sensitivity)
 python run_model.py \
     --mode eval \
     --input_file train_sample.yml \
     --output_dir ./output/eval_results \
     --checkpoint_file ./checkpoints/metrics_45_1.pt \
-    --use_thresholds
+    --use_thresholds --temperature_scaling --threshold_metric sn
+
+# Temperature scaling + single consensus threshold (maximise balanced accuracy)
+python run_model.py \
+    --mode eval \
+    --input_file train_sample.yml \
+    --output_dir ./output/eval_results \
+    --checkpoint_file ./checkpoints/metrics_45_1.pt \
+    --use_thresholds --temperature_scaling --tune_consensus_threshold --threshold_metric bal_acc
 ```
 
+**Threshold flags (only active when `--use_thresholds` is set):**
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--threshold_metric` | `sn` | Metric to maximise: `sn`, `sp`, `bal_acc`, `ppv`, `npv`, `mcc`, `f1`, `h` |
+| `--tune_consensus_threshold` | off | Optimise one shared threshold for the consensus (OR) outcome instead of 5 per-task thresholds |
+| `--temperature_scaling` | off | Fit scalar temperature T on val set (minimises NLL) before thresholding. Can also be used without `--use_thresholds` to calibrate probabilities. |
+
 **Outputs:**
-- `metrics.csv` — per-strain metrics (TP, TN, FP, FN, Sp, Sn, Prec, Acc, BalAcc, F1, H)
+- `metrics.csv` — per-strain metrics (TP, TN, FP, FN, Sp, Sn, PPV, NPV, Acc, Bal acc, MCC, F1 score, H score)
 - `metrics_cons.csv` — consensus (OR rule) metrics
 - `misclassified_files.csv` — molecules where consensus prediction was wrong
-- `model_output_raw.csv` — raw logits, true labels, predictions, and consensus per molecule
+- `model_output_raw.csv` — probabilities, true labels, binary predictions, and consensus per molecule
+- `roc_curves.png` — ROC curves for each strain + consensus (AUC annotated)
+- `pr_curves.png` — Precision-Recall curves for each strain + consensus (AP annotated)
 
 ### `top_seeds_eval` — Evaluate top N seeds and average metrics
 
-Reads `val_losses.csv` (from `seeds_cfv`), selects the top `N` seeds by lowest average validation loss, loads their per-fold checkpoints, evaluates each on the test set, and averages results. Add `--use_thresholds` to optimize per-task thresholds on the validation set for each checkpoint before evaluating the test set.
+Reads `val_losses.csv` (from `seeds_cfv`), selects the top `N` seeds by lowest average validation loss, loads their per-fold checkpoints, evaluates each on the test set, and averages results. Supports the same `--use_thresholds`, `--temperature_scaling`, and `--tune_consensus_threshold` flags as `eval`.
 
 ```bash
 # Default: 0.5 threshold
@@ -247,7 +265,7 @@ python run_model.py \
     --checkpoints_dir ./checkpoints \
     --n_top_seeds 5
 
-# With threshold optimization
+# With temperature scaling + threshold optimisation
 python run_model.py \
     --mode top_seeds_eval \
     --input_file train_sample.yml \
@@ -255,7 +273,7 @@ python run_model.py \
     --metrics_dir ./output/cfv_results \
     --checkpoints_dir ./checkpoints \
     --n_top_seeds 5 \
-    --use_thresholds
+    --use_thresholds --temperature_scaling --threshold_metric sn
 ```
 
 **Outputs:**
@@ -378,6 +396,7 @@ The data file should contain at minimum:
 |--------|-------------|
 | `SMILES` | Canonical SMILES string |
 | `TA98`, `TA100`, `TA102`, `TA1535`, `TA1537` | Binary labels (0 = negative, 1 = positive, -1 = missing) |
+| `Overall` | Overall consensus label (used in `eval` mode for misclassification analysis) |
 | `split` | `train`, `validate`, or `test` |
 
 ---

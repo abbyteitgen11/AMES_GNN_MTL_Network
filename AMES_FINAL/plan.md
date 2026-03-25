@@ -106,6 +106,10 @@ python run_model.py --mode <mode> --output_dir <dir> [--input_file <yaml>] [opti
 | `--n_top_seeds` | 5 | Number of top seeds for top_seeds_eval |
 | `--data_file` | from YAML | Override YAML data_file path |
 | `--val_loss_file` | None | Optional .xlsx for validation loss heatmap (analyze_cfv) |
+| `--use_thresholds` | False | Optimise per-task decision thresholds on val set before test eval (eval, top_seeds_eval) |
+| `--threshold_metric` | `sn` | Metric to maximise when optimising thresholds: `sn`, `sp`, `bal_acc`, `ppv`, `npv`, `mcc`, `f1`, `h` |
+| `--tune_consensus_threshold` | False | With `--use_thresholds`: optimise a single shared threshold on the consensus (OR) instead of 5 per-task thresholds |
+| `--temperature_scaling` | False | Fit temperature T on val set (minimising NLL) and apply before thresholding (eval, top_seeds_eval) |
 
 ### Example commands
 
@@ -211,6 +215,12 @@ The YAML file controls all model and training hyperparameters. Key fields:
 4. **`val_losses` accumulation bug in `GNN_MTL_HP_KF_seeds.py`**: list not reset between seeds, making avg_val_loss cumulative → fixed with per-seed list
 5. **Hardcoded seed headers in `avg_val_losses.csv`**: Fixed to use actual `--seeds` values
 6. **Plots saved to current directory in `analyze_crossfold_val.py`**: Fixed to save to `--output_dir`
+7. **`verbose` kwarg removed from `ReduceLROnPlateau`** in `callbacks.py` — removed in PyTorch 2.2+
+8. **Callbacks monitoring wrong loss**: Both `LRScheduler` and `EarlyStopping` were called with `train_loss` instead of `val_loss`
+9. **Early stopping `break` in wrong scope**: `break` was inside `for callback in callbacks` loop, not the epoch loop — fixed with `any(cb.early_stop for cb in callbacks)` check
+10. **`eval` mode thresholds discarded**: `crossfit_thresholds_for_consensus` result was computed but never applied to the test set (hardcoded `[0.5]*5` was used instead) — fixed
+11. **`eval_consensus_metric` ignored metric parameter**: returned H1 score for any metric except `"bal_acc"` — fixed with proper metric dispatch dict
+12. **`metrics_cons.csv` labeled "Strain TA98"** instead of "Consensus" — fixed
 
 ### Hardcoded paths removed
 
@@ -224,6 +234,19 @@ The YAML file controls all model and training hyperparameters. Key fields:
 | `GNN_explainer_analysis_final.py` data.csv | `--data_file` flag |
 | `GNN_explainer_analysis_input_features.py` checkpoint + data.csv | same flags |
 | `train_sample.yml` data_file + StateDictFileName | Updated to AMES_FINAL paths |
+
+### Metrics changes
+
+- All metrics CSVs now include **NPV** (negative predictive value) and **MCC** (Matthews correlation coefficient)
+- **"Prec"** column renamed to **"PPV"** (positive predictive value) everywhere
+- New column order: `Strain, TP, TN, FP, FN, Sp, Sn, PPV, NPV, Acc, Bal acc, MCC, F1 score, H score`
+- `analyze_cfv` mode: removed post-hoc NPV/MCC computation (now written directly by `write_metrics_csv`/`metrics_row`)
+
+### Eval pipeline additions (`eval` and `top_seeds_eval` modes)
+
+- **Temperature scaling** (`--temperature_scaling`): fits scalar T on val set to minimise NLL; applies `sigmoid(logit(p)/T)` before thresholding. Model outputs are probabilities (post-sigmoid), so temperature scaling converts prob→logit→divide by T→sigmoid.
+- **Consensus threshold** (`--tune_consensus_threshold`): optimises a single shared threshold via 1D cross-fit grid search instead of 5 per-task coordinate ascent
+- **ROC and PR curves** (always in `eval` mode): saved as `roc_curves.png` and `pr_curves.png`; covers each of the 5 strains plus the consensus (using max task probability as consensus score)
 
 ### Dead code removed from consolidation
 
@@ -241,8 +264,8 @@ The YAML file controls all model and training hyperparameters. Key fields:
 | `train` | `checkpoints/checkpoint_epoch_N.pt`, `tensorboard/` |
 | `hp_opt` | `optuna/study_YYYYMMDD.pkl` |
 | `seeds_cfv` | `metrics_{seed}_{fold}.csv`, `checkpoints/metrics_{seed}_{fold}.pt`, `avg_val_losses.csv`, `val_losses.csv` |
-| `eval` | `metrics.csv`, `metrics_cons.csv`, `misclassified_files.csv`, `model_output_raw.csv` |
-| `top_seeds_eval` | `top_seeds_test_metrics_summary.csv` |
+| `eval` | `metrics.csv`, `metrics_cons.csv`, `misclassified_files.csv`, `model_output_raw.csv`, `roc_curves.png`, `pr_curves.png` |
+| `top_seeds_eval` | `top_seeds_all_metrics.csv`, `top_seeds_avg_metrics.csv` |
 | `analyze_cfv` | `avg_metrics_by_strain.png`, `metric_distribution_by_strain.png`, `metric_error_bars.png`, `per_seed_variability.png`, `per_fold_variability.png`, optionally `validation_loss_heatmap.png` |
 | `viz_optuna` | Interactive plots or saved PNGs |
 
