@@ -31,6 +31,7 @@ AMES/output_crossfold_val/
 AMES/paper_submission/
 AMES/output/
 AMES/MTL_GNN_for_AMES_Mutagenicity_Prediction/
+events.out*
 *.DS_Store
 *.pt
 *.csv
