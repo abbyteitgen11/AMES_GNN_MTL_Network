@@ -53,10 +53,10 @@ callbacks:
 descriptionText: 'No data transformation'
 
 # where the graph data-base resides
-database: '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/GraphDataBase_AMES/' #'/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/GraphDataBase_AMES_additional_data' 
+database: '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/GraphDataBase_AMES_NEW/' #'/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/GraphDataBase_AMES_additional_data' 
 
 # file with molecular data
-data_file: '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES_FINAL/data.csv' #'/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/Additional_data/final_additional_dataset.csv' 
+data_file: '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES_FINAL/data_new_with_split.csv' #'/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/Additional_data/final_additional_dataset.csv' 
 
 # transformData: std
 
