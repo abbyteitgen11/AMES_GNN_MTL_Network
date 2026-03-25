@@ -55,7 +55,6 @@ class LRScheduler:
             patience=self.patience,
             factor=self.factor,
             min_lr=self.min_lr,
-            verbose=True,
         )
         self.early_stop = False
 

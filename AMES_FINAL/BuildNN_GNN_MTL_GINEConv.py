@@ -32,33 +32,9 @@ class BuildNN_GNN_MTL(nn.Module):
         """
             A class that creates a model with the desired number of shared core
             layers (fully connected) + target specific core layers (fully connected)
-            + Graph-Convolutional (n_gc_layers) + fully-connected (n_fc_layers)
+            + Graph-Convolutional (n_gc_layers) + fully-connected
             linear layers for GNN, using the specified non-linear activation layers
             interspaced between them.
-
-            Args:
-            :param int ni: number of input features; default: 4
-            :param int n0: number of neurons in first layer of shared core; default: 200
-            :param int n1: number of neurons in second layer of shared core; default: 100
-            :param int n2: number of neurons in third layer of shared core; default: 50
-            :param int n3: number of neurons in fourth layer of shared core; default: 10
-            :param str act: activation function; can be any activation available in torch; default: relu
-            :param float momentum_batch_norm: momentum for batch normalization; default: 0.9
-            :param int prob_h1: dropout in first layer of shared core; default: 0.25
-            :param int prob_h2: dropout in first layer of shared core; default: 0.15
-            :param int prob_h3: dropout in first layer of shared core; default: 0.1
-            :param int prob_h4: dropout in first layer of shared core; default: 0.0001
-            :param int n_node_features: length of node feature vectors for GNN; default: 4
-            :param int n_edge_features: length of edge feature vectors for GNN; default: 3
-            :param int n_node_neurons: number of neurons in deep layers (if they exist)
-                    in the densely-connected network if set to None, it is internally
-                    set to n_node_features
-            :param int n_edge_neurons: edges might have on input relatively few features (2,3);
-                    this parameter allows the user to use a linear layer to expand the number
-                    of edge features in the graph-convolution part.
-            :param int n_gc_layers: number of Graph-Convolution layers (CGConv); default: 2
-            :param int n_s_layers: number of layers in shared core; default: 4
-            :param int n_ts_layers: number of layers in target specific core; default: 2
 
             """
         self.activation_layer = eval("nn." + act + "()")
