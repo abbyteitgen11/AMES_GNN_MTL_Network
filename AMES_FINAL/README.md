@@ -125,7 +125,38 @@ All training modes read hyperparameters from a YAML file (see `train_sample.yml`
 | `learningRate` | Initial learning rate |
 | `L2Regularization` | Weight decay coefficient |
 | `weightedCostFunction` | Whether to use weighted BCE loss |
+| `inputMode` | Input feature mode: `"gnn"` (default), `"descriptor"`, or `"combined"` |
 | `callbacks` | `earlyStopping`, `LRScheduler`, `UserStopping` sub-sections |
+
+---
+
+## Input Modes
+
+The model supports three input feature modes, controlled by the `inputMode` YAML key:
+
+| Mode | Description | Data requirement |
+|------|-------------|-----------------|
+| `"gnn"` | Graph features only via GINEConv layers (default) | Graph database (`GraphDataBase_AMES/`) |
+| `"descriptor"` | Mordred 2D molecular descriptors only | CSV with descriptor columns (see below) |
+| `"combined"` | GNN graph embedding concatenated with descriptor vector | Both graph database and descriptor CSV |
+
+Set `inputMode: "gnn"` (or omit the key) to use the default graph-only mode.
+
+For `"descriptor"` and `"combined"` modes, `data_file` must point to a CSV that contains Mordred descriptor columns (e.g., `data_new_with_split_descriptors.csv`). Use `calculate_descriptors.py` to generate this file.
+
+---
+
+## Compute Mordred Descriptors
+
+If your data file does not yet have Mordred descriptor columns (e.g., `data_new_with_split.csv`), generate them with:
+
+```bash
+python calculate_descriptors.py \
+    --input_csv data_new_with_split.csv \
+    --output_csv data_new_with_split_descriptors.csv
+```
+
+This computes all 2D Mordred descriptors for each SMILES and produces a new CSV with descriptor columns inserted between `source` and `TA98`. The resulting file can be used directly with `run_model.py` in `"descriptor"` or `"combined"` mode by setting `data_file` in the YAML.
 
 ---
 

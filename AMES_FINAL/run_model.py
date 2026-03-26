@@ -28,6 +28,7 @@ import re
 import sys
 from datetime import datetime
 from glob import glob
+from pathlib import Path
 
 import joblib
 import matplotlib
@@ -256,8 +257,12 @@ def get_class_weights(input_data, use_yaml_weights=True):
         }
 
 
-def build_model(params, n_node_features, n_edge_features, n_inputs=0):
-    """Instantiate the GNN-MTL model from a parameter dict."""
+def build_model(params, n_node_features, n_edge_features, input_mode="gnn", n_descriptor_inputs=0):
+    """Instantiate the GNN-MTL model from a parameter dict.
+
+    input_mode: "gnn", "descriptor", or "combined"
+    n_descriptor_inputs: number of Mordred descriptor columns (used in "descriptor" / "combined")
+    """
     return BuildNN_GNN_MTL(
         params["n_graph_convolution_layers"],
         params["n_node_neurons"],
@@ -273,8 +278,8 @@ def build_model(params, n_node_features, n_edge_features, n_inputs=0):
         params["dropout_shared"],
         params["dropout_target"],
         params["activation"],
-        False,  # useMolecularDescriptors (graphs only)
-        n_inputs,
+        input_mode,
+        n_descriptor_inputs,
     )
 
 
@@ -324,6 +329,67 @@ def scan_and_filter_nan_graphs(dataset, name):
 def count_trainable_parameters(model):
     """Return total number of trainable parameters in a PyTorch model."""
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+
+# ==============================================================================
+# Descriptor helpers (used by "descriptor" and "combined" input modes)
+# ==============================================================================
+
+_NON_DESC_COLS = {
+    'Id', 'Name', 'CAS', 'SMILES RDKit', 'SMILES', 'source',
+    'TA98', 'TA100', 'TA102', 'TA1535', 'TA1537', 'Overall', 'Partition',
+}
+
+
+def load_descriptor_dict(data_path):
+    """
+    Load molecular descriptors from a CSV that contains Mordred descriptor columns.
+    Returns:
+        desc_dict: {mol_id (int): np.float32 array of length n_descriptors}
+        n_descriptors: number of descriptor columns used
+    NaN values are mean-imputed per column; columns that are entirely NaN get 0.
+    """
+    df = pd.read_csv(data_path)
+    desc_cols = [c for c in df.columns if c not in _NON_DESC_COLS]
+    if not desc_cols:
+        raise ValueError(
+            f"No descriptor columns found in {data_path}. "
+            "Run calculate_descriptors.py first to add Mordred descriptors."
+        )
+    desc_matrix = df[desc_cols].apply(pd.to_numeric, errors='coerce').values.astype(np.float32)
+    # Mean-impute NaN per column
+    col_means = np.nanmean(desc_matrix, axis=0)
+    col_means = np.where(np.isnan(col_means), 0.0, col_means)
+    nan_rows, nan_cols = np.where(np.isnan(desc_matrix))
+    desc_matrix[nan_rows, nan_cols] = col_means[nan_cols]
+    desc_dict = {int(row["Id"]): desc_matrix[i] for i, (_, row) in enumerate(df[["Id"]].iterrows())}
+    logging.info(f"Loaded descriptors: {len(desc_cols)} columns, {len(desc_dict)} molecules.")
+    return desc_dict, len(desc_cols)
+
+
+def get_batch_descriptors(sample, desc_dict, device):
+    """
+    Build a descriptor tensor for a graph batch.
+    Extracts molecule IDs from sample.file_name (format: '{id}_ames_...pkl'),
+    looks them up in desc_dict, and returns a stacked float32 tensor on device.
+    """
+    mol_ids = [int(Path(f).stem.split("_")[0]) for f in sample.file_name]
+    tensors = [torch.tensor(desc_dict[mid], dtype=torch.float32) for mid in mol_ids]
+    return torch.stack(tensors).to(device)
+
+
+def get_input_mode(input_data):
+    """
+    Read inputMode from YAML config. Supports backward-compat with useMolecularDescriptors.
+    Returns: "gnn", "descriptor", or "combined"
+    """
+    mode = input_data.get("inputMode", None)
+    if mode is not None:
+        return mode
+    # Backward compatibility
+    if input_data.get("useMolecularDescriptors", False):
+        return "descriptor"
+    return "gnn"
 
 
 # ==============================================================================
@@ -380,12 +446,15 @@ def get_multilabel_targets(dataset):
 # GNN inference helper
 # ==============================================================================
 
-def run_inference(model, loader, device, params, thresholds=None):
+def run_inference(model, loader, device, params, thresholds=None,
+                  input_mode="gnn", desc_dict=None):
     """
     Run model inference on a DataLoader.
     Returns (y_pred_logit_cat, y_pred_binary_cat, y_true_cat, file_names).
 
-    thresholds: list of 5 per-task decision thresholds. Defaults to [0.5]*5 if None.
+    thresholds:  list of 5 per-task decision thresholds. Defaults to [0.5]*5 if None.
+    input_mode:  "gnn", "descriptor", or "combined"
+    desc_dict:   {mol_id: np.float32 array} — required when input_mode != "gnn"
     """
     if thresholds is None:
         thresholds = [0.5] * 5
@@ -398,29 +467,47 @@ def run_inference(model, loader, device, params, thresholds=None):
 
     with torch.no_grad():
         for sample in loader:
-            pred = model(
-                sample.x.to(device),
-                sample.edge_index.to(device),
-                sample.edge_attr.to(device),
-                sample.batch.to(device),
-                p["n_node_neurons"], p["n_node_features"],
-                p["n_edge_neurons"], p["n_edge_features"],
-                p["n_graph_convolution_layers"],
-                p["n_shared_layers"],
-                p["n_target_specific_layers"],
-                False  # useMolecularDescriptors
-            )
+            if input_mode == "descriptor":
+                # MTLDataset returns (X, y) tuples — no graph attributes
+                X_batch, y_true = sample
+                pred = model(
+                    None, 0, 0, 0,
+                    p["n_node_neurons"], p["n_node_features"],
+                    p["n_edge_neurons"], p["n_edge_features"],
+                    p["n_graph_convolution_layers"],
+                    p["n_shared_layers"],
+                    p["n_target_specific_layers"],
+                    "descriptor", X_batch.to(device),
+                )
+            else:
+                descriptors = (
+                    get_batch_descriptors(sample, desc_dict, device)
+                    if input_mode == "combined"
+                    else None
+                )
+                pred = model(
+                    sample.x.to(device),
+                    sample.edge_index.to(device),
+                    sample.edge_attr.to(device),
+                    sample.batch.to(device),
+                    p["n_node_neurons"], p["n_node_features"],
+                    p["n_edge_neurons"], p["n_edge_features"],
+                    p["n_graph_convolution_layers"],
+                    p["n_shared_layers"],
+                    p["n_target_specific_layers"],
+                    input_mode, descriptors,
+                )
+                y_true = sample.y
+                if hasattr(sample, "to_data_list"):
+                    for data in sample.to_data_list():
+                        file_names.append(data.file_name)
             y_pred_t = tuple(
                 torch.where(tensor > thresholds[i], torch.tensor(1), torch.tensor(0))
                 for i, tensor in enumerate(pred)
             )
             y_pred_batches.append(y_pred_t)
             y_pred_logit_batches.append(pred)
-            y_true_batches.append(sample.y)
-
-            if hasattr(sample, "to_data_list"):
-                for data in sample.to_data_list():
-                    file_names.append(data.file_name)
+            y_true_batches.append(y_true)
 
     y_logit_cat = [
         np.concatenate([t.cpu().numpy() for t in tensors], axis=0)
@@ -477,9 +564,10 @@ def run_train(args):
     L2Regularization = input_data.get("L2Regularization", 0.005)
     loadModel = input_data.get("loadModel", False)
     loadOptimizer = input_data.get("loadOptimizer", False)
-    useMolecularDescriptors = input_data.get("useMolecularDescriptors", False)
+    input_mode = get_input_mode(input_data)
     data_path = args.data_file or input_data.get("data_file",
                 os.path.join(AMES_FINAL_DIR, "data.csv"))
+    logging.info(f"Input mode: {input_mode}")
 
     # Build log text
     log_text = "\n# Model Description\n"
@@ -494,8 +582,8 @@ def run_train(args):
     g = torch.Generator()
     g.manual_seed(seed)
 
-    if not useMolecularDescriptors:
-        # --- Graph mode ---
+    if input_mode in ("gnn", "combined"):
+        # --- Graph mode (and combined graph+descriptor mode) ---
         trainDataset, valDataset, testDataset = load_graph_datasets(
             database_path, nTrainMaxEntries, nValMaxEntries, seed
         )
@@ -506,7 +594,11 @@ def run_train(args):
         valLoader = DataLoader(valDataset, batch_size=nBatch, generator=g)
         testLoader = DataLoader(testDataset, batch_size=nBatch, generator=g)
 
-        model = build_model(params, n_node_features, n_edge_features)
+        desc_dict, n_descriptor_inputs = (
+            load_descriptor_dict(data_path) if input_mode == "combined" else ({}, 0)
+        )
+
+        model = build_model(params, n_node_features, n_edge_features, input_mode, n_descriptor_inputs)
         logging.info(f"Total trainable parameters: {count_trainable_parameters(model)}")
 
         optimizer = torch.optim.Adam(model.parameters(), lr=learningRate, weight_decay=L2Regularization)
@@ -532,13 +624,16 @@ def run_train(args):
             model.train()
             train_loss = 0
             for sample in trainLoader:
+                desc = (get_batch_descriptors(sample, desc_dict, device)
+                        if input_mode == "combined" else None)
                 pred = model(
                     sample.x.to(device), sample.edge_index.to(device),
                     sample.edge_attr.to(device), sample.batch.to(device),
                     params["n_node_neurons"], n_node_features,
                     params["n_edge_neurons"], n_edge_features,
                     params["n_graph_convolution_layers"],
-                    params["n_shared_layers"], params["n_target_specific_layers"], False
+                    params["n_shared_layers"], params["n_target_specific_layers"],
+                    input_mode, desc
                 )
                 losses = sum(
                     masked_loss_function(sample.y[:, i], pred[i].squeeze(1), class_weights[output_keys[i]])
@@ -556,13 +651,16 @@ def run_train(args):
             val_loss = 0
             with torch.no_grad():
                 for sample in valLoader:
+                    desc = (get_batch_descriptors(sample, desc_dict, device)
+                            if input_mode == "combined" else None)
                     pred = model(
                         sample.x.to(device), sample.edge_index.to(device),
                         sample.edge_attr.to(device), sample.batch.to(device),
                         params["n_node_neurons"], n_node_features,
                         params["n_edge_neurons"], n_edge_features,
                         params["n_graph_convolution_layers"],
-                        params["n_shared_layers"], params["n_target_specific_layers"], False
+                        params["n_shared_layers"], params["n_target_specific_layers"],
+                        input_mode, desc
                     )
                     losses = sum(
                         masked_loss_function(sample.y[:, i], pred[i].squeeze(1), class_weights[output_keys[i]])
@@ -615,7 +713,10 @@ def run_train(args):
         writer.close()
 
         # Test set evaluation
-        y_logit_cat, y_pred_cat, y_true_cat, _ = run_inference(model, testLoader, device, params)
+        y_logit_cat, y_pred_cat, y_true_cat, _ = run_inference(
+            model, testLoader, device, params,
+            input_mode=input_mode, desc_dict=desc_dict
+        )
 
         write_metrics_csv(
             os.path.join(args.output_dir, "metrics.csv"),
@@ -638,18 +739,17 @@ def run_train(args):
             m2 = [round(float(x), 2) for x in m[1]]
             writer_csv.writerow(metrics_row("Cons", m1, m2))
 
-    else:
+    elif input_mode == "descriptor":
         # --- Molecular descriptors mode ---
         train_data, internal_data, external_data = load_data(data_path, model="MTL", stage="GS")
         X_train, y_train = train_data
         X_internal, y_internal = internal_data
         X_external, y_external = external_data
 
-        # Remove SMILES column and reformat
-        X_train = np.array(X_train[:, 1:], dtype=np.float32)
-        X_internal = np.array(X_internal[:, 1:], dtype=np.float32)
-        X_external = np.array(X_external[:, 1:], dtype=np.float32)
-        y_train = np.array(np.transpose(y_train), dtype=np.float32)
+        X_train    = np.array(X_train,    dtype=np.float32)
+        X_internal = np.array(X_internal, dtype=np.float32)
+        X_external = np.array(X_external, dtype=np.float32)
+        y_train    = np.array(np.transpose(y_train),    dtype=np.float32)
         y_internal = np.array(np.transpose(y_internal), dtype=np.float32)
         y_external = np.array(np.transpose(y_external), dtype=np.float32)
 
@@ -667,15 +767,7 @@ def run_train(args):
         valLoader = DataLoader(val_dataset, batch_size=nBatch, generator=g)
         testLoader = DataLoader(test_dataset, batch_size=nBatch, generator=g)
 
-        model = BuildNN_GNN_MTL(
-            params["n_graph_convolution_layers"], params["n_node_neurons"],
-            params["n_edge_neurons"], n_node_features, n_edge_features,
-            params["dropout_GNN"], params["momentum_batch_norm"],
-            params["n_shared_layers"], params["n_target_specific_layers"],
-            params["n_shared"], params["n_target"],
-            params["dropout_shared"], params["dropout_target"],
-            params["activation"], True, n_inputs
-        )
+        model = build_model(params, n_node_features, n_edge_features, "descriptor", n_inputs)
 
         optimizer = torch.optim.Adam(model.parameters(), lr=learningRate, weight_decay=L2Regularization)
 
@@ -698,11 +790,12 @@ def run_train(args):
             model.train()
             train_loss = 0
             for X, y in trainLoader:
-                pred = model(X.to(device), 0, 0, 0,
+                pred = model(None, 0, 0, 0,
                              params["n_node_neurons"], n_node_features,
                              params["n_edge_neurons"], n_edge_features,
                              params["n_graph_convolution_layers"],
-                             params["n_shared_layers"], params["n_target_specific_layers"], True)
+                             params["n_shared_layers"], params["n_target_specific_layers"],
+                             "descriptor", X.to(device))
                 losses = sum(
                     masked_loss_function(y[:, i], pred[i].squeeze(1), class_weights[output_keys[i]])
                     for i in range(5)
@@ -718,11 +811,12 @@ def run_train(args):
             val_loss = 0
             with torch.no_grad():
                 for X, y in valLoader:
-                    pred = model(X.to(device), 0, 0, 0,
+                    pred = model(None, 0, 0, 0,
                                  params["n_node_neurons"], n_node_features,
                                  params["n_edge_neurons"], n_edge_features,
                                  params["n_graph_convolution_layers"],
-                                 params["n_shared_layers"], params["n_target_specific_layers"], True)
+                                 params["n_shared_layers"], params["n_target_specific_layers"],
+                                 "descriptor", X.to(device))
                     losses = sum(
                         masked_loss_function(y[:, i], pred[i].squeeze(1), class_weights[output_keys[i]])
                         for i in range(5)
@@ -772,52 +866,26 @@ def run_train(args):
         writer.close()
 
         # Test set evaluation (molecular descriptors)
-        model.eval()
-        X_external_tensor = torch.tensor(X_external, dtype=torch.float32)
-        with torch.no_grad():
-            y_pred = model(
-                X_external_tensor.to(device), 0, 0, 0,
-                params["n_node_neurons"], n_node_features,
-                params["n_edge_neurons"], n_edge_features,
-                params["n_graph_convolution_layers"],
-                params["n_shared_layers"], params["n_target_specific_layers"], True
-            )
-        y_pred = [yp.detach().cpu().numpy() for yp in y_pred]
+        y_logit_cat, y_pred_cat, y_true_cat, _ = run_inference(
+            model, testLoader, device, params, input_mode="descriptor"
+        )
 
-        y_pred_binary = [np.where(y > 0.5, 1, 0) for y in y_pred]
+        write_metrics_csv(
+            os.path.join(args.output_dir, "metrics.csv"),
+            y_true_cat, y_pred_cat, y_logit_cat
+        )
 
-        csv_file = os.path.join(args.output_dir, "metrics.csv")
-        strain_names_out = ["Strain TA98", "Strain TA100", "Strain TA102", "Strain TA1535", "Strain TA1537"]
-        with open(csv_file, mode="w", newline="") as f:
-            writer_csv = csv.writer(f)
-            writer_csv.writerow(METRICS_HEADERS)
-            for i, strain in enumerate(strain_names_out):
-                _, new_real, new_y_pred, new_prob = filter_nan(
-                    y_internal[:, i], y_pred_binary[i], y_pred[i]
-                )
-                m = get_metrics(new_real, new_y_pred)
-                m1 = [int(x) for x in m[0]]
-                m2 = [round(float(x), 2) for x in m[1]]
-                writer_csv.writerow(metrics_row(strain, m1, m2))
-
-        # Consensus
-        overall = load_data(data_path, model="Overall", stage="EVAL")
-        y_overall = overall[1]
-        y_cons = np.zeros(len(y_overall))
-        for i in range(len(y_overall)):
-            preds_i = [y_pred_binary[t][i] for t in range(5)]
-            if 1 in preds_i:
-                y_cons[i] = 1
-            elif all(p == 0 for p in preds_i):
-                y_cons[i] = 0
-            else:
-                y_cons[i] = -1
+        # Consensus prediction (OR rule across 5 heads)
+        y_cons = np.where(np.any(y_pred_cat == 1, axis=1), 1,
+                 np.where(np.all(y_pred_cat == 0, axis=1), 0, -1))
+        y_cons_true = np.where(np.any(y_true_cat == 1, axis=1), 1,
+                      np.where(np.all(y_true_cat == 0, axis=1), 0, -1))
 
         csv_file = os.path.join(args.output_dir, "metrics_cons.csv")
         with open(csv_file, mode="w", newline="") as f:
             writer_csv = csv.writer(f)
             writer_csv.writerow(METRICS_HEADERS)
-            _, new_real, new_y_pred, _ = filter_nan(y_overall, y_cons, y_cons)
+            _, new_real, new_y_pred, _ = filter_nan(y_cons_true, y_cons, y_cons)
             m = get_metrics(new_real, new_y_pred)
             m1 = [int(x) for x in m[0]]
             m2 = [round(float(x), 2) for x in m[1]]
@@ -871,17 +939,31 @@ def run_hp_opt(args):
     activation = input_data.get("ActivationFunction", "ReLU")
     weighted_loss_function = input_data.get("weightedCostFunction", False)
     nTrainMaxEntries = input_data.get("nTrainMaxEntries", None)
+    input_mode = get_input_mode(input_data)
+    data_path = args.data_file or input_data.get("data_file",
+                os.path.join(AMES_FINAL_DIR, "data.csv"))
+    logging.info(f"Input mode: {input_mode}")
 
-    # Load training data (5-fold CV on train set only)
-    trainDataset = GraphDataSet(
-        os.path.join(database_path, "train/"),
-        nMaxEntries=nTrainMaxEntries, seed=seed_global
-    )
-    scan_and_filter_nan_graphs(trainDataset, "train")
+    if input_mode in ("gnn", "combined"):
+        # Load training data (5-fold CV on train set only)
+        trainDataset = GraphDataSet(
+            os.path.join(database_path, "train/"),
+            nMaxEntries=nTrainMaxEntries, seed=seed_global
+        )
+        scan_and_filter_nan_graphs(trainDataset, "train")
 
-    # Precompute multilabel targets for stratified splitting
-    X_indices = np.arange(len(trainDataset))
-    y_multilabel = get_multilabel_targets(trainDataset)
+        # Precompute multilabel targets for stratified splitting
+        X_indices = np.arange(len(trainDataset))
+        y_multilabel = get_multilabel_targets(trainDataset)
+
+        desc_dict, n_descriptor_inputs = (
+            load_descriptor_dict(data_path) if input_mode == "combined" else ({}, 0)
+        )
+    else:  # descriptor
+        # Use data.py 5-fold CV (stratified, returns list of fold tuples)
+        desc_folds = load_data(data_path, model="MTL", stage="5FCV")
+        n_descriptor_inputs = desc_folds[0][0][0].shape[1]
+        desc_dict = {}
 
     def objective(trial):
         """Optuna objective: 5-fold CV with trial-suggested hyperparameters."""
@@ -920,22 +1002,55 @@ def run_hp_opt(args):
 
         g = torch.Generator()
         g.manual_seed(seed_global)
-        mskf = MultilabelStratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+
+        trial_params = {
+            "n_graph_convolution_layers": n_graph_convolution_layers,
+            "n_node_neurons": n_node_neurons,
+            "n_edge_neurons": n_edge_neurons,
+            "dropout_GNN": dropout_GNN,
+            "momentum_batch_norm": momentum_batch_norm,
+            "n_shared_layers": n_shared_layers,
+            "n_target_specific_layers": n_target_specific_layers,
+            "n_shared": n_shared,
+            "n_target": n_target,
+            "dropout_shared": dropout_shared,
+            "dropout_target": dropout_target,
+            "activation": activation,
+        }
 
         val_losses = []
         val_loss_log = []
 
-        for fold, (train_idx, val_idx) in enumerate(mskf.split(X_indices, y_multilabel)):
-            train_subset = Subset(trainDataset, train_idx)
-            val_subset = Subset(trainDataset, val_idx)
-            trainLoader = DataLoader(train_subset, batch_size=nBatch, generator=g)
-            valLoader = DataLoader(val_subset, batch_size=nBatch, generator=g)
+        if input_mode in ("gnn", "combined"):
+            mskf = MultilabelStratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+            fold_iter = enumerate(mskf.split(X_indices, y_multilabel))
+        else:
+            fold_iter = enumerate(desc_folds)
 
-            model = BuildNN_GNN_MTL(
-                n_graph_convolution_layers, n_node_neurons, n_edge_neurons,
-                n_node_features, n_edge_features, dropout_GNN, momentum_batch_norm,
-                n_shared_layers, n_target_specific_layers, n_shared, n_target,
-                dropout_shared, dropout_target, activation, False, 0
+        for fold, fold_data in fold_iter:
+            if input_mode in ("gnn", "combined"):
+                train_idx, val_idx = fold_data
+                train_subset = Subset(trainDataset, train_idx)
+                val_subset = Subset(trainDataset, val_idx)
+                trainLoader = DataLoader(train_subset, batch_size=nBatch, generator=g)
+                valLoader = DataLoader(val_subset, batch_size=nBatch, generator=g)
+            else:  # descriptor
+                (X_tr_f, y_tr_f), (X_val_f, y_val_f) = fold_data
+                X_tr_f = np.array(X_tr_f, dtype=np.float32)
+                X_val_f = np.array(X_val_f, dtype=np.float32)
+                y_tr_arr = np.array(np.transpose(y_tr_f), dtype=np.float32)
+                y_val_arr = np.array(np.transpose(y_val_f), dtype=np.float32)
+                trainLoader = DataLoader(
+                    MTLDataset(torch.tensor(X_tr_f), torch.tensor(y_tr_arr)),
+                    batch_size=nBatch, shuffle=True, generator=g
+                )
+                valLoader = DataLoader(
+                    MTLDataset(torch.tensor(X_val_f), torch.tensor(y_val_arr)),
+                    batch_size=nBatch, generator=g
+                )
+
+            model = build_model(
+                trial_params, n_node_features, n_edge_features, input_mode, n_descriptor_inputs
             ).to(device)
 
             optimizer = torch.optim.Adam(model.parameters(), lr=learningRate, weight_decay=L2Regularization)
@@ -944,16 +1059,32 @@ def run_hp_opt(args):
                 model.train()
                 train_loss = 0
                 for sample in trainLoader:
-                    pred = model(
-                        sample.x.to(device), sample.edge_index.to(device),
-                        sample.edge_attr.to(device), sample.batch.to(device),
-                        n_node_neurons, n_node_features, n_edge_neurons, n_edge_features,
-                        n_graph_convolution_layers, n_shared_layers, n_target_specific_layers, False
-                    )
-                    losses = sum(
-                        masked_loss_function(sample.y[:, i], pred[i].squeeze(1), class_weights[output_keys[i]])
-                        for i in range(5)
-                    )
+                    if input_mode == "descriptor":
+                        X_batch, y_batch = sample
+                        pred = model(
+                            None, 0, 0, 0,
+                            n_node_neurons, n_node_features, n_edge_neurons, n_edge_features,
+                            n_graph_convolution_layers, n_shared_layers, n_target_specific_layers,
+                            "descriptor", X_batch.to(device)
+                        )
+                        losses = sum(
+                            masked_loss_function(y_batch[:, i], pred[i].squeeze(1), class_weights[output_keys[i]])
+                            for i in range(5)
+                        )
+                    else:
+                        desc = (get_batch_descriptors(sample, desc_dict, device)
+                                if input_mode == "combined" else None)
+                        pred = model(
+                            sample.x.to(device), sample.edge_index.to(device),
+                            sample.edge_attr.to(device), sample.batch.to(device),
+                            n_node_neurons, n_node_features, n_edge_neurons, n_edge_features,
+                            n_graph_convolution_layers, n_shared_layers, n_target_specific_layers,
+                            input_mode, desc
+                        )
+                        losses = sum(
+                            masked_loss_function(sample.y[:, i], pred[i].squeeze(1), class_weights[output_keys[i]])
+                            for i in range(5)
+                        )
                     loss_final = losses / 5
                     optimizer.zero_grad()
                     loss_final.backward()
@@ -965,16 +1096,32 @@ def run_hp_opt(args):
                 val_loss = 0
                 with torch.no_grad():
                     for sample in valLoader:
-                        pred = model(
-                            sample.x.to(device), sample.edge_index.to(device),
-                            sample.edge_attr.to(device), sample.batch.to(device),
-                            n_node_neurons, n_node_features, n_edge_neurons, n_edge_features,
-                            n_graph_convolution_layers, n_shared_layers, n_target_specific_layers, False
-                        )
-                        losses = sum(
-                            masked_loss_function(sample.y[:, i], pred[i].squeeze(1), class_weights[output_keys[i]])
-                            for i in range(5)
-                        )
+                        if input_mode == "descriptor":
+                            X_batch, y_batch = sample
+                            pred = model(
+                                None, 0, 0, 0,
+                                n_node_neurons, n_node_features, n_edge_neurons, n_edge_features,
+                                n_graph_convolution_layers, n_shared_layers, n_target_specific_layers,
+                                "descriptor", X_batch.to(device)
+                            )
+                            losses = sum(
+                                masked_loss_function(y_batch[:, i], pred[i].squeeze(1), class_weights[output_keys[i]])
+                                for i in range(5)
+                            )
+                        else:
+                            desc = (get_batch_descriptors(sample, desc_dict, device)
+                                    if input_mode == "combined" else None)
+                            pred = model(
+                                sample.x.to(device), sample.edge_index.to(device),
+                                sample.edge_attr.to(device), sample.batch.to(device),
+                                n_node_neurons, n_node_features, n_edge_neurons, n_edge_features,
+                                n_graph_convolution_layers, n_shared_layers, n_target_specific_layers,
+                                input_mode, desc
+                            )
+                            losses = sum(
+                                masked_loss_function(sample.y[:, i], pred[i].squeeze(1), class_weights[output_keys[i]])
+                                for i in range(5)
+                            )
                         val_loss += (losses / 5).item()
                 val_loss /= len(valLoader)
 
@@ -1046,20 +1193,33 @@ def run_seeds_cfv(args):
     L2Regularization = input_data.get("L2Regularization", 0.005)
     nTrainMaxEntries = input_data.get("nTrainMaxEntries", None)
     nValMaxEntries = input_data.get("nValMaxEntries", None)
+    input_mode = get_input_mode(input_data)
+    data_path = args.data_file or input_data.get("data_file",
+                os.path.join(AMES_FINAL_DIR, "data.csv"))
+    logging.info(f"Input mode: {input_mode}")
 
-    # Load train + val datasets (combined for 5-fold CV)
-    trainDataset = GraphDataSet(
-        os.path.join(database_path, "train/"), nMaxEntries=nTrainMaxEntries, seed=42
-    )
-    valDataset = GraphDataSet(
-        os.path.join(database_path, "validate/"), nMaxEntries=nValMaxEntries, seed=42
-    )
-    scan_and_filter_nan_graphs(trainDataset, "train")
-    scan_and_filter_nan_graphs(valDataset,   "validate")
-    full_dataset = trainDataset + valDataset
+    if input_mode in ("gnn", "combined"):
+        # Load train + val datasets (combined for 5-fold CV)
+        trainDataset = GraphDataSet(
+            os.path.join(database_path, "train/"), nMaxEntries=nTrainMaxEntries, seed=42
+        )
+        valDataset = GraphDataSet(
+            os.path.join(database_path, "validate/"), nMaxEntries=nValMaxEntries, seed=42
+        )
+        scan_and_filter_nan_graphs(trainDataset, "train")
+        scan_and_filter_nan_graphs(valDataset,   "validate")
+        full_dataset = trainDataset + valDataset
 
-    X_indices = np.arange(len(full_dataset))
-    y_multilabel = get_multilabel_targets(full_dataset)
+        X_indices = np.arange(len(full_dataset))
+        y_multilabel = get_multilabel_targets(full_dataset)
+
+        desc_dict, n_descriptor_inputs = (
+            load_descriptor_dict(data_path) if input_mode == "combined" else ({}, 0)
+        )
+    else:  # descriptor
+        desc_folds = load_data(data_path, model="MTL", stage="5FCV")
+        n_descriptor_inputs = desc_folds[0][0][0].shape[1]
+        desc_dict = {}
 
     # Collect avg val losses per seed (for top_seeds_eval)
     avg_val_losses_per_seed = {}
@@ -1076,34 +1236,75 @@ def run_seeds_cfv(args):
         g = torch.Generator()
         g.manual_seed(seed)
 
-        mskf = MultilabelStratifiedKFold(n_splits=5, shuffle=True, random_state=seed)
+        if input_mode in ("gnn", "combined"):
+            mskf = MultilabelStratifiedKFold(n_splits=5, shuffle=True, random_state=seed)
+            fold_iter = enumerate(mskf.split(X_indices, y_multilabel))
+        else:
+            # Use fixed folds from data.py (SEED is fixed there)
+            fold_iter = enumerate(desc_folds)
+
         val_losses_this_seed = []
 
-        for fold, (train_idx, val_idx) in enumerate(mskf.split(X_indices, y_multilabel)):
-            train_subset = Subset(full_dataset, train_idx)
-            val_subset = Subset(full_dataset, val_idx)
-            trainLoader = DataLoader(train_subset, batch_size=nBatch, generator=g)
-            valLoader = DataLoader(val_subset, batch_size=nBatch, generator=g)
+        for fold, fold_data in fold_iter:
+            if input_mode in ("gnn", "combined"):
+                train_idx, val_idx = fold_data
+                train_subset = Subset(full_dataset, train_idx)
+                val_subset = Subset(full_dataset, val_idx)
+                trainLoader = DataLoader(train_subset, batch_size=nBatch, generator=g)
+                valLoader = DataLoader(val_subset, batch_size=nBatch, generator=g)
+            else:  # descriptor
+                (X_tr_f, y_tr_f), (X_val_f, y_val_f) = fold_data
+                X_tr_f = np.array(X_tr_f, dtype=np.float32)
+                X_val_f = np.array(X_val_f, dtype=np.float32)
+                y_tr_arr = np.array(np.transpose(y_tr_f), dtype=np.float32)
+                y_val_arr = np.array(np.transpose(y_val_f), dtype=np.float32)
+                trainLoader = DataLoader(
+                    MTLDataset(torch.tensor(X_tr_f), torch.tensor(y_tr_arr)),
+                    batch_size=nBatch, shuffle=True, generator=g
+                )
+                valLoader = DataLoader(
+                    MTLDataset(torch.tensor(X_val_f), torch.tensor(y_val_arr)),
+                    batch_size=nBatch, generator=g
+                )
 
-            model = build_model(params, n_node_features, n_edge_features).to(device)
+            model = build_model(params, n_node_features, n_edge_features,
+                                input_mode, n_descriptor_inputs).to(device)
             optimizer = torch.optim.Adam(model.parameters(), lr=learningRate, weight_decay=L2Regularization)
 
             for epoch in range(nEpochs):
                 model.train()
                 train_loss = 0
                 for sample in trainLoader:
-                    pred = model(
-                        sample.x.to(device), sample.edge_index.to(device),
-                        sample.edge_attr.to(device), sample.batch.to(device),
-                        params["n_node_neurons"], n_node_features,
-                        params["n_edge_neurons"], n_edge_features,
-                        params["n_graph_convolution_layers"],
-                        params["n_shared_layers"], params["n_target_specific_layers"], False
-                    )
-                    losses = sum(
-                        masked_loss_function(sample.y[:, i], pred[i].squeeze(1), class_weights[output_keys[i]])
-                        for i in range(5)
-                    )
+                    if input_mode == "descriptor":
+                        X_batch, y_batch = sample
+                        pred = model(
+                            None, 0, 0, 0,
+                            params["n_node_neurons"], n_node_features,
+                            params["n_edge_neurons"], n_edge_features,
+                            params["n_graph_convolution_layers"],
+                            params["n_shared_layers"], params["n_target_specific_layers"],
+                            "descriptor", X_batch.to(device)
+                        )
+                        losses = sum(
+                            masked_loss_function(y_batch[:, i], pred[i].squeeze(1), class_weights[output_keys[i]])
+                            for i in range(5)
+                        )
+                    else:
+                        desc = (get_batch_descriptors(sample, desc_dict, device)
+                                if input_mode == "combined" else None)
+                        pred = model(
+                            sample.x.to(device), sample.edge_index.to(device),
+                            sample.edge_attr.to(device), sample.batch.to(device),
+                            params["n_node_neurons"], n_node_features,
+                            params["n_edge_neurons"], n_edge_features,
+                            params["n_graph_convolution_layers"],
+                            params["n_shared_layers"], params["n_target_specific_layers"],
+                            input_mode, desc
+                        )
+                        losses = sum(
+                            masked_loss_function(sample.y[:, i], pred[i].squeeze(1), class_weights[output_keys[i]])
+                            for i in range(5)
+                        )
                     loss_final = losses / 5
                     optimizer.zero_grad()
                     loss_final.backward()
@@ -1115,18 +1316,36 @@ def run_seeds_cfv(args):
                 val_loss = 0
                 with torch.no_grad():
                     for sample in valLoader:
-                        pred = model(
-                            sample.x.to(device), sample.edge_index.to(device),
-                            sample.edge_attr.to(device), sample.batch.to(device),
-                            params["n_node_neurons"], n_node_features,
-                            params["n_edge_neurons"], n_edge_features,
-                            params["n_graph_convolution_layers"],
-                            params["n_shared_layers"], params["n_target_specific_layers"], False
-                        )
-                        losses = sum(
-                            masked_loss_function(sample.y[:, i], pred[i].squeeze(1), class_weights[output_keys[i]])
-                            for i in range(5)
-                        )
+                        if input_mode == "descriptor":
+                            X_batch, y_batch = sample
+                            pred = model(
+                                None, 0, 0, 0,
+                                params["n_node_neurons"], n_node_features,
+                                params["n_edge_neurons"], n_edge_features,
+                                params["n_graph_convolution_layers"],
+                                params["n_shared_layers"], params["n_target_specific_layers"],
+                                "descriptor", X_batch.to(device)
+                            )
+                            losses = sum(
+                                masked_loss_function(y_batch[:, i], pred[i].squeeze(1), class_weights[output_keys[i]])
+                                for i in range(5)
+                            )
+                        else:
+                            desc = (get_batch_descriptors(sample, desc_dict, device)
+                                    if input_mode == "combined" else None)
+                            pred = model(
+                                sample.x.to(device), sample.edge_index.to(device),
+                                sample.edge_attr.to(device), sample.batch.to(device),
+                                params["n_node_neurons"], n_node_features,
+                                params["n_edge_neurons"], n_edge_features,
+                                params["n_graph_convolution_layers"],
+                                params["n_shared_layers"], params["n_target_specific_layers"],
+                                input_mode, desc
+                            )
+                            losses = sum(
+                                masked_loss_function(sample.y[:, i], pred[i].squeeze(1), class_weights[output_keys[i]])
+                                for i in range(5)
+                            )
                         val_loss += (losses / 5).item()
                 val_loss /= len(valLoader)
 
@@ -1142,7 +1361,9 @@ def run_seeds_cfv(args):
             }, ckpt_path)
 
             # Evaluate on validation fold and save per-fold metrics
-            y_logit_cat, y_pred_cat, y_true_cat, _ = run_inference(model, valLoader, device, params)
+            y_logit_cat, y_pred_cat, y_true_cat, _ = run_inference(
+                model, valLoader, device, params, input_mode=input_mode, desc_dict=desc_dict
+            )
             csv_file = os.path.join(args.output_dir, f"metrics_{seed}_{fold}.csv")
             write_metrics_csv(csv_file, y_true_cat, y_pred_cat, y_logit_cat)
 
@@ -1475,27 +1696,56 @@ def run_eval(args):
     nBatch = input_data.get("nBatch", 50)
     nTrainMaxEntries = input_data.get("nTrainMaxEntries", None)
     nValMaxEntries = input_data.get("nValMaxEntries", None)
-    data_path = args.data_file or os.path.join(AMES_FINAL_DIR, "data.csv")
+    data_path = args.data_file or input_data.get("data_file",
+                os.path.join(AMES_FINAL_DIR, "data.csv"))
+    input_mode = get_input_mode(input_data)
+    logging.info(f"Input mode: {input_mode}")
 
-    trainDataset, valDataset, testDataset = load_graph_datasets(
-        database_path, nTrainMaxEntries, nValMaxEntries, seed
-    )
-    scan_and_filter_nan_graphs(valDataset,  "validate")
-    scan_and_filter_nan_graphs(testDataset, "test")
-    g = torch.Generator()
-    g.manual_seed(seed)
-    valLoader = DataLoader(valDataset, batch_size=nBatch, generator=g)
-    testLoader = DataLoader(testDataset, batch_size=nBatch, generator=g)
+    if input_mode in ("gnn", "combined"):
+        _, valDataset, testDataset = load_graph_datasets(
+            database_path, nTrainMaxEntries, nValMaxEntries, seed
+        )
+        scan_and_filter_nan_graphs(valDataset,  "validate")
+        scan_and_filter_nan_graphs(testDataset, "test")
+        g = torch.Generator()
+        g.manual_seed(seed)
+        valLoader = DataLoader(valDataset, batch_size=nBatch, generator=g)
+        testLoader = DataLoader(testDataset, batch_size=nBatch, generator=g)
+        desc_dict, n_descriptor_inputs = (
+            load_descriptor_dict(data_path) if input_mode == "combined" else ({}, 0)
+        )
+    else:  # descriptor
+        _, internal_data, external_data = load_data(data_path, model="MTL", stage="GS")
+        X_internal, y_internal = internal_data
+        X_external, y_external = external_data
+        X_internal = np.array(X_internal, dtype=np.float32)
+        X_external = np.array(X_external, dtype=np.float32)
+        y_internal = np.array(np.transpose(y_internal), dtype=np.float32)
+        y_external = np.array(np.transpose(y_external), dtype=np.float32)
+        g = torch.Generator()
+        g.manual_seed(seed)
+        valLoader = DataLoader(
+            MTLDataset(torch.tensor(X_internal), torch.tensor(y_internal)),
+            batch_size=nBatch, generator=g
+        )
+        testLoader = DataLoader(
+            MTLDataset(torch.tensor(X_external), torch.tensor(y_external)),
+            batch_size=nBatch, generator=g
+        )
+        n_descriptor_inputs = X_internal.shape[1]
+        desc_dict = {}
 
     # Build model and load checkpoint
-    model = build_model(params, n_node_features, n_edge_features)
+    model = build_model(params, n_node_features, n_edge_features, input_mode, n_descriptor_inputs)
     checkpoint = torch.load(args.checkpoint_file, map_location="cpu")
     model.load_state_dict(checkpoint["model_state_dict"])
     model = model.to(device)
     model.eval()
 
     # --- Val inference ---
-    y_logit_val, _, y_true_val, _ = run_inference(model, valLoader, device, params)
+    y_logit_val, _, y_true_val, _ = run_inference(
+        model, valLoader, device, params, input_mode=input_mode, desc_dict=desc_dict
+    )
 
     # --- Temperature scaling ---
     if args.temperature_scaling:
@@ -1526,7 +1776,9 @@ def run_eval(args):
 
     # --- Test set evaluation ---
     logging.info(f"Evaluating test set with thresholds: {best_ths}")
-    y_logit_cat, _, y_true_cat, file_names = run_inference(model, testLoader, device, params)
+    y_logit_cat, _, y_true_cat, file_names = run_inference(
+        model, testLoader, device, params, input_mode=input_mode, desc_dict=desc_dict
+    )
     if T is not None:
         y_logit_cat = apply_temperature(y_logit_cat, T)
     y_pred_cat = (y_logit_cat >= np.array(best_ths)).astype(int)
@@ -1642,19 +1894,45 @@ def run_top_seeds_eval(args):
     params = get_model_params(input_data)
     params["n_node_features"] = n_node_features
     params["n_edge_features"] = n_edge_features
-    data_path = args.data_file or os.path.join(AMES_FINAL_DIR, "data.csv")
+    data_path = args.data_file or input_data.get("data_file",
+                os.path.join(AMES_FINAL_DIR, "data.csv"))
+    input_mode = get_input_mode(input_data)
+    logging.info(f"Input mode: {input_mode}")
 
     seed_yaml = input_data.get("randomSeed", 42)
     nBatch = input_data.get("nBatch", 50)
     nValMaxEntries = input_data.get("nValMaxEntries", None)
 
-    _, valDataset, testDataset = load_graph_datasets(database_path, None, nValMaxEntries, seed_yaml)
-    scan_and_filter_nan_graphs(valDataset,  "validate")
-    scan_and_filter_nan_graphs(testDataset, "test")
     g = torch.Generator()
     g.manual_seed(seed_yaml)
-    valLoader = DataLoader(valDataset, batch_size=nBatch, generator=g)
-    testLoader = DataLoader(testDataset, batch_size=nBatch, generator=g)
+
+    if input_mode in ("gnn", "combined"):
+        _, valDataset, testDataset = load_graph_datasets(database_path, None, nValMaxEntries, seed_yaml)
+        scan_and_filter_nan_graphs(valDataset,  "validate")
+        scan_and_filter_nan_graphs(testDataset, "test")
+        valLoader = DataLoader(valDataset, batch_size=nBatch, generator=g)
+        testLoader = DataLoader(testDataset, batch_size=nBatch, generator=g)
+        desc_dict, n_descriptor_inputs = (
+            load_descriptor_dict(data_path) if input_mode == "combined" else ({}, 0)
+        )
+    else:  # descriptor
+        _, internal_data, external_data = load_data(data_path, model="MTL", stage="GS")
+        X_internal, y_internal = internal_data
+        X_external, y_external = external_data
+        X_internal = np.array(X_internal, dtype=np.float32)
+        X_external = np.array(X_external, dtype=np.float32)
+        y_internal = np.array(np.transpose(y_internal), dtype=np.float32)
+        y_external = np.array(np.transpose(y_external), dtype=np.float32)
+        valLoader = DataLoader(
+            MTLDataset(torch.tensor(X_internal), torch.tensor(y_internal)),
+            batch_size=nBatch, generator=g
+        )
+        testLoader = DataLoader(
+            MTLDataset(torch.tensor(X_external), torch.tensor(y_external)),
+            batch_size=nBatch, generator=g
+        )
+        n_descriptor_inputs = X_internal.shape[1]
+        desc_dict = {}
 
     # Collect per-seed, per-fold metrics
     all_metrics_rows = []
@@ -1667,14 +1945,17 @@ def run_top_seeds_eval(args):
                 logging.warning(f"Checkpoint not found: {ckpt_path} — skipping.")
                 continue
 
-            model = build_model(params, n_node_features, n_edge_features)
+            model = build_model(params, n_node_features, n_edge_features,
+                                input_mode, n_descriptor_inputs)
             checkpoint = torch.load(ckpt_path, map_location="cpu")
             model.load_state_dict(checkpoint["model_state_dict"])
             model = model.to(device)
             model.eval()
 
             # Val inference
-            y_logit_val, _, y_true_val, _ = run_inference(model, valLoader, device, params)
+            y_logit_val, _, y_true_val, _ = run_inference(
+                model, valLoader, device, params, input_mode=input_mode, desc_dict=desc_dict
+            )
 
             # Temperature scaling
             if args.temperature_scaling:
@@ -1701,7 +1982,9 @@ def run_top_seeds_eval(args):
                 fold_ths = None
 
             # Test inference
-            y_logit_cat, _, y_true_cat, _ = run_inference(model, testLoader, device, params)
+            y_logit_cat, _, y_true_cat, _ = run_inference(
+                model, testLoader, device, params, input_mode=input_mode, desc_dict=desc_dict
+            )
             if T is not None:
                 y_logit_cat = apply_temperature(y_logit_cat, T)
             if fold_ths is not None:

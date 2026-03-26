@@ -24,8 +24,8 @@ class BuildNN_GNN_MTL(nn.Module):
                  dropout_shared,
                  dropout_target,
                  act,
-                 use_molecular_descriptors,
-                 n_inputs):
+                 mode,
+                 n_descriptor_inputs=0):
 
         super(BuildNN_GNN_MTL, self).__init__()
 
@@ -36,44 +36,47 @@ class BuildNN_GNN_MTL(nn.Module):
             linear layers for GNN, using the specified non-linear activation layers
             interspaced between them.
 
+            mode: "gnn"        — graph features only
+                  "descriptor" — tabular Mordred descriptors only
+                  "combined"   — GNN graph embedding concatenated with descriptors
+            n_descriptor_inputs: number of descriptor features (used in "descriptor" / "combined")
             """
         self.activation_layer = eval("nn." + act + "()")
-        #self.activation_layer2 = nn.Tanh()
 
-        # GNN
-        if not use_molecular_descriptors:
+        # GNN layers (built for "gnn" and "combined" modes)
+        if mode in ("gnn", "combined"):
             if n_node_neurons > n_node_features: # Expand node features if desired
                 self.GNNlinear1 = nn.Linear(n_node_features, n_node_neurons)
             if n_edge_neurons > n_edge_features: # Expand edge features if desired
                 self.GNNlinear2 = nn.Linear(n_edge_features, n_edge_neurons)
 
             if n_node_neurons > n_node_features:
-                ni = n_node_neurons
+                ni_gnn = n_node_neurons
             else:
-                ni = n_node_features
+                ni_gnn = n_node_features
 
             if n_edge_neurons > n_edge_features:
                 ne = n_edge_neurons
             else:
                 ne = n_edge_features
 
-            #for i in range(n_gc_layers):
-            #    setattr(self, f"conv_GNN{i + 1}", CGConv(ni, dim=ne))
-            #    setattr(self, f"dropout_GNN{i + 1}", nn.Dropout(dropout_GNN))
-            #    setattr(self, f"bn_GNN{i + 1}", BatchNorm(ni, momentum=momentum_batch_norm))
-
             for i in range(n_gc_layers):
                 mlp = nn.Sequential(
-                    nn.Linear(ni, ni),
+                    nn.Linear(ni_gnn, ni_gnn),
                     nn.ReLU(),
-                    nn.Linear(ni, ni)
+                    nn.Linear(ni_gnn, ni_gnn)
                 )
                 setattr(self, f"conv_GNN{i + 1}", GINEConv(mlp, edge_dim=ne))
                 setattr(self, f"dropout_GNN{i + 1}", nn.Dropout(dropout_GNN))
-                setattr(self, f"bn_GNN{i + 1}", BatchNorm(ni, momentum=momentum_batch_norm))
+                setattr(self, f"bn_GNN{i + 1}", BatchNorm(ni_gnn, momentum=momentum_batch_norm))
 
-        else:
-            ni = n_inputs
+            if mode == "gnn":
+                ni = ni_gnn
+            else:  # combined: concatenate graph embedding with descriptors
+                ni = ni_gnn + n_descriptor_inputs
+
+        else:  # descriptor only
+            ni = n_descriptor_inputs
 
         #Shared core
         if n_s_layers > 0:
@@ -108,9 +111,15 @@ class BuildNN_GNN_MTL(nn.Module):
 
 
 
-    def forward(self, x, edge_index, edge_attr, batch, n_node_neurons, n_node_features, n_edge_neurons, n_edge_features, n_gc_layers, n_s_layers, n_ts_layers, use_molecular_descriptors):
-        # GNN
-        if not use_molecular_descriptors:
+    def forward(self, x, edge_index, edge_attr, batch, n_node_neurons, n_node_features,
+                n_edge_neurons, n_edge_features, n_gc_layers, n_s_layers, n_ts_layers,
+                mode, descriptors=None):
+        """
+        mode: "gnn" / "descriptor" / "combined"
+        descriptors: float tensor [batch_size, n_descriptor_inputs] — required for
+                     "descriptor" and "combined" modes, None for "gnn".
+        """
+        if mode in ("gnn", "combined"):
             if n_node_neurons > n_node_features:
                 x = self.GNNlinear1(x)
 
@@ -128,6 +137,13 @@ class BuildNN_GNN_MTL(nn.Module):
 
             # Pooling layer
             x = global_add_pool(x, batch)
+
+            if mode == "combined":
+                x = torch.cat([x, descriptors], dim=1)
+
+        else:
+            # descriptor-only: x is already the descriptor tensor
+            x = descriptors
 
         #Shared core
         for i in range(n_s_layers):

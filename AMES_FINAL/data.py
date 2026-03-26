@@ -4,6 +4,18 @@ from sklearn.model_selection import StratifiedKFold
 
 SEED = 202042
 
+# Columns that are never molecular descriptors.
+# Works with both data.csv (Id, Name, CAS, SMILES RDKit, ...) and
+# data_new_with_split_descriptors.csv (Id, SMILES, source, ...).
+_NON_DESC_COLS = {
+    'Id', 'Name', 'CAS', 'SMILES RDKit', 'SMILES', 'source',
+    'TA98', 'TA100', 'TA102', 'TA1535', 'TA1537', 'Overall', 'Partition',
+}
+
+def _get_desc_cols(df):
+    return [c for c in df.columns if c not in _NON_DESC_COLS]
+
+
 def load_data(data_path, model, stage):
     # load data
     df = pd.read_csv(data_path)
@@ -14,16 +26,18 @@ def load_data(data_path, model, stage):
     external = df.loc[df['Partition'].str.contains('External')]
 
     # Select all columns corresponding to molecular descriptors only
-    # Discard those descriptors showing constant values
-    X_train = train.values[:,3:-7]
-    l = [not np.nanmax(c)== np.nanmin(c) for c in X_train.T]
-    X_internal = internal.values[:,3:-7]
-    l = l or [not np.nanmax(c)== np.nanmin(c) for c in X_internal.T]
-    X_external = external.values[:,3:-7]
-    l = l or[not np.nanmax(c)== np.nanmin(c) for c in X_external.T]
-    X_train = X_train[:,l]
-    X_internal = X_internal[:,l]
-    X_external = X_external[:,l]
+    # Discard those descriptors showing constant values across all partitions
+    desc_cols = _get_desc_cols(df)
+    X_train    = train[desc_cols].apply(pd.to_numeric, errors='coerce').values
+    X_internal = internal[desc_cols].apply(pd.to_numeric, errors='coerce').values
+    X_external = external[desc_cols].apply(pd.to_numeric, errors='coerce').values
+    l_t = [not np.nanmax(c) == np.nanmin(c) for c in X_train.T]
+    l_i = [not np.nanmax(c) == np.nanmin(c) for c in X_internal.T]
+    l_e = [not np.nanmax(c) == np.nanmin(c) for c in X_external.T]
+    l = [a or b or c for a, b, c in zip(l_t, l_i, l_e)]
+    X_train    = X_train[:, l]
+    X_internal = X_internal[:, l]
+    X_external = X_external[:, l]
 
     # Target values per partition - MTL
     y_train_MTL = train[['TA98','TA100', 'TA102','TA1535','TA1537']]

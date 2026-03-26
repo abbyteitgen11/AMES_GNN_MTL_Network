@@ -49,19 +49,42 @@ BuildNN_GNN_MTL(n_gc_layers, n_node_neurons, n_edge_neurons, n_node_features,
                 n_edge_features, dropout_GNN, momentum_batch_norm,
                 n_s_layers, n_ts_layers, n_shared, n_target,
                 dropout_shared, dropout_target, act,
-                use_molecular_descriptors, n_inputs)
+                mode, n_descriptor_inputs=0)
 ```
 
 **Forward signature:**
 ```python
 forward(x, edge_index, edge_attr, batch, n_node_neurons, n_node_features,
         n_edge_neurons, n_edge_features, n_gc_layers, n_s_layers, n_ts_layers,
-        use_molecular_descriptors)
+        mode, descriptors=None)
 ```
 
 - GINEConv layers with MLPs, BatchNorm, global_add_pool
 - Shared MLP core followed by 5 task-specific heads (one per strain)
 - Returns 5 sigmoid outputs
+
+### Three Input Modes
+
+| `mode` | GNN layers | First shared-layer input | `descriptors` arg |
+|--------|-----------|--------------------------|-------------------|
+| `"gnn"` | Built and used | `global_add_pool(x)` → `[B, n_node_neurons]` | Not used |
+| `"descriptor"` | Not built | `descriptors` → `[B, n_descriptor_inputs]` | Required |
+| `"combined"` | Built and used | `torch.cat([global_add_pool(x), descriptors], dim=1)` → `[B, n_node_neurons + n_descriptor_inputs]` | Required |
+
+**Data flow for combined mode:**
+```
+SMILES → GINEConv layers → global_add_pool → [B, n_node_neurons]
+                                                          ↘
+                                               torch.cat → shared MLP → 5 task heads
+                                                          ↗
+SMILES → Mordred 2D descriptors → load_descriptor_dict → [B, n_descriptor_inputs]
+```
+
+**Descriptor dict lookup** (`load_descriptor_dict` in `run_model.py`): reads descriptor columns from the CSV by column name (not position), mean-imputes NaN per column, returns `{mol_id: np.float32 array}`. The mol_id is extracted from the pkl filename prefix (`int(Path(f).stem.split("_")[0])`).
+
+**New helper `calculate_descriptors.py`**: computes all 2D Mordred descriptors for every SMILES in `data_new_with_split.csv` and writes `data_new_with_split_descriptors.csv` with descriptor columns between `source` and `TA98`.
+
+**`data.py` fix**: replaced positional slice `values[:,3:-7]` with column-name extraction via `_NON_DESC_COLS` set, making it compatible with both `data.csv` and `data_new_with_split_descriptors.csv`.
 
 **Best hyperparameters** (from `train_sample.yml`):
 - 3 graph convolutional layers, 78 node neurons, 109 edge neurons
