@@ -103,6 +103,8 @@ The database path is set in the YAML config file (`database` key). The default p
 
 Update this path in your YAML if your database is in a different location.
 
+**Multi-component SMILES (salts/counter-ions):** `smiles_to_xyz.py` automatically keeps only the largest fragment (by heavy-atom count) when a SMILES string contains multiple disconnected components (e.g. `COS(=O)(=O)[O-].C[n+]1c2ccccc2nc2ccccc21`). This prevents counter-ions and solvent molecules from appearing in the graph. Single-atom fragments are retained. A log line is printed for each molecule that is filtered.
+
 ---
 
 ## Configuration File (YAML)
@@ -392,6 +394,38 @@ python GNN_explainer_analysis.py \
 - PDF reports with fragment importance visualizations per task
 - CSV files with atom/fragment importance scores
 - (with `--analyze_input_features`) Bar charts and heatmaps of node feature importances
+
+---
+
+## Visualizing the Graph Database (`visualize_graphs.py`)
+
+Loops through the graph database and renders each molecular graph side-by-side with the 2D chemical structure (from SMILES), so you can visually verify that atom types, connectivity, and bond distances were constructed correctly.
+
+```bash
+python visualize_graphs.py \
+    --input_file train_sample.yml \
+    --n_graphs 100 \
+    --partition test \
+    --output_dir ./graph_viz \
+    --output_format pdf
+```
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--input_file` | `train_sample.yml` | YAML config to read default `database` and `data_file` paths |
+| `--database_dir` | from YAML `database` key | Path to graph database root |
+| `--data_file` | from YAML `data_file` key | CSV with SMILES and labels |
+| `--n_graphs` | `20` | Number of graphs to visualize (first N by filename order) |
+| `--partition` | `test` | Which partition: `train`, `validate`, `test`, or `all` |
+| `--output_dir` | `./graph_viz` | Directory to save output |
+| `--output_format` | `pdf` | `pdf` (all graphs in one file) or `png` (one file per graph) |
+| `--show_H` | off | Include H atoms in the graph panel (hidden by default) |
+
+Each figure shows two panels: the RDKit 2D structure on the left and the molecular graph on the right with nodes colored by element (CPK scheme), edge color indicating bond distance, and labels showing mol ID and per-strain toxicity labels.
+
+**Output:**
+- `pdf` mode: `graphs.pdf` — one page per molecule
+- `png` mode: `fig_{mol_id}.png` per molecule
 
 ---
 

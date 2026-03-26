@@ -42,10 +42,6 @@ L2Regularization: 0.005 # L2 regularization coefficient
 # "combined": GNN graph embedding concatenated with descriptor vector
 inputMode: "combined"
 
-useMolecularDescriptors: False # Legacy flag — superseded by inputMode
-
-useGlobalFeatures: False
-
 callbacks: 
    earlyStopping:
       patience: 10 #1000

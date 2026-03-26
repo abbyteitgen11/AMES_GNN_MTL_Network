@@ -120,6 +120,13 @@ def main():
             n_skipped += 1
             continue
 
+        # Keep only largest fragment (discard salts / counter-ions)
+        frags = Chem.GetMolFrags(mol, asMols=True)
+        if len(frags) > 1:
+            mol = max(frags, key=lambda m: m.GetNumAtoms())
+            print(f"  Row {i}: multi-fragment SMILES — keeping largest fragment "
+                  f"({mol.GetNumAtoms()} heavy atoms), discarded {len(frags)-1} other(s)")
+
         # Add explicit hydrogens and generate 3D conformer
         mol = Chem.AddHs(mol)
         mol = embed_mol(mol)

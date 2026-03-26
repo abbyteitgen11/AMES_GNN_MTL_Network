@@ -12,6 +12,8 @@ Train a Graph Neural Network Multi-Task Learning (GNN-MTL) model to predict Ames
 AMES_FINAL/
 ├── run_model.py                  # Consolidated training/evaluation driver (NEW)
 ├── GNN_explainer_analysis.py     # Consolidated explainer script (NEW)
+├── visualize_graphs.py           # Graph database sanity-check visualization (NEW)
+├── smiles_to_xyz.py              # SMILES → XYZ conversion (largest-fragment filter added)
 ├── train_sample.yml              # YAML config for model training (UPDATED paths)
 ├── optuna/                       # Optuna HPO study .pkl files (NEW directory)
 ├── checkpoints/                  # Model checkpoints .pt files (NEW directory)
@@ -205,6 +207,63 @@ python GNN_explainer_analysis.py \
 ### Structural alerts
 
 35 SMARTS-based alerts covering: acyl halides, nitro groups, aromatic amines, hydrazines, epoxides, quinones, mustards, azo groups, etc.
+
+---
+
+## `visualize_graphs.py` — Graph Database Sanity-Check
+
+Loops through the graph database and renders each molecular graph side-by-side with its RDKit 2D structure, for visual verification of graph construction.
+
+**Usage:**
+```bash
+python visualize_graphs.py \
+    --input_file train_sample.yml \
+    --n_graphs 100 \
+    --partition test \
+    --output_dir ./graph_viz \
+    --output_format pdf
+```
+
+**Data sources:**
+- `GraphDataBase_AMES_NEW/{train,validate,test}/*.pkl` — PyG `MyData` objects
+- `data_file` CSV — mol ID → SMILES and toxicity labels
+- `GraphDataBase_AMES_NEW/graph_description.yml` — species list (42 elements)
+
+**Graph attributes used:**
+- `data.spec_id` — element index per atom (into species list)
+- `data.edge_index` — connectivity `[2, num_edges]`
+- `data.edge_attr[:,0]` — bond distance in Å
+- `data.pos[:,:2]` — x,y projection of 3D coords for 2D layout
+- `data.y` — `[1, 5]` toxicity labels
+
+**Layout:** 2 panels per figure — RDKit 2D structure (left) + NetworkX graph (right) with CPK node colors, edge color = bond distance (viridis colorbar), suptitle with mol ID and per-strain labels.
+
+**Key functions:**
+- `load_species_list(database_dir)` — reads from `graph_description.yml`
+- `collect_pkl_files(database_dir, partition, n_graphs)` — sorted glob, first N
+- `draw_structure_2d(smiles, ax, mol_id)` — RDKit `Draw.MolToImage`
+- `draw_graph_panel(graph, species_list, show_H, ax)` — NetworkX + matplotlib
+- `make_figure(pkl_path, ...)` — assembles 2-panel figure
+
+**Output:** `graphs.pdf` (PDF mode) or `fig_{mol_id}.png` files (PNG mode).
+
+---
+
+## `smiles_to_xyz.py` — SMILES Pre-processing
+
+Converts SMILES strings to XYZ files for subsequent graph construction. Includes a **largest-fragment filter** that discards salts and counter-ions from multi-component SMILES.
+
+**Filter logic** (applied before `Chem.AddHs`, after `Chem.MolFromSmiles`):
+```python
+frags = Chem.GetMolFrags(mol, asMols=True)
+if len(frags) > 1:
+    mol = max(frags, key=lambda m: m.GetNumAtoms())
+    print(f"  Row {i}: multi-fragment SMILES — keeping largest fragment ...")
+```
+
+- Single-atom results are allowed to proceed through the rest of the pipeline.
+- Log line printed for every molecule where filtering occurs.
+- Example: `COS(=O)(=O)[O-].C[n+]1c2ccccc2nc2ccccc21` → keeps the acridine fragment.
 
 ---
 

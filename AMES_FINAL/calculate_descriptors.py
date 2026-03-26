@@ -54,6 +54,13 @@ def compute_descriptors(df, smiles_col="SMILES"):
             rows.append({k: np.nan for k in desc_names})
             continue
 
+        # Keep only largest fragment (discard salts / counter-ions)
+        frags = Chem.GetMolFrags(mol, asMols=True)
+        if len(frags) > 1:
+            mol = max(frags, key=lambda m: m.GetNumAtoms())
+            print(f"  Row {i}: multi-fragment SMILES — keeping largest fragment "
+                  f"({mol.GetNumAtoms()} heavy atoms), discarded {len(frags)-1} other(s)")
+
         result = calc(mol)
         row = {}
         for name, val in zip(desc_names, result):
