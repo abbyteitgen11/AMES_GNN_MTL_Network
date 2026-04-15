@@ -30,7 +30,6 @@ from datetime import datetime
 from glob import glob
 from pathlib import Path
 
-import joblib
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
@@ -142,6 +141,10 @@ def get_args():
     parser.add_argument("--tune_consensus_threshold", action="store_true",
                         help="When --use_thresholds is set, optimise a single shared threshold "
                              "on the consensus (OR) outcome instead of 5 separate per-task thresholds.")
+    parser.add_argument("--no_early_stopping", action="store_true",
+                        help="Disable early stopping even if configured in the YAML.")
+    parser.add_argument("--no_lr_scheduler", action="store_true",
+                        help="Disable LR scheduling even if configured in the YAML.")
 
     return parser.parse_args()
 
@@ -175,9 +178,29 @@ def save_study(study, path):
 
 
 def load_study(path):
-    """Load an Optuna study from a pickle file."""
-    with open(path, "rb") as f:
-        return pickle.load(f)
+    """Load an Optuna study from a pickle file.
+
+    Applies a compatibility shim for studies saved under NumPy 1.x: those
+    pickles stored BitGenerator types as class references, but NumPy 2.x's
+    __bit_generator_ctor expects a string name.  The shim is restored after
+    loading regardless of success or failure.
+    """
+    import numpy.random._pickle as _np_rand_pickle
+
+    _orig = _np_rand_pickle.__bit_generator_ctor
+
+    def _compat_ctor(bit_generator_name=None):
+        if isinstance(bit_generator_name, type):
+            # NumPy 1.x pickled the class itself; instantiate directly.
+            return bit_generator_name()
+        return _orig(bit_generator_name)
+
+    _np_rand_pickle.__bit_generator_ctor = _compat_ctor
+    try:
+        with open(path, "rb") as f:
+            return pickle.load(f)
+    finally:
+        _np_rand_pickle.__bit_generator_ctor = _orig
 
 
 # ==============================================================================
@@ -614,7 +637,13 @@ def run_train(args):
         else:
             n_start = 0
 
-        anyCallBacks = input_data.get("callbacks", None)
+        anyCallBacks = dict(input_data.get("callbacks", None) or {})
+        if args.no_early_stopping:
+            anyCallBacks = {k: v for k, v in anyCallBacks.items()
+                            if not re.search(r"early", k, re.IGNORECASE)}
+        if args.no_lr_scheduler:
+            anyCallBacks = {k: v for k, v in anyCallBacks.items()
+                            if not re.search(r"sched", k, re.IGNORECASE)}
         callbacks = set_up_callbacks(anyCallBacks, optimizer)
 
         model = model.to(device)
@@ -636,7 +665,7 @@ def run_train(args):
                     input_mode, desc
                 )
                 losses = sum(
-                    masked_loss_function(sample.y[:, i], pred[i].squeeze(1), class_weights[output_keys[i]])
+                    masked_loss_function(sample.y[:, i].to(device), pred[i].squeeze(1), class_weights[output_keys[i]])
                     for i in range(5)
                 )
                 loss_final = losses / 5
@@ -663,7 +692,7 @@ def run_train(args):
                         input_mode, desc
                     )
                     losses = sum(
-                        masked_loss_function(sample.y[:, i], pred[i].squeeze(1), class_weights[output_keys[i]])
+                        masked_loss_function(sample.y[:, i].to(device), pred[i].squeeze(1), class_weights[output_keys[i]])
                         for i in range(5)
                     )
                     val_loss += (losses / 5).item()
@@ -781,7 +810,13 @@ def run_train(args):
         else:
             n_start = 0
 
-        anyCallBacks = input_data.get("callbacks", None)
+        anyCallBacks = dict(input_data.get("callbacks", None) or {})
+        if args.no_early_stopping:
+            anyCallBacks = {k: v for k, v in anyCallBacks.items()
+                            if not re.search(r"early", k, re.IGNORECASE)}
+        if args.no_lr_scheduler:
+            anyCallBacks = {k: v for k, v in anyCallBacks.items()
+                            if not re.search(r"sched", k, re.IGNORECASE)}
         callbacks = set_up_callbacks(anyCallBacks, optimizer)
 
         model = model.to(device)
@@ -797,7 +832,7 @@ def run_train(args):
                              params["n_shared_layers"], params["n_target_specific_layers"],
                              "descriptor", X.to(device))
                 losses = sum(
-                    masked_loss_function(y[:, i], pred[i].squeeze(1), class_weights[output_keys[i]])
+                    masked_loss_function(y[:, i].to(device), pred[i].squeeze(1), class_weights[output_keys[i]])
                     for i in range(5)
                 )
                 loss_final = losses / 5
@@ -818,7 +853,7 @@ def run_train(args):
                                  params["n_shared_layers"], params["n_target_specific_layers"],
                                  "descriptor", X.to(device))
                     losses = sum(
-                        masked_loss_function(y[:, i], pred[i].squeeze(1), class_weights[output_keys[i]])
+                        masked_loss_function(y[:, i].to(device), pred[i].squeeze(1), class_weights[output_keys[i]])
                         for i in range(5)
                     )
                     val_loss += (losses / 5).item()
@@ -1082,7 +1117,7 @@ def run_hp_opt(args):
                             input_mode, desc
                         )
                         losses = sum(
-                            masked_loss_function(sample.y[:, i], pred[i].squeeze(1), class_weights[output_keys[i]])
+                            masked_loss_function(sample.y[:, i].to(device), pred[i].squeeze(1), class_weights[output_keys[i]])
                             for i in range(5)
                         )
                     loss_final = losses / 5
@@ -1119,7 +1154,7 @@ def run_hp_opt(args):
                                 input_mode, desc
                             )
                             losses = sum(
-                                masked_loss_function(sample.y[:, i], pred[i].squeeze(1), class_weights[output_keys[i]])
+                                masked_loss_function(sample.y[:, i].to(device), pred[i].squeeze(1), class_weights[output_keys[i]])
                                 for i in range(5)
                             )
                         val_loss += (losses / 5).item()
@@ -1152,10 +1187,13 @@ def run_hp_opt(args):
     logging.info(f"Optimization complete. Finished trials: {len(study.trials)}, "
                  f"Complete trials: {len(complete_trials)}")
 
-    best = study.best_trial
-    logging.info(f"Best trial: value={best.value:.6f}")
-    for key, value in best.params.items():
-        logging.info(f"  {key}: {value}")
+    if complete_trials:
+        best = study.best_trial
+        logging.info(f"Best trial: value={best.value:.6f}")
+        for key, value in best.params.items():
+            logging.info(f"  {key}: {value}")
+    else:
+        logging.warning("No trials completed successfully.")
 
 
 # ==============================================================================
@@ -1302,7 +1340,7 @@ def run_seeds_cfv(args):
                             input_mode, desc
                         )
                         losses = sum(
-                            masked_loss_function(sample.y[:, i], pred[i].squeeze(1), class_weights[output_keys[i]])
+                            masked_loss_function(sample.y[:, i].to(device), pred[i].squeeze(1), class_weights[output_keys[i]])
                             for i in range(5)
                         )
                     loss_final = losses / 5
@@ -1343,7 +1381,7 @@ def run_seeds_cfv(args):
                                 input_mode, desc
                             )
                             losses = sum(
-                                masked_loss_function(sample.y[:, i], pred[i].squeeze(1), class_weights[output_keys[i]])
+                                masked_loss_function(sample.y[:, i].to(device), pred[i].squeeze(1), class_weights[output_keys[i]])
                                 for i in range(5)
                             )
                         val_loss += (losses / 5).item()
@@ -2252,7 +2290,7 @@ def run_viz_optuna(args):
 
     if args.optuna_file:
         # Single study analysis
-        study = joblib.load(args.optuna_file)
+        study = load_study(args.optuna_file)
         logging.info(f"Loaded study from {args.optuna_file}")
 
         # Optimization history and parameter importances
@@ -2304,7 +2342,7 @@ def run_viz_optuna(args):
 
         all_trials = []
         for path in study_paths:
-            study = joblib.load(path)
+            study = load_study(path)
             all_trials.extend([t for t in study.trials if t.state.name == "COMPLETE"])
             logging.info(f"  Loaded {path}")
 

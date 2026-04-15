@@ -39,6 +39,15 @@ def load_data(data_path, model, stage):
     X_internal = X_internal[:, l]
     X_external = X_external[:, l]
 
+    # Mean-impute NaN per column (using train-set means); all-NaN columns → 0.
+    col_means = np.nanmean(X_train, axis=0)
+    col_means = np.where(np.isnan(col_means), 0.0, col_means)
+    for X in (X_train, X_internal, X_external):
+        nan_mask = np.isnan(X)
+        if nan_mask.any():
+            nan_rows, nan_cols = np.where(nan_mask)
+            X[nan_rows, nan_cols] = col_means[nan_cols]
+
     # Target values per partition - MTL
     y_train_MTL = train[['TA98','TA100', 'TA102','TA1535','TA1537']]
     y_internal_MTL = internal[['TA98','TA100', 'TA102','TA1535','TA1537']]

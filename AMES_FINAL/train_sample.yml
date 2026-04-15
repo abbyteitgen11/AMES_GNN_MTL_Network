@@ -18,20 +18,20 @@ dropoutTarget: [0.261] # Dropout in target specific core
 w1: 4.99
 w2: 4.08
 w3: 1.55
-w4: 2.96
+w4: 52.96
 w5: 2.94
 
 # Activation function
-ActivationFunction: "Tanh" #"Tanh"
+ActivationFunction: 'Tanh'
 
-nEpochs: 200 #np.iinfo(np.int32). # Number of epochs
+nEpochs: 2 #np.iinfo(np.int32). # Number of epochs
 nBatch: 32 # Batch size
 nCheckpoint: 1 # Checkpoint frequency
 randomSeed: 45 # Random seed
 #nTrainMaxEntries: 1500 # Number of training samples to use
 #nValMaxEntries: 300 # Number of validation examples to  use
 
-learningRate: 0.0001 #0.0000924993113995373 #0.0001 #5e-4
+learningRate: 0.0001 
 
 weightedCostFunction: True # Include weighted cost function
 L2Regularization: 0.005 # L2 regularization coefficient
@@ -40,7 +40,7 @@ L2Regularization: 0.005 # L2 regularization coefficient
 # "gnn": graph features only (GINEConv)
 # "descriptor": Mordred 2D descriptors only (requires data_file with descriptor columns)
 # "combined": GNN graph embedding concatenated with descriptor vector
-inputMode: "combined"
+inputMode: "gnn"
 
 callbacks: 
    earlyStopping:
@@ -55,10 +55,10 @@ callbacks:
 descriptionText: 'No data transformation'
 
 # where the graph data-base resides
-database: '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/GraphDataBase_AMES_NEW/' #'/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/GraphDataBase_AMES_additional_data' 
+database: '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/GraphDataBase_AMES/' #'/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/GraphDataBase_AMES_NEW/' #'/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/GraphDataBase_AMES_additional_data' 
 
 # file with molecular data
-data_file: '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES_FINAL/data/data_new_with_split_descriptors.csv' #'/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/Additional_data/final_additional_dataset.csv' 
+data_file: '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES_FINAL/data/data_new_with_split_descriptors.csv' #'/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES_FINAL/data/data_new_with_split_descriptors.csv' #'/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/Additional_data/final_additional_dataset.csv' 
 
 # transformData: std
 
