@@ -238,7 +238,7 @@ Early stopping and LR reduction events are also logged when they occur.
 
 ### `hp_opt` — Hyperparameter optimization with Optuna
 
-Runs Optuna TPE search using 5-fold CV on the training set. Saves a study `.pkl` file that can be resumed.
+Runs Optuna TPE search using 5-fold CV on the training set. Saves a study `.pkl` file that can be resumed. The study is saved after every completed trial so progress is preserved if the run is interrupted.
 
 ```bash
 python run_model.py \
@@ -247,6 +247,18 @@ python run_model.py \
     --output_dir ./output/hp_search \
     --optuna_dir ./optuna \
     --n_trials 100
+```
+
+To seed the first trial with the hyperparameters from the YAML config (giving the optimizer a strong baseline):
+
+```bash
+python run_model.py \
+    --mode hp_opt \
+    --input_file train_sample.yml \
+    --output_dir ./output/hp_search \
+    --optuna_dir ./optuna \
+    --n_trials 100 \
+    --seed_params
 ```
 
 To resume an existing study:

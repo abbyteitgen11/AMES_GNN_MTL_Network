@@ -127,6 +127,7 @@ python run_model.py --mode <mode> --output_dir <dir> [--input_file <yaml>] [opti
 | `--optuna_file` | None (auto-dated) | Specific Optuna study file |
 | `--metrics_dir` | `output_dir` | Directory containing metrics CSVs for analyze_cfv/top_seeds_eval |
 | `--n_trials` | 100 | Number of Optuna trials |
+| `--seed_params` | False | Seed the first Optuna trial with YAML hyperparameters (hp_opt mode) |
 | `--seeds` | `3 7 15 24 42 45 62 77 79 88 90` | Seeds for seeds_cfv mode |
 | `--n_top_seeds` | 5 | Number of top seeds for top_seeds_eval |
 | `--data_file` | from YAML | Override YAML data_file path |
@@ -311,6 +312,8 @@ The YAML file controls all model and training hyperparameters. Key fields:
 11. **`eval_consensus_metric` ignored metric parameter**: returned H1 score for any metric except `"bal_acc"` — fixed with proper metric dispatch dict
 12. **`metrics_cons.csv` labeled "Strain TA98"** instead of "Consensus" — fixed
 13. **Gaussian RBF distance encoding option**: Added `distanceEncoding` config to `graph_maker_sample.yml` and `XG_graphs.py`. When set to `"rbf"`, bond distances are expanded using Gaussian radial basis functions via the existing `Features` class in `features.py`. The `run_model.py` helper `load_yaml_and_graph_info` reads the distance feature count from `graph_description.yml` (`nDistanceFeatures` key) so the model automatically adapts to the edge feature dimension.
+14. **HP optimization saves after every trial**: Changed from saving every 10 trials to every trial, preventing loss of progress on crashes.
+15. **`--seed_params` flag for HP optimization**: Added `study.enqueue_trial()` to seed the first Optuna trial with hyperparameters from the YAML config, giving the optimizer a known-good starting point. Only seeds when the study is new (not when resuming).
 
 ### Hardcoded paths removed
 

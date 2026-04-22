@@ -111,6 +111,8 @@ def get_args():
                         help="Number of Optuna trials (hp_opt mode).")
     parser.add_argument("--n_jobs", type=int, default=1,
                         help="Parallel jobs for Optuna optimization (hp_opt mode).")
+    parser.add_argument("--seed_params", action="store_true",
+                        help="Seed the first Optuna trial with hyperparameters from the YAML config (hp_opt mode).")
 
     # seeds_cfv options
     parser.add_argument("--seeds", type=str, default="3 7 15 24 42 45 62 77 79 88 90",
@@ -1049,6 +1051,42 @@ def run_hp_opt(args):
         n_descriptor_inputs = desc_folds[0][0][0].shape[1]
         desc_dict = {}
 
+    # Optionally seed the first trial with hyperparameters from the YAML config
+    if args.seed_params and len(study.trials) == 0:
+        seed_dict = {
+            "nGraphConvolutionalLayers": input_data.get("nGraphConvolutionLayers", 3),
+            "n_node_neurons": input_data.get("nNodeNeurons", 68),
+            "n_edge_neurons": input_data.get("nEdgeNeurons", 210),
+            "DropoutGNN": input_data.get("dropoutGNN", 0.04),
+            "momentumBatchNorm": input_data.get("momentumBatchNorm", 0.65),
+            "nSharedLayers": input_data.get("nSharedLayers", 1),
+            "nTargetSpecificLayers": input_data.get("nTargetSpecificLayers", 2),
+            "learningRate": input_data.get("learningRate", 0.0001),
+        }
+        n_shared_list = input_data.get("nShared", [260])
+        n_target_list = input_data.get("nTarget", [190, 155])
+        dropout_shared_list = input_data.get("dropoutShared", [0.28])
+        dropout_target_list = input_data.get("dropoutTarget", [0.33, 0.36])
+
+        for i, v in enumerate(n_shared_list):
+            seed_dict[f"n_shared_{i}"] = v
+        for i, v in enumerate(n_target_list):
+            seed_dict[f"n_target_{i}"] = v
+        for i, v in enumerate(dropout_shared_list):
+            seed_dict[f"DropoutShared_{i}"] = v
+        for i, v in enumerate(dropout_target_list):
+            seed_dict[f"DropoutTarget_{i}"] = v
+
+        if weighted_loss_function:
+            seed_dict["w1"] = input_data.get("w1", 1.0)
+            seed_dict["w2"] = input_data.get("w2", 1.0)
+            seed_dict["w3"] = input_data.get("w3", 1.0)
+            seed_dict["w4"] = input_data.get("w4", 1.0)
+            seed_dict["w5"] = input_data.get("w5", 1.0)
+
+        study.enqueue_trial(seed_dict)
+        logging.info(f"Seeded first trial with YAML hyperparameters: {seed_dict}")
+
     def objective(trial):
         """Optuna objective: 5-fold CV with trial-suggested hyperparameters."""
         logging.info(f"Starting trial {trial.number}")
@@ -1222,9 +1260,8 @@ def run_hp_opt(args):
         if trial.should_prune():
             raise optuna.TrialPruned()
 
-        # Periodically save study
-        if trial.number % 10 == 0:
-            save_study(study, study_pkl_path)
+        # Save study after every trial
+        save_study(study, study_pkl_path)
 
         return avg_val_loss
 
