@@ -12,6 +12,7 @@ def set_up_atomic_structure_graphs(
     dihedral_angle_feature: bool,
     spec_features: List[str],
     n_max_neighbours: int = 12,
+    distance_features=None,
 ) -> Tuple[AtomicStructureGraphs]:
 
     r"""
@@ -77,6 +78,7 @@ def set_up_atomic_structure_graphs(
         dihedral_angle_feature=dihedral_angle_feature,
         node_feature_list=spec_features,
         n_max_neighbours=n_max_neighbours,
+        distance_features=distance_features,
     )
 
 

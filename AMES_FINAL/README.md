@@ -130,6 +130,8 @@ All training modes read hyperparameters from a YAML file (see `train_sample.yml`
 | `inputMode` | Input feature mode: `"gnn"` (default), `"descriptor"`, or `"combined"` |
 | `callbacks` | `earlyStopping`, `LRScheduler`, `UserStopping` sub-sections |
 
+For graph construction configuration, see [Graph Construction](#graph-construction-graph_maker_sampleyml) below.
+
 ---
 
 ## Input Modes
@@ -159,6 +161,48 @@ python calculate_descriptors.py \
 ```
 
 This computes all 2D Mordred descriptors for each SMILES and produces a new CSV with descriptor columns inserted between `source` and `TA98`. The resulting file can be used directly with `run_model.py` in `"descriptor"` or `"combined"` mode by setting `data_file` in the YAML.
+
+---
+
+## Graph Construction (`graph_maker_sample.yml`)
+
+The graph database is built from XYZ files using `graph_maker.py`. The YAML config controls graph construction:
+
+| Field | Description |
+|-------|-------------|
+| `graphType` | Graph construction style (default `"XG"` — covalent-radius based) |
+| `DataBaseDirectory` | Path to source XYZ files |
+| `TargetDirectory` | Path to store output `.pkl` graph files |
+| `nodeFeatures` | List of Mendeleev property keywords for node features |
+| `species` | List of chemical elements present in the dataset |
+| `nMaxNeighbours` | Maximum number of neighbours per atom |
+| `BondAngleFeatures` | Include bond angle cosine sums as edge features |
+| `DihedralAngleFeatures` | Include dihedral angle cosine sums as edge features |
+| `distanceEncoding` | `"raw"` (single float distance, default) or `"rbf"` (Gaussian RBF expansion) |
+| `RBFParameters` | Parameters for RBF encoding: `n_features`, `r_min`, `r_max`, `sigma` |
+
+### Distance Encoding
+
+By default, each edge stores the raw bond distance as a single float. With `distanceEncoding: "rbf"`, distances are expanded into a vector of Gaussian radial basis functions:
+
+```
+u_k(d) = exp(-(d - mu_k)^2 / sigma^2)
+```
+
+where the centers `mu_k` are evenly spaced between `r_min` and `r_max`. This provides a richer distance representation at the cost of larger edge feature vectors.
+
+Example RBF configuration:
+
+```yaml
+distanceEncoding: "rbf"
+RBFParameters:
+  n_features: 20
+  r_min: 0.0
+  r_max: 5.0
+  sigma: 0.5
+```
+
+**Important:** Graphs must be regenerated when changing `distanceEncoding`, as the edge feature dimension changes. The model automatically reads the correct dimension from `graph_description.yml`.
 
 ---
 

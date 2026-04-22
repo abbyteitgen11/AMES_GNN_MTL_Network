@@ -232,7 +232,7 @@ python visualize_graphs.py \
 **Graph attributes used:**
 - `data.spec_id` — element index per atom (into species list)
 - `data.edge_index` — connectivity `[2, num_edges]`
-- `data.edge_attr[:,0]` — bond distance in Å
+- `data.edge_attr[:,0]` — bond distance in Å (raw mode) or `data.edge_attr[:,0:N]` — RBF-expanded distance (rbf mode)
 - `data.pos[:,:2]` — x,y projection of 3D coords for 2D layout
 - `data.y` — `[1, 5]` toxicity labels
 
@@ -285,6 +285,13 @@ The YAML file controls all model and training hyperparameters. Key fields:
 | `loadModel` / `StateDictFileName` | Resume from checkpoint |
 | `callbacks` | EarlyStopping, LRScheduler, UserStopping config |
 
+**Graph construction config** (`graph_maker_sample.yml`):
+
+| Field | Description |
+|-------|-------------|
+| `distanceEncoding` | `"raw"` (default) or `"rbf"` (Gaussian RBF expansion of bond distances) |
+| `RBFParameters` | `n_features`, `r_min`, `r_max`, `sigma` for RBF encoding |
+
 ---
 
 ## Changes Made
@@ -303,6 +310,7 @@ The YAML file controls all model and training hyperparameters. Key fields:
 10. **`eval` mode thresholds discarded**: `crossfit_thresholds_for_consensus` result was computed but never applied to the test set (hardcoded `[0.5]*5` was used instead) — fixed
 11. **`eval_consensus_metric` ignored metric parameter**: returned H1 score for any metric except `"bal_acc"` — fixed with proper metric dispatch dict
 12. **`metrics_cons.csv` labeled "Strain TA98"** instead of "Consensus" — fixed
+13. **Gaussian RBF distance encoding option**: Added `distanceEncoding` config to `graph_maker_sample.yml` and `XG_graphs.py`. When set to `"rbf"`, bond distances are expanded using Gaussian radial basis functions via the existing `Features` class in `features.py`. The `run_model.py` helper `load_yaml_and_graph_info` reads the distance feature count from `graph_description.yml` (`nDistanceFeatures` key) so the model automatically adapts to the edge feature dimension.
 
 ### Hardcoded paths removed
 

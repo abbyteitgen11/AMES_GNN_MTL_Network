@@ -167,6 +167,21 @@ if transform:
 bond_angle_features = input_data.get('BondAngleFeatures', False)
 dihedral_angle_features = input_data.get('DihedralAngleFeatures', False)
 
+distance_encoding = input_data.get("distanceEncoding", "raw")
+rbf_params = input_data.get("RBFParameters", None)
+
+distance_features = None
+if distance_encoding == "rbf":
+    from features import Features
+    if rbf_params is None:
+        rbf_params = {"n_features": 20, "r_min": 0.0, "r_max": 5.0, "sigma": 0.5}
+    distance_features = Features(
+        x_min=rbf_params.get("r_min", 0.0),
+        x_max=rbf_params.get("r_max", 5.0),
+        n_features=rbf_params.get("n_features", 20),
+        sigma=rbf_params.get("sigma", 0.5),
+    )
+
 Graphs = set_up_atomic_structure_graphs(
     graph_type = graph_type,
     species = species,
@@ -174,6 +189,7 @@ Graphs = set_up_atomic_structure_graphs(
     dihedral_angle_feature = dihedral_angle_features,
     spec_features = node_features,
     n_max_neighbours = n_max_neighbours,
+    distance_features = distance_features,
 )
 
 
@@ -192,7 +208,12 @@ if dihedral_angle_features:
    log_text += "Using Dihedral Features \n"
 else:
    log_text += "NOT using Dihedral Features \n"
-   
+
+if distance_encoding == "rbf":
+   log_text += f"Using RBF distance encoding ({rbf_params['n_features']} features, "
+   log_text += f"r_min={rbf_params['r_min']}, r_max={rbf_params['r_max']}, sigma={rbf_params['sigma']})\n"
+else:
+   log_text += "Using raw distance encoding (single float)\n"
 
 descriptionText = input_data.get("descriptionText", " ")
 
@@ -222,6 +243,7 @@ description_file = target_directory + '/' + 'graph_description.yml'
 
 # we append to the input data information on the total number of node features
 input_data['nNodeFeatures'] = nNodeFeatures
+input_data['nDistanceFeatures'] = distance_features._n_features if distance_features else 1
 
 with open(description_file, 'w') as description:
     yaml.dump(input_data, description)

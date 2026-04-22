@@ -13,7 +13,7 @@ graphType: 'XG' # currently this is the only graph type implemented
 
 # address where to find the data-base files, and where to put the graph files once created
 DataBaseDirectory: '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/DataBase_AMES/FILES_DEV'
-TargetDirectory: '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/GraphDataBase_AMES_NEW'
+TargetDirectory: '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/GraphDataBase_AMES_NEW_DIST_HIST'
 
 # the file extensions, both for the input and for the graph files
 
@@ -64,4 +64,15 @@ BondAngleFeatures: True
 
 DihedralAngleFeatures: True
 
+# Edge distance encoding: "raw" (default, single float) or "rbf" (Gaussian radial basis functions)
+distanceEncoding: "raw"
 
+# RBF parameters (only used when distanceEncoding is "rbf")
+# n_features: number of Gaussian basis functions
+# r_min / r_max: range of distance centers (Angstroms)
+# sigma: width of each Gaussian
+RBFParameters:
+  n_features: 20
+  r_min: 0.0
+  r_max: 5.0
+  sigma: 0.5

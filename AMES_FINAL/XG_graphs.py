@@ -39,7 +39,8 @@ class XG(AtomicStructureGraphs):
             dihedral_angle_feature: bool = False,
             node_feature_list: List[str] = [],
             n_max_neighbours: int = 12,
-            alpha: float = 1.2
+            alpha: float = 1.2,
+            distance_features=None
     ) -> None:
 
         # initialise the base class
@@ -55,6 +56,8 @@ class XG(AtomicStructureGraphs):
         # critera, i.e. two atoms are bonded if their
         # separation is r <= alpha*(rc1 + rc2), where
         # rci are the respective covalent radii
+
+        self.distance_features = distance_features  # None = raw float, Features instance = RBF
 
         self.covalent_radii = self.get_covalent_radii()
 
@@ -182,7 +185,12 @@ class XG(AtomicStructureGraphs):
 
         # now, based on the edge-index information, we can construct the edge attributes
 
-        n_bond_features = 1  # for distance
+        if self.distance_features is not None:
+            n_dist = self.distance_features._n_features
+        else:
+            n_dist = 1
+
+        n_bond_features = n_dist  # RBF vector or single raw distance
 
         if self.bond_angle_feature: n_bond_features += 1  # for bond_angles
         if self.dihedral_angle_feature: n_bond_features += 1  # for dihedral
@@ -196,7 +204,10 @@ class XG(AtomicStructureGraphs):
             j = edge_index[1, n]
 
             dij = np.sqrt(dij2[i, j])
-            bond_features[n, 0] += dij
+            if self.distance_features is not None:
+                bond_features[n, 0:n_dist] = self.distance_features.u_k(dij)
+            else:
+                bond_features[n, 0] = dij
             rij = positions[j, :] - positions[i, :]
 
             if self.bond_angle_feature:  # include bond angle features
@@ -207,11 +218,7 @@ class XG(AtomicStructureGraphs):
                     dik = neighbour_distance[i, nk]
 
                     cosijk = np.dot(rij, rik) / (dij * dik)
-                    # bond_features[n,1] += fij * fik * cosijk
-                    features_instance = Features()
-                    #cosijk2 = features_instance.u_k(cosijk)
-
-                    bond_features[n, 1] += cosijk #cosijk2 #u_k(cosijk)
+                    bond_features[n, n_dist] += cosijk
 
         if self.dihedral_angle_feature:  # include dihedral features
             for nk in range(n_neighbours[i]):
@@ -229,8 +236,7 @@ class XG(AtomicStructureGraphs):
                     # dihedral angles
 
                     coskijl = get_dihedral_angle(rki, rij, rjl)
-                    #coskijl2 =  features_instance.u_k(coskijl)
-                    if coskijl: bond_features[n, 2] += coskijl
+                    if coskijl: bond_features[n, n_dist + 1] += coskijl
 
         spec_id = torch.zeros((n_atoms), dtype=int)
 

@@ -1,0 +1,229 @@
+2026-04-17 13:38:25,089 - INFO - Using device: cuda
+2026-04-17 13:38:25,101 - INFO - Resumed study from /lustre/scratch-global/cib/abiel/AMES_FINAL/optuna/study_20260415.pkl
+2026-04-17 13:38:25,170 - INFO - Input mode: gnn
+2026-04-17 13:43:11,208 - INFO - [train] No NaN graphs found (6647 graphs OK).
+2026-04-17 13:43:19,510 - INFO - Starting trial 61
+[I 2026-04-17 14:12:02,825] Trial 61 finished with value: 0.40319549576157615 and parameters: {'nGraphConvolutionalLayers': 3, 'n_node_neurons': 271, 'n_edge_neurons': 163, 'DropoutGNN': 0.12231191397287602, 'momentumBatchNorm': 0.5459990328628657, 'nSharedLayers': 1, 'nTargetSpecificLayers': 1, 'n_shared_0': 83, 'n_target_0': 96, 'DropoutShared_0': 0.20719120988288445, 'DropoutTarget_0': 0.45530035594624024, 'learningRate': 0.00015374108035706512, 'w1': 3.4471964202637206, 'w2': 1.779095516075244, 'w3': 3.0460762870103206, 'w4': 4.9455781459680095, 'w5': 2.995926404955238}. Best is trial 42 with value: 0.37855862776438387.
+2026-04-17 14:12:02,826 - INFO - Starting trial 62
+[I 2026-04-17 14:41:56,951] Trial 62 finished with value: 0.38060239979199 and parameters: {'nGraphConvolutionalLayers': 3, 'n_node_neurons': 228, 'n_edge_neurons': 178, 'DropoutGNN': 0.18438922134497837, 'momentumBatchNorm': 0.798746246915417, 'nSharedLayers': 1, 'nTargetSpecificLayers': 2, 'n_shared_0': 147, 'n_target_0': 237, 'n_target_1': 63, 'DropoutShared_0': 0.4460313237897898, 'DropoutTarget_0': 0.47350343441470916, 'DropoutTarget_1': 0.03824306594618278, 'learningRate': 0.00010103871213170456, 'w1': 2.1617778057868873, 'w2': 2.0963270305220725, 'w3': 1.5412008101161354, 'w4': 4.0824836998780025, 'w5': 3.124629819166386}. Best is trial 42 with value: 0.37855862776438387.
+2026-04-17 14:41:56,951 - INFO - Starting trial 63
+[I 2026-04-17 15:11:26,284] Trial 63 finished with value: 0.387867176816577 and parameters: {'nGraphConvolutionalLayers': 3, 'n_node_neurons': 230, 'n_edge_neurons': 189, 'DropoutGNN': 0.18984293253673498, 'momentumBatchNorm': 0.7795073878951736, 'nSharedLayers': 1, 'nTargetSpecificLayers': 2, 'n_shared_0': 138, 'n_target_0': 248, 'n_target_1': 59, 'DropoutShared_0': 0.0010923916489129493, 'DropoutTarget_0': 0.4890151274923305, 'DropoutTarget_1': 0.044982977249143685, 'learningRate': 9.068697282229298e-05, 'w1': 2.1236644121806725, 'w2': 2.051017895453352, 'w3': 1.780703950633574, 'w4': 4.052585404595121, 'w5': 2.7710009709338332}. Best is trial 42 with value: 0.37855862776438387.
+2026-04-17 15:11:26,286 - INFO - Starting trial 64
+[I 2026-04-17 15:40:22,427] Trial 64 finished with value: 0.3807484728239831 and parameters: {'nGraphConvolutionalLayers': 3, 'n_node_neurons': 207, 'n_edge_neurons': 191, 'DropoutGNN': 0.19694877818526868, 'momentumBatchNorm': 0.7116676319218816, 'nSharedLayers': 1, 'nTargetSpecificLayers': 2, 'n_shared_0': 160, 'n_target_0': 249, 'n_target_1': 85, 'DropoutShared_0': 0.15537922182724184, 'DropoutTarget_0': 0.036560518982541396, 'DropoutTarget_1': 0.04288984538809184, 'learningRate': 5.000091882740622e-05, 'w1': 2.1050312561918396, 'w2': 2.1259568124093318, 'w3': 1.7702957852876837, 'w4': 4.1112787989335775, 'w5': 2.7960347623409145}. Best is trial 42 with value: 0.37855862776438387.
+2026-04-17 15:40:22,428 - INFO - Starting trial 65
+[I 2026-04-17 16:09:26,432] Trial 65 finished with value: 0.373853108783563 and parameters: {'nGraphConvolutionalLayers': 3, 'n_node_neurons': 225, 'n_edge_neurons': 204, 'DropoutGNN': 0.1878359887038312, 'momentumBatchNorm': 0.7155464039843239, 'nSharedLayers': 1, 'nTargetSpecificLayers': 2, 'n_shared_0': 166, 'n_target_0': 221, 'n_target_1': 89, 'DropoutShared_0': 0.034540848088067365, 'DropoutTarget_0': 0.005289047257891227, 'DropoutTarget_1': 0.03636907551803606, 'learningRate': 5.515125653658309e-05, 'w1': 2.1429622572456717, 'w2': 2.3677348666777145, 'w3': 1.8113668091842567, 'w4': 4.144156075870506, 'w5': 2.622258055694166}. Best is trial 65 with value: 0.373853108783563.
+2026-04-17 16:09:26,432 - INFO - Starting trial 66
+[I 2026-04-17 16:39:38,783] Trial 66 pruned. 
+2026-04-17 16:39:38,784 - INFO - Starting trial 67
+[I 2026-04-17 17:09:31,303] Trial 67 pruned. 
+2026-04-17 17:09:31,303 - INFO - Starting trial 68
+[I 2026-04-17 17:40:52,874] Trial 68 pruned. 
+2026-04-17 17:40:52,874 - INFO - Starting trial 69
+[I 2026-04-17 18:09:59,350] Trial 69 pruned. 
+2026-04-17 18:09:59,351 - INFO - Starting trial 70
+[I 2026-04-17 18:39:55,646] Trial 70 pruned. 
+2026-04-17 18:39:55,647 - INFO - Starting trial 71
+[I 2026-04-17 19:08:50,697] Trial 71 pruned. 
+2026-04-17 19:08:50,748 - INFO - Starting trial 72
+[I 2026-04-17 19:38:52,193] Trial 72 pruned. 
+2026-04-17 19:38:52,194 - INFO - Starting trial 73
+[I 2026-04-17 20:08:48,362] Trial 73 finished with value: 0.37769103397925696 and parameters: {'nGraphConvolutionalLayers': 3, 'n_node_neurons': 192, 'n_edge_neurons': 186, 'DropoutGNN': 0.20443682289712856, 'momentumBatchNorm': 0.6629706920571201, 'nSharedLayers': 1, 'nTargetSpecificLayers': 2, 'n_shared_0': 160, 'n_target_0': 201, 'n_target_1': 79, 'DropoutShared_0': 0.03351245460953479, 'DropoutTarget_0': 0.14107419920021042, 'DropoutTarget_1': 0.21511615105934323, 'learningRate': 6.066017982442204e-05, 'w1': 1.62808288314156, 'w2': 1.9972917257172058, 'w3': 1.834681492613439, 'w4': 4.113429286061341, 'w5': 3.3631701795949622}. Best is trial 65 with value: 0.373853108783563.
+2026-04-17 20:08:48,363 - INFO - Starting trial 74
+[I 2026-04-17 20:38:57,030] Trial 74 pruned. 
+2026-04-17 20:38:57,030 - INFO - Starting trial 75
+[I 2026-04-17 21:08:59,925] Trial 75 finished with value: 0.3622236538501013 and parameters: {'nGraphConvolutionalLayers': 3, 'n_node_neurons': 194, 'n_edge_neurons': 248, 'DropoutGNN': 0.24235458885549613, 'momentumBatchNorm': 0.6682241448689208, 'nSharedLayers': 1, 'nTargetSpecificLayers': 2, 'n_shared_0': 162, 'n_target_0': 221, 'n_target_1': 91, 'DropoutShared_0': 0.04759425408553156, 'DropoutTarget_0': 0.09621859813351136, 'DropoutTarget_1': 0.20977209036147526, 'learningRate': 7.068699184677715e-05, 'w1': 2.3466839201936125, 'w2': 2.0292591534430757, 'w3': 1.2522348813740551, 'w4': 4.426852538691835, 'w5': 2.088772704364074}. Best is trial 75 with value: 0.3622236538501013.
+2026-04-17 21:08:59,926 - INFO - Starting trial 76
+[I 2026-04-17 21:40:17,208] Trial 76 finished with value: 0.37073065234082087 and parameters: {'nGraphConvolutionalLayers': 3, 'n_node_neurons': 224, 'n_edge_neurons': 284, 'DropoutGNN': 0.15756580370869694, 'momentumBatchNorm': 0.6645183451688161, 'nSharedLayers': 1, 'nTargetSpecificLayers': 2, 'n_shared_0': 158, 'n_target_0': 245, 'n_target_1': 92, 'DropoutShared_0': 0.05341684811480298, 'DropoutTarget_0': 0.07189300751619904, 'DropoutTarget_1': 0.21031857497906328, 'learningRate': 4.6169867938480775e-05, 'w1': 2.3975807964680174, 'w2': 2.019845459010369, 'w3': 1.2871661484194046, 'w4': 4.868836748719427, 'w5': 2.3016076090150968}. Best is trial 75 with value: 0.3622236538501013.
+2026-04-17 21:40:17,236 - INFO - Starting trial 77
+[I 2026-04-17 22:12:28,152] Trial 77 pruned. 
+2026-04-17 22:12:28,152 - INFO - Starting trial 78
+[I 2026-04-17 22:44:59,108] Trial 78 finished with value: 0.37032275352449645 and parameters: {'nGraphConvolutionalLayers': 3, 'n_node_neurons': 204, 'n_edge_neurons': 239, 'DropoutGNN': 0.15607126797922158, 'momentumBatchNorm': 0.7032885983199788, 'nSharedLayers': 1, 'nTargetSpecificLayers': 2, 'n_shared_0': 167, 'n_target_0': 283, 'n_target_1': 89, 'DropoutShared_0': 0.04517063217778272, 'DropoutTarget_0': 0.060631758155512194, 'DropoutTarget_1': 0.22480354683813242, 'learningRate': 4.702480550133297e-05, 'w1': 2.3879775482693852, 'w2': 2.031879716604864, 'w3': 1.5088474021783644, 'w4': 5.187807826270912, 'w5': 1.981625596495425}. Best is trial 75 with value: 0.3622236538501013.
+2026-04-17 22:44:59,109 - INFO - Starting trial 79
+[I 2026-04-17 23:17:16,518] Trial 79 pruned. 
+2026-04-17 23:17:16,558 - INFO - Starting trial 80
+[I 2026-04-17 23:48:35,774] Trial 80 pruned. 
+2026-04-17 23:48:35,775 - INFO - Starting trial 81
+[I 2026-04-18 00:21:55,896] Trial 81 pruned. 
+2026-04-18 00:21:55,897 - INFO - Starting trial 82
+[I 2026-04-18 00:54:27,366] Trial 82 finished with value: 0.362633087237676 and parameters: {'nGraphConvolutionalLayers': 3, 'n_node_neurons': 222, 'n_edge_neurons': 244, 'DropoutGNN': 0.1986489167824339, 'momentumBatchNorm': 0.5990807979789705, 'nSharedLayers': 1, 'nTargetSpecificLayers': 2, 'n_shared_0': 154, 'n_target_0': 240, 'n_target_1': 82, 'DropoutShared_0': 0.12124610627119989, 'DropoutTarget_0': 0.08035594827181639, 'DropoutTarget_1': 0.20510774128971054, 'learningRate': 6.131932211390445e-05, 'w1': 5.920455344828541, 'w2': 2.528127276219954, 'w3': 1.2532516658501003, 'w4': 4.583974460852871, 'w5': 2.309188687825529}. Best is trial 75 with value: 0.3622236538501013.
+2026-04-18 00:54:27,396 - INFO - Starting trial 83
+[I 2026-04-18 01:27:01,145] Trial 83 finished with value: 0.36625689544848034 and parameters: {'nGraphConvolutionalLayers': 3, 'n_node_neurons': 214, 'n_edge_neurons': 242, 'DropoutGNN': 0.17479550668336305, 'momentumBatchNorm': 0.7518040082159221, 'nSharedLayers': 1, 'nTargetSpecificLayers': 2, 'n_shared_0': 157, 'n_target_0': 254, 'n_target_1': 86, 'DropoutShared_0': 0.12722514491973047, 'DropoutTarget_0': 0.09015425486081771, 'DropoutTarget_1': 0.20206646008184256, 'learningRate': 5.345635673371006e-05, 'w1': 5.122117816749504, 'w2': 2.44464236977889, 'w3': 1.0696577141271795, 'w4': 4.602883259744768, 'w5': 2.0068422076014683}. Best is trial 75 with value: 0.3622236538501013.
+2026-04-18 01:27:01,145 - INFO - Starting trial 84
+[I 2026-04-18 01:59:05,894] Trial 84 finished with value: 0.35891892157849814 and parameters: {'nGraphConvolutionalLayers': 3, 'n_node_neurons': 196, 'n_edge_neurons': 245, 'DropoutGNN': 0.17550114817535195, 'momentumBatchNorm': 0.7499383559864753, 'nSharedLayers': 1, 'nTargetSpecificLayers': 2, 'n_shared_0': 151, 'n_target_0': 240, 'n_target_1': 81, 'DropoutShared_0': 0.11849814768120473, 'DropoutTarget_0': 0.08741180721898181, 'DropoutTarget_1': 0.1994439691140916, 'learningRate': 6.571024697282416e-05, 'w1': 5.8657617278829575, 'w2': 2.5284093986904104, 'w3': 1.0775094473149807, 'w4': 4.836308517901467, 'w5': 1.979359477768442}. Best is trial 84 with value: 0.35891892157849814.
+2026-04-18 01:59:05,895 - INFO - Starting trial 85
+[I 2026-04-18 02:31:37,986] Trial 85 finished with value: 0.35933042374395185 and parameters: {'nGraphConvolutionalLayers': 3, 'n_node_neurons': 166, 'n_edge_neurons': 244, 'DropoutGNN': 0.16710235569633103, 'momentumBatchNorm': 0.7542395829765205, 'nSharedLayers': 1, 'nTargetSpecificLayers': 2, 'n_shared_0': 154, 'n_target_0': 256, 'n_target_1': 116, 'DropoutShared_0': 0.11280378022590147, 'DropoutTarget_0': 0.08966345476458457, 'DropoutTarget_1': 0.20246246464294346, 'learningRate': 6.748747522909475e-05, 'w1': 5.987524760059236, 'w2': 2.947077099930457, 'w3': 1.0544319623312763, 'w4': 4.835913174706644, 'w5': 2.0043627582310877}. Best is trial 84 with value: 0.35891892157849814.
+2026-04-18 02:31:37,986 - INFO - Starting trial 86
+[I 2026-04-18 03:03:52,190] Trial 86 pruned. 
+2026-04-18 03:03:52,190 - INFO - Starting trial 87
+[I 2026-04-18 03:36:26,532] Trial 87 finished with value: 0.3516825752598899 and parameters: {'nGraphConvolutionalLayers': 3, 'n_node_neurons': 192, 'n_edge_neurons': 243, 'DropoutGNN': 0.17367550364834347, 'momentumBatchNorm': 0.7494920908078475, 'nSharedLayers': 1, 'nTargetSpecificLayers': 2, 'n_shared_0': 155, 'n_target_0': 216, 'n_target_1': 91, 'DropoutShared_0': 0.11721464663476532, 'DropoutTarget_0': 0.13239682868558944, 'DropoutTarget_1': 0.27876546196327573, 'learningRate': 6.894111311313925e-05, 'w1': 5.70854060825079, 'w2': 3.19223816526537, 'w3': 1.0517303346789222, 'w4': 4.596195566044744, 'w5': 1.716640385586432}. Best is trial 87 with value: 0.3516825752598899.
+2026-04-18 03:36:26,533 - INFO - Starting trial 88
+[I 2026-04-18 04:08:51,156] Trial 88 pruned. 
+2026-04-18 04:08:51,172 - INFO - Starting trial 89
+[I 2026-04-18 04:41:19,293] Trial 89 finished with value: 0.3567837365326427 and parameters: {'nGraphConvolutionalLayers': 3, 'n_node_neurons': 146, 'n_edge_neurons': 245, 'DropoutGNN': 0.1536214794896074, 'momentumBatchNorm': 0.7475961825323845, 'nSharedLayers': 1, 'nTargetSpecificLayers': 2, 'n_shared_0': 126, 'n_target_0': 254, 'n_target_1': 132, 'DropoutShared_0': 0.1328389867275838, 'DropoutTarget_0': 0.12422852065168119, 'DropoutTarget_1': 0.2777597971075234, 'learningRate': 7.164379872831231e-05, 'w1': 5.246770007334161, 'w2': 2.953058490863037, 'w3': 1.0062129185915065, 'w4': 4.840798184043475, 'w5': 1.4980154792637752}. Best is trial 87 with value: 0.3516825752598899.
+2026-04-18 04:41:19,294 - INFO - Starting trial 90
+2026-04-18 05:14:08,951 - INFO - Study saved to /lustre/scratch-global/cib/abiel/AMES_FINAL/optuna/study_20260415.pkl
+[I 2026-04-18 05:14:08,957] Trial 90 finished with value: 0.35681743146408174 and parameters: {'nGraphConvolutionalLayers': 3, 'n_node_neurons': 132, 'n_edge_neurons': 300, 'DropoutGNN': 0.15427696343541225, 'momentumBatchNorm': 0.7606885365084973, 'nSharedLayers': 1, 'nTargetSpecificLayers': 2, 'n_shared_0': 127, 'n_target_0': 287, 'n_target_1': 133, 'DropoutShared_0': 0.107835440376475, 'DropoutTarget_0': 0.13397870131559392, 'DropoutTarget_1': 0.26875430375530907, 'learningRate': 7.219757960357621e-05, 'w1': 5.242742516356305, 'w2': 3.4936293492391988, 'w3': 1.00592780690684, 'w4': 4.811757282677184, 'w5': 1.5104580110607535}. Best is trial 87 with value: 0.3516825752598899.
+2026-04-18 05:14:08,957 - INFO - Starting trial 91
+[I 2026-04-18 05:46:36,835] Trial 91 pruned. 
+2026-04-18 05:46:36,836 - INFO - Starting trial 92
+[I 2026-04-18 06:19:20,555] Trial 92 finished with value: 0.3584430848558744 and parameters: {'nGraphConvolutionalLayers': 3, 'n_node_neurons': 147, 'n_edge_neurons': 280, 'DropoutGNN': 0.1512581527961241, 'momentumBatchNorm': 0.7546084334236641, 'nSharedLayers': 1, 'nTargetSpecificLayers': 2, 'n_shared_0': 144, 'n_target_0': 274, 'n_target_1': 127, 'DropoutShared_0': 0.1074733331695176, 'DropoutTarget_0': 0.08946067811099553, 'DropoutTarget_1': 0.24849422990512798, 'learningRate': 7.379883778014279e-05, 'w1': 5.745469763381394, 'w2': 3.3986369913276433, 'w3': 1.0193721382938583, 'w4': 4.847298556341915, 'w5': 1.5231678931691328}. Best is trial 87 with value: 0.3516825752598899.
+2026-04-18 06:19:20,570 - INFO - Starting trial 93
+[I 2026-04-18 06:51:45,505] Trial 93 pruned. 
+2026-04-18 06:51:45,506 - INFO - Starting trial 94
+[I 2026-04-18 07:24:05,898] Trial 94 finished with value: 0.35677834273803805 and parameters: {'nGraphConvolutionalLayers': 3, 'n_node_neurons': 147, 'n_edge_neurons': 243, 'DropoutGNN': 0.11027065479687531, 'momentumBatchNorm': 0.7648238301148579, 'nSharedLayers': 1, 'nTargetSpecificLayers': 2, 'n_shared_0': 125, 'n_target_0': 276, 'n_target_1': 145, 'DropoutShared_0': 0.10922211746130542, 'DropoutTarget_0': 0.12502613775816326, 'DropoutTarget_1': 0.30557548976753385, 'learningRate': 7.384806633373853e-05, 'w1': 5.338819387675979, 'w2': 3.4132768866517047, 'w3': 1.2198925189002683, 'w4': 5.072182302856217, 'w5': 1.265508661606013}. Best is trial 87 with value: 0.3516825752598899.
+2026-04-18 07:24:05,898 - INFO - Starting trial 95
+[I 2026-04-18 07:56:25,205] Trial 95 pruned. 
+2026-04-18 07:56:25,206 - INFO - Starting trial 96
+[I 2026-04-18 08:29:08,117] Trial 96 pruned. 
+2026-04-18 08:29:08,118 - INFO - Starting trial 97
+[I 2026-04-18 09:01:46,113] Trial 97 pruned. 
+2026-04-18 09:01:46,114 - INFO - Starting trial 98
+[I 2026-04-18 09:34:33,512] Trial 98 pruned. 
+2026-04-18 09:34:33,524 - INFO - Starting trial 99
+[I 2026-04-18 10:07:13,462] Trial 99 pruned. 
+2026-04-18 10:07:13,463 - INFO - Starting trial 100
+[I 2026-04-18 10:40:49,182] Trial 100 pruned. 
+2026-04-18 10:40:49,183 - INFO - Starting trial 101
+[I 2026-04-18 11:13:32,370] Trial 101 finished with value: 0.36258230124201096 and parameters: {'nGraphConvolutionalLayers': 3, 'n_node_neurons': 147, 'n_edge_neurons': 231, 'DropoutGNN': 0.16977617510948703, 'momentumBatchNorm': 0.6822120968568465, 'nSharedLayers': 1, 'nTargetSpecificLayers': 2, 'n_shared_0': 144, 'n_target_0': 232, 'n_target_1': 140, 'DropoutShared_0': 0.1157159538357455, 'DropoutTarget_0': 0.1874914592939872, 'DropoutTarget_1': 0.19575885528703482, 'learningRate': 6.810910389297454e-05, 'w1': 5.506398115523577, 'w2': 2.7276057529335582, 'w3': 1.279307616037982, 'w4': 4.99846840389729, 'w5': 1.5064324016445052}. Best is trial 87 with value: 0.3516825752598899.
+2026-04-18 11:13:32,371 - INFO - Starting trial 102
+[I 2026-04-18 11:46:00,113] Trial 102 finished with value: 0.3603660430936586 and parameters: {'nGraphConvolutionalLayers': 3, 'n_node_neurons': 115, 'n_edge_neurons': 233, 'DropoutGNN': 0.14917440434311982, 'momentumBatchNorm': 0.6801237739013002, 'nSharedLayers': 1, 'nTargetSpecificLayers': 2, 'n_shared_0': 142, 'n_target_0': 231, 'n_target_1': 141, 'DropoutShared_0': 0.1198911111685813, 'DropoutTarget_0': 0.19554989618829477, 'DropoutTarget_1': 0.19381209187535012, 'learningRate': 7.506906817691627e-05, 'w1': 5.986376636060488, 'w2': 4.157051768604938, 'w3': 1.2725286633876336, 'w4': 4.9507325940334646, 'w5': 1.4527385676523255}. Best is trial 87 with value: 0.3516825752598899.
+2026-04-18 11:46:00,114 - INFO - Starting trial 103
+[I 2026-04-18 12:18:10,582] Trial 103 finished with value: 0.35240920994962965 and parameters: {'nGraphConvolutionalLayers': 3, 'n_node_neurons': 147, 'n_edge_neurons': 233, 'DropoutGNN': 0.14405837045804398, 'momentumBatchNorm': 0.688114060534044, 'nSharedLayers': 1, 'nTargetSpecificLayers': 2, 'n_shared_0': 146, 'n_target_0': 216, 'n_target_1': 165, 'DropoutShared_0': 0.1083652806987514, 'DropoutTarget_0': 0.1860021467622962, 'DropoutTarget_1': 0.1775679409028823, 'learningRate': 7.739541170836732e-05, 'w1': 5.998936694118957, 'w2': 3.2030608701414858, 'w3': 1.4344870742137619, 'w4': 5.1095487262304715, 'w5': 1.4402164803169304}. Best is trial 87 with value: 0.3516825752598899.
+2026-04-18 12:18:10,582 - INFO - Starting trial 104
+[I 2026-04-18 12:50:45,125] Trial 104 finished with value: 0.35645210629417784 and parameters: {'nGraphConvolutionalLayers': 3, 'n_node_neurons': 146, 'n_edge_neurons': 221, 'DropoutGNN': 0.10385451024312738, 'momentumBatchNorm': 0.6853297193153555, 'nSharedLayers': 1, 'nTargetSpecificLayers': 2, 'n_shared_0': 145, 'n_target_0': 213, 'n_target_1': 141, 'DropoutShared_0': 0.10464621437689019, 'DropoutTarget_0': 0.19629113077474347, 'DropoutTarget_1': 0.18027499767984367, 'learningRate': 8.033455888536012e-05, 'w1': 5.471749324921948, 'w2': 4.10759418483486, 'w3': 1.4012114804184266, 'w4': 5.1178183437742035, 'w5': 1.1613925964999083}. Best is trial 87 with value: 0.3516825752598899.
+2026-04-18 12:50:45,126 - INFO - Starting trial 105
+[I 2026-04-18 13:23:29,071] Trial 105 finished with value: 0.3464444364820208 and parameters: {'nGraphConvolutionalLayers': 3, 'n_node_neurons': 117, 'n_edge_neurons': 220, 'DropoutGNN': 0.10151455933768891, 'momentumBatchNorm': 0.6804016509310077, 'nSharedLayers': 1, 'nTargetSpecificLayers': 2, 'n_shared_0': 127, 'n_target_0': 183, 'n_target_1': 169, 'DropoutShared_0': 0.08738449749174164, 'DropoutTarget_0': 0.20264712319062161, 'DropoutTarget_1': 0.17632825791026233, 'learningRate': 8.174521056820149e-05, 'w1': 5.8123774314460475, 'w2': 4.1126317193814375, 'w3': 1.4031509486377176, 'w4': 5.096149449489304, 'w5': 1.1474221791665908}. Best is trial 105 with value: 0.3464444364820208.
+2026-04-18 13:23:29,072 - INFO - Starting trial 106
+[I 2026-04-18 13:55:59,710] Trial 106 pruned. 
+2026-04-18 13:55:59,711 - INFO - Starting trial 107
+[I 2026-04-18 14:29:46,648] Trial 107 pruned. 
+2026-04-18 14:29:46,671 - INFO - Starting trial 108
+[I 2026-04-18 15:02:16,335] Trial 108 pruned. 
+2026-04-18 15:02:16,336 - INFO - Starting trial 109
+[I 2026-04-18 15:35:07,903] Trial 109 finished with value: 0.3555711640488534 and parameters: {'nGraphConvolutionalLayers': 3, 'n_node_neurons': 115, 'n_edge_neurons': 219, 'DropoutGNN': 0.1300828283160746, 'momentumBatchNorm': 0.7325137602002614, 'nSharedLayers': 1, 'nTargetSpecificLayers': 2, 'n_shared_0': 113, 'n_target_0': 189, 'n_target_1': 179, 'DropoutShared_0': 0.13721633592820198, 'DropoutTarget_0': 0.22321091910193333, 'DropoutTarget_1': 0.15359989608404823, 'learningRate': 8.914594841339014e-05, 'w1': 5.650574230719249, 'w2': 3.8217585493015083, 'w3': 1.1146887004548145, 'w4': 4.929202830668754, 'w5': 1.1246719283917552}. Best is trial 105 with value: 0.3464444364820208.
+2026-04-18 15:35:07,904 - INFO - Starting trial 110
+2026-04-18 16:06:39,894 - INFO - Study saved to /lustre/scratch-global/cib/abiel/AMES_FINAL/optuna/study_20260415.pkl
+[I 2026-04-18 16:06:39,897] Trial 110 finished with value: 0.3504672432229633 and parameters: {'nGraphConvolutionalLayers': 2, 'n_node_neurons': 91, 'n_edge_neurons': 254, 'DropoutGNN': 0.07112183208988801, 'momentumBatchNorm': 0.8376675838183812, 'nSharedLayers': 1, 'nTargetSpecificLayers': 2, 'n_shared_0': 110, 'n_target_0': 175, 'n_target_1': 190, 'DropoutShared_0': 0.1399266251038572, 'DropoutTarget_0': 0.22458504766100354, 'DropoutTarget_1': 0.1629810051899736, 'learningRate': 9.040192104128933e-05, 'w1': 5.367306511370524, 'w2': 4.05161944725236, 'w3': 1.1417470551893714, 'w4': 5.364715155160317, 'w5': 1.2451159699686885}. Best is trial 105 with value: 0.3464444364820208.
+2026-04-18 16:06:39,897 - INFO - Starting trial 111
+[I 2026-04-18 16:38:25,887] Trial 111 finished with value: 0.3520731916739827 and parameters: {'nGraphConvolutionalLayers': 2, 'n_node_neurons': 93, 'n_edge_neurons': 256, 'DropoutGNN': 0.1014063251737618, 'momentumBatchNorm': 0.8346318676949459, 'nSharedLayers': 1, 'nTargetSpecificLayers': 2, 'n_shared_0': 94, 'n_target_0': 172, 'n_target_1': 188, 'DropoutShared_0': 0.13745191004436091, 'DropoutTarget_0': 0.21915228234332734, 'DropoutTarget_1': 0.12942236772165988, 'learningRate': 9.268390381935456e-05, 'w1': 5.37200577810032, 'w2': 3.826162020387104, 'w3': 1.1391840685555106, 'w4': 5.714196146690398, 'w5': 1.1249289760375247}. Best is trial 105 with value: 0.3464444364820208.
+2026-04-18 16:38:25,889 - INFO - Starting trial 112
+[I 2026-04-18 17:10:05,942] Trial 112 finished with value: 0.35555609847818104 and parameters: {'nGraphConvolutionalLayers': 2, 'n_node_neurons': 93, 'n_edge_neurons': 263, 'DropoutGNN': 0.07295856439609166, 'momentumBatchNorm': 0.8364561669123242, 'nSharedLayers': 1, 'nTargetSpecificLayers': 2, 'n_shared_0': 90, 'n_target_0': 167, 'n_target_1': 187, 'DropoutShared_0': 0.1432651169053995, 'DropoutTarget_0': 0.24676174910757923, 'DropoutTarget_1': 0.1296283675612969, 'learningRate': 9.104872930749147e-05, 'w1': 5.3788694800557915, 'w2': 4.025412175093301, 'w3': 1.1579866978818443, 'w4': 5.760687024387754, 'w5': 1.1552572356943065}. Best is trial 105 with value: 0.3464444364820208.
+2026-04-18 17:10:05,944 - INFO - Starting trial 113
+[I 2026-04-18 17:41:40,976] Trial 113 pruned. 
+2026-04-18 17:41:40,997 - INFO - Starting trial 114
+[I 2026-04-18 18:12:49,031] Trial 114 pruned. 
+2026-04-18 18:12:49,032 - INFO - Starting trial 115
+[I 2026-04-18 18:44:19,028] Trial 115 pruned. 
+2026-04-18 18:44:19,029 - INFO - Starting trial 116
+[I 2026-04-18 19:14:49,444] Trial 116 pruned. 
+2026-04-18 19:14:49,459 - INFO - Starting trial 117
+[I 2026-04-18 19:46:08,107] Trial 117 pruned. 
+2026-04-18 19:46:08,108 - INFO - Starting trial 118
+[I 2026-04-18 20:17:53,883] Trial 118 pruned. 
+2026-04-18 20:17:53,884 - INFO - Starting trial 119
+[I 2026-04-18 20:49:35,393] Trial 119 pruned. 
+2026-04-18 20:49:35,430 - INFO - Starting trial 120
+[I 2026-04-18 21:21:20,543] Trial 120 pruned. 
+2026-04-18 21:21:20,544 - INFO - Starting trial 121
+[I 2026-04-18 21:52:56,522] Trial 121 pruned. 
+2026-04-18 21:52:56,522 - INFO - Starting trial 122
+[I 2026-04-18 22:24:37,463] Trial 122 pruned. 
+2026-04-18 22:24:37,464 - INFO - Starting trial 123
+[I 2026-04-18 22:55:41,845] Trial 123 pruned. 
+2026-04-18 22:55:41,846 - INFO - Starting trial 124
+[I 2026-04-18 23:27:22,811] Trial 124 pruned. 
+2026-04-18 23:27:22,827 - INFO - Starting trial 125
+[I 2026-04-18 23:59:01,077] Trial 125 pruned. 
+2026-04-18 23:59:01,077 - INFO - Starting trial 126
+[I 2026-04-19 00:33:47,089] Trial 126 pruned. 
+2026-04-19 00:33:47,090 - INFO - Starting trial 127
+[I 2026-04-19 01:06:37,371] Trial 127 pruned. 
+2026-04-19 01:06:37,371 - INFO - Starting trial 128
+[I 2026-04-19 01:39:17,732] Trial 128 pruned. 
+2026-04-19 01:39:17,750 - INFO - Starting trial 129
+[I 2026-04-19 02:11:57,229] Trial 129 pruned. 
+2026-04-19 02:11:57,230 - INFO - Starting trial 130
+[I 2026-04-19 02:43:31,886] Trial 130 pruned. 
+2026-04-19 02:43:31,886 - INFO - Starting trial 131
+[I 2026-04-19 03:16:06,007] Trial 131 pruned. 
+2026-04-19 03:16:06,038 - INFO - Starting trial 132
+[I 2026-04-19 03:48:47,011] Trial 132 finished with value: 0.35890991020770296 and parameters: {'nGraphConvolutionalLayers': 3, 'n_node_neurons': 151, 'n_edge_neurons': 246, 'DropoutGNN': 0.13450745005891293, 'momentumBatchNorm': 0.7563341041250596, 'nSharedLayers': 1, 'nTargetSpecificLayers': 2, 'n_shared_0': 136, 'n_target_0': 273, 'n_target_1': 144, 'DropoutShared_0': 0.10455131904665124, 'DropoutTarget_0': 0.18755872931893558, 'DropoutTarget_1': 0.18307821339484273, 'learningRate': 7.750835703461957e-05, 'w1': 5.914248675806797, 'w2': 3.01075019163154, 'w3': 1.0939489545065704, 'w4': 4.804775223653212, 'w5': 1.5334440950991481}. Best is trial 105 with value: 0.3464444364820208.
+2026-04-19 03:48:47,011 - INFO - Starting trial 133
+[I 2026-04-19 04:21:13,748] Trial 133 finished with value: 0.3555563602419127 and parameters: {'nGraphConvolutionalLayers': 3, 'n_node_neurons': 120, 'n_edge_neurons': 227, 'DropoutGNN': 0.13396879894440755, 'momentumBatchNorm': 0.7490926283932717, 'nSharedLayers': 1, 'nTargetSpecificLayers': 2, 'n_shared_0': 278, 'n_target_0': 271, 'n_target_1': 132, 'DropoutShared_0': 0.08074939126745738, 'DropoutTarget_0': 0.2423089893949123, 'DropoutTarget_1': 0.17158420895472837, 'learningRate': 8.028662456650151e-05, 'w1': 5.875900296254461, 'w2': 4.0925874562984985, 'w3': 1.193275454773044, 'w4': 4.834980952045406, 'w5': 1.5878300973387995}. Best is trial 105 with value: 0.3464444364820208.
+2026-04-19 04:21:13,751 - INFO - Starting trial 134
+[I 2026-04-19 04:53:42,089] Trial 134 finished with value: 0.35505868586755934 and parameters: {'nGraphConvolutionalLayers': 3, 'n_node_neurons': 121, 'n_edge_neurons': 238, 'DropoutGNN': 0.13300632237946386, 'momentumBatchNorm': 0.7663099718699082, 'nSharedLayers': 1, 'nTargetSpecificLayers': 2, 'n_shared_0': 251, 'n_target_0': 266, 'n_target_1': 144, 'DropoutShared_0': 0.08474982537127426, 'DropoutTarget_0': 0.2615190532664099, 'DropoutTarget_1': 0.17009464400338803, 'learningRate': 7.97950686360651e-05, 'w1': 5.772319500248184, 'w2': 4.348343624515696, 'w3': 1.4545047583674915, 'w4': 4.910547459725595, 'w5': 1.559732401297321}. Best is trial 105 with value: 0.3464444364820208.
+2026-04-19 04:53:42,090 - INFO - Starting trial 135
+[I 2026-04-19 05:26:27,457] Trial 135 pruned. 
+2026-04-19 05:26:27,475 - INFO - Starting trial 136
+[I 2026-04-19 05:59:14,146] Trial 136 pruned. 
+2026-04-19 05:59:14,146 - INFO - Starting trial 137
+[I 2026-04-19 06:31:39,917] Trial 137 pruned. 
+2026-04-19 06:31:39,917 - INFO - Starting trial 138
+[I 2026-04-19 07:04:04,698] Trial 138 finished with value: 0.35104520115114396 and parameters: {'nGraphConvolutionalLayers': 3, 'n_node_neurons': 99, 'n_edge_neurons': 226, 'DropoutGNN': 0.10011526757763779, 'momentumBatchNorm': 0.7272735588994633, 'nSharedLayers': 1, 'nTargetSpecificLayers': 2, 'n_shared_0': 258, 'n_target_0': 278, 'n_target_1': 127, 'DropoutShared_0': 0.10477505582762443, 'DropoutTarget_0': 0.2684161207711999, 'DropoutTarget_1': 0.32146056438972004, 'learningRate': 8.272789863913565e-05, 'w1': 5.424925024955685, 'w2': 4.145206680591892, 'w3': 1.5070494793431863, 'w4': 4.675563744034635, 'w5': 1.131990166121907}. Best is trial 105 with value: 0.3464444364820208.
+2026-04-19 07:04:04,699 - INFO - Starting trial 139
+[I 2026-04-19 07:36:42,657] Trial 139 pruned. 
+2026-04-19 07:36:42,678 - INFO - Starting trial 140
+[I 2026-04-19 08:09:17,023] Trial 140 pruned. 
+2026-04-19 08:09:17,024 - INFO - Starting trial 141
+[I 2026-04-19 08:41:49,849] Trial 141 finished with value: 0.3498254055778186 and parameters: {'nGraphConvolutionalLayers': 3, 'n_node_neurons': 100, 'n_edge_neurons': 227, 'DropoutGNN': 0.07546882336939685, 'momentumBatchNorm': 0.6788406817384689, 'nSharedLayers': 1, 'nTargetSpecificLayers': 2, 'n_shared_0': 279, 'n_target_0': 279, 'n_target_1': 149, 'DropoutShared_0': 0.059781304444487995, 'DropoutTarget_0': 0.2791732791451783, 'DropoutTarget_1': 0.32631763683456855, 'learningRate': 5.112627628640821e-05, 'w1': 5.393546668262779, 'w2': 4.616145925572721, 'w3': 1.6994555616424463, 'w4': 5.0206959525331385, 'w5': 1.0012667971135123}. Best is trial 105 with value: 0.3464444364820208.
+2026-04-19 08:41:49,849 - INFO - Starting trial 142
+[I 2026-04-19 09:14:24,062] Trial 142 finished with value: 0.35735458547160737 and parameters: {'nGraphConvolutionalLayers': 3, 'n_node_neurons': 102, 'n_edge_neurons': 227, 'DropoutGNN': 0.07051222882019582, 'momentumBatchNorm': 0.6840293968270913, 'nSharedLayers': 1, 'nTargetSpecificLayers': 2, 'n_shared_0': 300, 'n_target_0': 279, 'n_target_1': 155, 'DropoutShared_0': 0.06283404503759563, 'DropoutTarget_0': 0.2288669150143467, 'DropoutTarget_1': 0.3348278659941132, 'learningRate': 5.3403205242201174e-05, 'w1': 5.395934636846871, 'w2': 4.73018893031226, 'w3': 1.6962791058226552, 'w4': 5.034416960592728, 'w5': 1.1150409030848938}. Best is trial 105 with value: 0.3464444364820208.
+2026-04-19 09:14:24,097 - INFO - Starting trial 143
+[I 2026-04-19 09:46:47,743] Trial 143 finished with value: 0.3505930362712769 and parameters: {'nGraphConvolutionalLayers': 3, 'n_node_neurons': 96, 'n_edge_neurons': 236, 'DropoutGNN': 0.08073558474598758, 'momentumBatchNorm': 0.6227306704342388, 'nSharedLayers': 1, 'nTargetSpecificLayers': 2, 'n_shared_0': 291, 'n_target_0': 283, 'n_target_1': 146, 'DropoutShared_0': 0.23426396722301412, 'DropoutTarget_0': 0.27327739372929416, 'DropoutTarget_1': 0.35978477290770594, 'learningRate': 8.21737165019325e-05, 'w1': 5.277200532742515, 'w2': 4.908544636877389, 'w3': 1.6177082226122512, 'w4': 4.933398818482099, 'w5': 1.0055568242872106}. Best is trial 105 with value: 0.3464444364820208.
+2026-04-19 09:46:47,744 - INFO - Starting trial 144
+[I 2026-04-19 10:19:21,840] Trial 144 finished with value: 0.34903712222973504 and parameters: {'nGraphConvolutionalLayers': 3, 'n_node_neurons': 96, 'n_edge_neurons': 233, 'DropoutGNN': 0.05940920054763281, 'momentumBatchNorm': 0.6720601389121255, 'nSharedLayers': 1, 'nTargetSpecificLayers': 2, 'n_shared_0': 290, 'n_target_0': 270, 'n_target_1': 149, 'DropoutShared_0': 0.2734619822746292, 'DropoutTarget_0': 0.2743965299230176, 'DropoutTarget_1': 0.3662784154915674, 'learningRate': 8.923378531513165e-05, 'w1': 5.539693690446929, 'w2': 5.00970349696486, 'w3': 1.5918449476991527, 'w4': 4.929309161067813, 'w5': 1.0152778481476672}. Best is trial 105 with value: 0.3464444364820208.
+2026-04-19 10:19:21,840 - INFO - Starting trial 145
+[I 2026-04-19 10:52:02,692] Trial 145 finished with value: 0.3570962664626894 and parameters: {'nGraphConvolutionalLayers': 3, 'n_node_neurons': 95, 'n_edge_neurons': 219, 'DropoutGNN': 0.035970255007534, 'momentumBatchNorm': 0.6136053791089893, 'nSharedLayers': 1, 'nTargetSpecificLayers': 2, 'n_shared_0': 283, 'n_target_0': 277, 'n_target_1': 146, 'DropoutShared_0': 0.2986769692445394, 'DropoutTarget_0': 0.2788179476756108, 'DropoutTarget_1': 0.37067599957524605, 'learningRate': 0.00013804500566856428, 'w1': 5.567237853838819, 'w2': 5.094425069661827, 'w3': 1.5846163019840498, 'w4': 5.146650165790997, 'w5': 1.018694942943204}. Best is trial 105 with value: 0.3464444364820208.
+2026-04-19 10:52:02,730 - INFO - Starting trial 146
+[I 2026-04-19 11:24:39,980] Trial 146 pruned. 
+2026-04-19 11:24:39,980 - INFO - Starting trial 147
+[I 2026-04-19 11:57:19,021] Trial 147 pruned. 
+2026-04-19 11:57:19,021 - INFO - Starting trial 148
+[I 2026-04-19 12:29:59,431] Trial 148 pruned. 
+2026-04-19 12:29:59,431 - INFO - Starting trial 149
+[I 2026-04-19 13:02:49,458] Trial 149 pruned. 
+2026-04-19 13:02:49,487 - INFO - Starting trial 150
+2026-04-19 13:35:23,063 - INFO - Study saved to /lustre/scratch-global/cib/abiel/AMES_FINAL/optuna/study_20260415.pkl
+[I 2026-04-19 13:35:23,091] Trial 150 finished with value: 0.3471309468859718 and parameters: {'nGraphConvolutionalLayers': 3, 'n_node_neurons': 75, 'n_edge_neurons': 216, 'DropoutGNN': 0.07514510015155437, 'momentumBatchNorm': 0.6448049288567996, 'nSharedLayers': 1, 'nTargetSpecificLayers': 2, 'n_shared_0': 260, 'n_target_0': 194, 'n_target_1': 153, 'DropoutShared_0': 0.29720231572250644, 'DropoutTarget_0': 0.3005448517990411, 'DropoutTarget_1': 0.3703527073471488, 'learningRate': 0.00010887664319495924, 'w1': 5.645518981331277, 'w2': 4.24292451776411, 'w3': 1.4658265015368492, 'w4': 4.740549219055804, 'w5': 1.244108333318906}. Best is trial 105 with value: 0.3464444364820208.
+2026-04-19 13:35:23,092 - INFO - Starting trial 151
+[I 2026-04-19 14:07:50,493] Trial 151 pruned. 
+2026-04-19 14:07:50,493 - INFO - Starting trial 152
+[I 2026-04-19 14:40:25,712] Trial 152 finished with value: 0.35151870413905095 and parameters: {'nGraphConvolutionalLayers': 3, 'n_node_neurons': 74, 'n_edge_neurons': 208, 'DropoutGNN': 0.07450732543083627, 'momentumBatchNorm': 0.6391059441197481, 'nSharedLayers': 1, 'nTargetSpecificLayers': 2, 'n_shared_0': 280, 'n_target_0': 186, 'n_target_1': 141, 'DropoutShared_0': 0.2743171056437492, 'DropoutTarget_0': 0.23895199214355972, 'DropoutTarget_1': 0.3589799796767142, 'learningRate': 0.00010649233721338258, 'w1': 5.855937805081475, 'w2': 4.258332448172759, 'w3': 1.4199602880484687, 'w4': 4.733607612125924, 'w5': 1.2477225776438583}. Best is trial 105 with value: 0.3464444364820208.
+2026-04-19 14:40:25,713 - INFO - Starting trial 153
+[I 2026-04-19 15:13:00,418] Trial 153 finished with value: 0.3436604274170739 and parameters: {'nGraphConvolutionalLayers': 3, 'n_node_neurons': 68, 'n_edge_neurons': 210, 'DropoutGNN': 0.041274102922155415, 'momentumBatchNorm': 0.6482826858516952, 'nSharedLayers': 1, 'nTargetSpecificLayers': 2, 'n_shared_0': 260, 'n_target_0': 190, 'n_target_1': 155, 'DropoutShared_0': 0.2839369402610895, 'DropoutTarget_0': 0.3258547453317812, 'DropoutTarget_1': 0.3603408419615237, 'learningRate': 0.00010796271919374848, 'w1': 5.847666080579569, 'w2': 4.24222429404212, 'w3': 1.6982889136575947, 'w4': 4.670536464959126, 'w5': 1.0985163596222776}. Best is trial 153 with value: 0.3436604274170739.
+2026-04-19 15:13:00,433 - INFO - Starting trial 154
+[I 2026-04-19 15:45:25,094] Trial 154 pruned. 
+2026-04-19 15:45:25,095 - INFO - Starting trial 155
+[I 2026-04-19 16:17:50,340] Trial 155 pruned. 
+2026-04-19 16:17:50,340 - INFO - Starting trial 156
+[I 2026-04-19 16:50:12,561] Trial 156 pruned. 
+2026-04-19 16:50:12,561 - INFO - Starting trial 157
+[I 2026-04-19 17:22:18,038] Trial 157 finished with value: 0.3550671116227196 and parameters: {'nGraphConvolutionalLayers': 3, 'n_node_neurons': 57, 'n_edge_neurons': 228, 'DropoutGNN': 0.052991151680607515, 'momentumBatchNorm': 0.6242706865204286, 'nSharedLayers': 1, 'nTargetSpecificLayers': 2, 'n_shared_0': 277, 'n_target_0': 171, 'n_target_1': 202, 'DropoutShared_0': 0.27004985285907873, 'DropoutTarget_0': 0.3010941678412505, 'DropoutTarget_1': 0.36639092878224144, 'learningRate': 0.00010047981831324563, 'w1': 5.608200213233293, 'w2': 3.97216388978265, 'w3': 1.5879563472515204, 'w4': 4.688042695436594, 'w5': 1.2501308051128441}. Best is trial 153 with value: 0.3436604274170739.
+2026-04-19 17:22:18,039 - INFO - Starting trial 158
+[I 2026-04-19 17:54:35,830] Trial 158 pruned. 
+2026-04-19 17:54:35,831 - INFO - Starting trial 159
+[I 2026-04-19 18:27:08,452] Trial 159 pruned. 
+2026-04-19 18:27:08,472 - INFO - Starting trial 160
+[I 2026-04-19 18:58:48,532] Trial 160 pruned. 
+2026-04-19 18:58:48,604 - INFO - Study saved to /lustre/scratch-global/cib/abiel/AMES_FINAL/optuna/study_20260415.pkl
+2026-04-19 18:58:48,742 - INFO - Optimization complete. Finished trials: 161, Complete trials: 58
+2026-04-19 18:58:48,743 - INFO - Best trial: value=0.343660
+2026-04-19 18:58:48,743 - INFO -   nGraphConvolutionalLayers: 3
+2026-04-19 18:58:48,743 - INFO -   n_node_neurons: 68
+2026-04-19 18:58:48,743 - INFO -   n_edge_neurons: 210
+2026-04-19 18:58:48,743 - INFO -   DropoutGNN: 0.041274102922155415
+2026-04-19 18:58:48,743 - INFO -   momentumBatchNorm: 0.6482826858516952
+2026-04-19 18:58:48,743 - INFO -   nSharedLayers: 1
+2026-04-19 18:58:48,743 - INFO -   nTargetSpecificLayers: 2
+2026-04-19 18:58:48,743 - INFO -   n_shared_0: 260
+2026-04-19 18:58:48,744 - INFO -   n_target_0: 190
+2026-04-19 18:58:48,744 - INFO -   n_target_1: 155
+2026-04-19 18:58:48,744 - INFO -   DropoutShared_0: 0.2839369402610895
+2026-04-19 18:58:48,744 - INFO -   DropoutTarget_0: 0.3258547453317812
+2026-04-19 18:58:48,744 - INFO -   DropoutTarget_1: 0.3603408419615237
+2026-04-19 18:58:48,744 - INFO -   learningRate: 0.00010796271919374848
+2026-04-19 18:58:48,744 - INFO -   w1: 5.847666080579569
+2026-04-19 18:58:48,744 - INFO -   w2: 4.24222429404212
+2026-04-19 18:58:48,744 - INFO -   w3: 1.6982889136575947
+2026-04-19 18:58:48,744 - INFO -   w4: 4.670536464959126
+2026-04-19 18:58:48,744 - INFO -   w5: 1.0985163596222776

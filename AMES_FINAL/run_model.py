@@ -180,27 +180,76 @@ def save_study(study, path):
 def load_study(path):
     """Load an Optuna study from a pickle file.
 
-    Applies a compatibility shim for studies saved under NumPy 1.x: those
-    pickles stored BitGenerator types as class references, but NumPy 2.x's
-    __bit_generator_ctor expects a string name.  The shim is restored after
-    loading regardless of success or failure.
+    Applies compatibility shims for studies saved with older library versions:
+    1. NumPy 1.x → 2.x: BitGenerator stored as class reference, now expects string name.
+       Also, NumPy 2.x validates the MT19937 state dict format more strictly; use a
+       lenient subclass (_CompatMT19937) that ignores incompatible state data.
+    2. Old Optuna → new Optuna: _ParzenEstimatorParameters NamedTuple grew new required
+       fields (e.g. categorical_distance_func); patch __new__ to supply None for missing fields.
+    Both shims are restored after loading regardless of success or failure.
     """
     import numpy.random._pickle as _np_rand_pickle
+    import optuna.samplers._tpe.parzen_estimator as _tpe_pe_mod
 
-    _orig = _np_rand_pickle.__bit_generator_ctor
+    # Lenient MT19937 subclass: ignores incompatible state dicts (safe for viz)
+    class _CompatMT19937(np.random.MT19937):
+        def __setstate__(self, state):
+            try:
+                super().__setstate__(state)
+            except (ValueError, TypeError):
+                pass  # Use default state when cluster/local NumPy state formats differ
 
-    def _compat_ctor(bit_generator_name=None):
+    # --- NumPy shim ---
+    _orig_bg_ctor = _np_rand_pickle.__bit_generator_ctor
+
+    def _compat_bg_ctor(bit_generator_name=None):
+        if isinstance(bit_generator_name, np.random.BitGenerator):
+            return bit_generator_name  # already an instance
         if isinstance(bit_generator_name, type):
-            # NumPy 1.x pickled the class itself; instantiate directly.
+            # NumPy 1.x pickled the class itself; return compat subclass for MT19937
+            if issubclass(bit_generator_name, np.random.MT19937):
+                return _CompatMT19937()
             return bit_generator_name()
-        return _orig(bit_generator_name)
+        return _orig_bg_ctor(bit_generator_name)
 
-    _np_rand_pickle.__bit_generator_ctor = _compat_ctor
+    _np_rand_pickle.__bit_generator_ctor = _compat_bg_ctor
+
+    # __randomstate_ctor and __generator_ctor capture __bit_generator_ctor
+    # as a default argument at definition time, so patching the module
+    # attribute alone doesn't reach them. Override both to use our shim.
+    _orig_rs_ctor = _np_rand_pickle.__randomstate_ctor
+    _orig_gen_ctor = _np_rand_pickle.__generator_ctor
+
+    def _compat_rs_ctor(bit_generator_name="MT19937", bit_generator_ctor=None):
+        return _orig_rs_ctor(bit_generator_name, bit_generator_ctor=_compat_bg_ctor)
+
+    def _compat_gen_ctor(bit_generator_name="MT19937", bit_generator_ctor=None):
+        return _orig_gen_ctor(bit_generator_name, bit_generator_ctor=_compat_bg_ctor)
+
+    _np_rand_pickle.__randomstate_ctor = _compat_rs_ctor
+    _np_rand_pickle.__generator_ctor = _compat_gen_ctor
+
+    # --- Optuna _ParzenEstimatorParameters shim ---
+    _PEP = _tpe_pe_mod._ParzenEstimatorParameters
+    _n_pep_fields = len(_PEP._fields)
+    _orig_pep_new = _PEP.__new__
+
+    def _compat_pep_new(cls, *args, **kwargs):
+        # Pad any missing trailing fields with None (handles older pkl files)
+        if len(args) < _n_pep_fields:
+            args = args + (None,) * (_n_pep_fields - len(args))
+        return _orig_pep_new(cls, *args, **kwargs)
+
+    _PEP.__new__ = _compat_pep_new
+
     try:
         with open(path, "rb") as f:
             return pickle.load(f)
     finally:
-        _np_rand_pickle.__bit_generator_ctor = _orig
+        _np_rand_pickle.__bit_generator_ctor = _orig_bg_ctor
+        _np_rand_pickle.__randomstate_ctor = _orig_rs_ctor
+        _np_rand_pickle.__generator_ctor = _orig_gen_ctor
+        _PEP.__new__ = _orig_pep_new
 
 
 # ==============================================================================
@@ -223,7 +272,7 @@ def load_yaml_and_graph_info(input_file):
     n_node_features = database_data.get("nNodeFeatures")
     bond_angle_features = database_data.get("BondAngleFeatures", True)
     dihedral_angle_features = database_data.get("DihedralFeatures", True)
-    n_edge_features = 1  # distance
+    n_edge_features = database_data.get("nDistanceFeatures", 1)  # 1 for raw, N for RBF
     if bond_angle_features:
         n_edge_features += 1  # bond-angle
     if dihedral_angle_features:

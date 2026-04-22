@@ -219,7 +219,16 @@ def evaluate_alerts(smiles_list, important_atoms_per_mol, alerts, predictions, c
     for i, (smiles, imp_dict, pred, label, label_overall) in enumerate(
             zip(smiles_list, important_atoms_per_mol, predictions, correct_val, correct_val_overall)):
         # mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
-        mol = Chem.MolFromSmiles(smiles)
+        mol = Chem.MolFromSmiles(smiles) if isinstance(smiles, str) else None
+        if mol is None:
+            for name, smarts in alerts:
+                rows.append({
+                    "mol_id": i, "alert": name,
+                    "tight_score": 0, "loose_score": 0,
+                    "prediction": pred, "label": label,
+                    "label_overall": label_overall,
+                })
+            continue
         for name, smarts in alerts:
             tight_score, _ = compute_overlap_score(mol, smarts, imp_dict["tight"])
             loose_score, _ = compute_overlap_score(mol, smarts, imp_dict["loose"])
@@ -1610,8 +1619,10 @@ def main():
     L2Regularization = input_data.get("L2Regularization", 0.005)  # L2 regularization coefficient
     loadModel = input_data.get("loadModel", False)
     loadOptimizer = input_data.get("loadOptimizer", False)
-    useMolecularDescriptors = input_data.get("useMolecularDescriptors",
-                                             False)  # Use molecular descriptors instead of graphs for comparison to original MTL paper
+    input_mode = input_data.get("inputMode", None)
+    if input_mode is None:
+        # Backward compatibility with old YAML configs
+        input_mode = "descriptor" if input_data.get("useMolecularDescriptors", False) else "gnn"
 
     trainDir = database_path + '/train/'
     valDir = database_path + '/validate/'
@@ -1651,7 +1662,7 @@ def main():
                             n_edge_features, dropout_GNN, momentum_batch_norm,
                             n_shared_layers, n_target_specific_layers, n_shared, n_target, dropout_shared,
                             dropout_target,
-                            activation, useMolecularDescriptors, n_inputs)
+                            activation, input_mode, n_inputs)
 
     checkpoint = torch.load(args.checkpoint_file, map_location=torch.device('cpu'))
 
@@ -1671,7 +1682,7 @@ def main():
 
         task = task_id
         model_args = (n_node_neurons, n_node_features, n_edge_neurons, n_edge_features, n_graph_convolution_layers,
-                      n_shared_layers, n_target_specific_layers, useMolecularDescriptors)
+                      n_shared_layers, n_target_specific_layers, input_mode)
 
         task_model = TaskSpecificGNN(model, task_idx=task, model_args=model_args)
         task_model.eval()
@@ -1786,18 +1797,20 @@ def main():
 
             molecule_index = molecule_index = int(
                 re.search(r'(\d+)_', filepath).group(1))  # get molecule number from input file name
-            smiles_column_index = 3
-            correct_val_index = 1364 + task
-            correct_val_overall_index = 1369
+
+            # Resolve column names to support both CSV formats
+            _strain_cols = ['TA98', 'TA100', 'TA102', 'TA1535', 'TA1537']
+            smiles_col = 'SMILES RDKit' if 'SMILES RDKit' in df.columns else 'SMILES'
+            row = df.iloc[molecule_index - 1]
 
             # Extract the SMILES string from the specific row and column
-            smiles_string = df.iloc[molecule_index - 1, smiles_column_index]
+            smiles_string = row[smiles_col]
             smiles_list.append(smiles_string)
 
-            correct = df.iloc[molecule_index - 1, correct_val_index]
+            correct = row[_strain_cols[task]]
             correct_val.append(correct)
 
-            correct_overall = df.iloc[molecule_index - 1, correct_val_overall_index]
+            correct_overall = row['Overall']
             correct_val_overall.append(correct_overall)
 
         per_task_impatoms.append({task_id: important_atoms_per_mol})
@@ -1982,7 +1995,7 @@ def main():
         for task_id in range(5):
             task = task_id
             model_args = (n_node_neurons, n_node_features, n_edge_neurons, n_edge_features, n_graph_convolution_layers,
-                          n_shared_layers, n_target_specific_layers, useMolecularDescriptors)
+                          n_shared_layers, n_target_specific_layers, input_mode)
 
             task_model = TaskSpecificGNN(model, task_idx=task, model_args=model_args)
             task_model.eval()
@@ -2052,17 +2065,19 @@ def main():
                 df = pd.read_csv(csv_file)
                 filepath = os.path.basename(data.file_name)
                 molecule_index = int(re.search(r'(\d+)_', filepath).group(1))
-                smiles_column_index = 3
-                correct_val_index = 1364 + task
-                correct_val_overall_index = 1369
 
-                smiles_string = df.iloc[molecule_index - 1, smiles_column_index]
+                # Resolve column names to support both CSV formats
+                _strain_cols = ['TA98', 'TA100', 'TA102', 'TA1535', 'TA1537']
+                smiles_col = 'SMILES RDKit' if 'SMILES RDKit' in df.columns else 'SMILES'
+                row = df.iloc[molecule_index - 1]
+
+                smiles_string = row[smiles_col]
                 smiles_list.append(smiles_string)
 
-                correct = df.iloc[molecule_index - 1, correct_val_index]
+                correct = row[_strain_cols[task]]
                 correct_val.append(correct)
 
-                correct_overall = df.iloc[molecule_index - 1, correct_val_overall_index]
+                correct_overall = row['Overall']
                 correct_val_overall.append(correct_overall)
 
             # After looping dataset, store results per task
