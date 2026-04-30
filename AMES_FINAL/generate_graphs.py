@@ -30,6 +30,9 @@ def generate_graphs(graphs: AtomicStructureGraphs,
 
     """
 
+    n_success = 0
+    n_failed = 0
+
     for file in files:
 
         words = file.parts
@@ -37,12 +40,19 @@ def generate_graphs(graphs: AtomicStructureGraphs,
         input_file = words[-1]
 
         words = input_file.split('.')
- 
+
         graph_file = str(target_dir) + '/' + words[0] + output_file_ext
 
         file_name = str(file)
 
-        structure_graph = graphs.structure2graph(file_name, set)
+        try:
+            structure_graph = graphs.structure2graph(file_name, set)
 
-        with open( graph_file, 'wb' ) as outfile:
-           pickle.dump(structure_graph, outfile)
+            with open( graph_file, 'wb' ) as outfile:
+               pickle.dump(structure_graph, outfile)
+            n_success += 1
+        except Exception as e:
+            n_failed += 1
+            print(f"  WARNING: Failed to generate graph for {input_file}: {e}")
+
+    print(f"  Generated {n_success} graphs, {n_failed} failed.")

@@ -1,5 +1,5 @@
 CUDA Available: True
-Device Name: NVIDIA A100-PCIE-40GB
+Device Name: NVIDIA H200
 sending incremental file list
 ./
 .DS_Store
@@ -35,10 +35,11 @@ masked_loss_function.py
 plan.md
 plot_heatmap_bars.py
 run_model.py
+run_model_old.py
 set_seed.py
 set_up_atomic_structure_graphs.py
-slurm.drago31050352,1532153.err
-slurm.drago31050352,1532153.out
+slurm.drago32060019,1548344.err
+slurm.drago32060019,1548344.out
 smiles_to_xyz.py
 structure_utils.py
 train_sample.yml
@@ -74,11 +75,6 @@ data/data_with_negatives_hansen_eurl.csv
 metrics/
 optuna/
 output/
-output/hp_opt.log
-output/training.log
-output/tensorboard/
-output/tensorboard/events.out.tfevents.1776164650.drago31050352.mgmt.cc.csic.es.1668804.0
-output/tensorboard/events.out.tfevents.1776236805.drago31050352.mgmt.cc.csic.es.1817970.0
 
-sent 305,918,003 bytes  received 1,374 bytes  203,946,251.33 bytes/sec
-total size is 305,837,403  speedup is 1.00
+sent 306,025,743 bytes  received 1,313 bytes  29,145,433.90 bytes/sec
+total size is 305,945,431  speedup is 1.00

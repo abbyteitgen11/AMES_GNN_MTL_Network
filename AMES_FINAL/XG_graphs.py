@@ -205,7 +205,8 @@ class XG(AtomicStructureGraphs):
 
             dij = np.sqrt(dij2[i, j])
             if self.distance_features is not None:
-                bond_features[n, 0:n_dist] = self.distance_features.u_k(dij)
+                dij_clamped = np.clip(dij, self.distance_features._x_min, self.distance_features._x_max)
+                bond_features[n, 0:n_dist] = self.distance_features.u_k(dij_clamped)
             else:
                 bond_features[n, 0] = dij
             rij = positions[j, :] - positions[i, :]
