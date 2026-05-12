@@ -859,8 +859,8 @@ def analyze_per_atom_overlap_by_alert(per_task_impatoms, alerts_compiled, global
         ring_imp_sum = [defaultdict(int) for _ in range(n_patts)]
         ring_imp_cnt = [defaultdict(int) for _ in range(n_patts)]
 
-        # (mol, best_match, n_atoms) — updated to keep the smallest matching molecule
-        rep_mol_by_patt = [None] * n_patts
+        # mol_id -> (mol, best_match, n_atoms); up to 3 smallest per pattern
+        rep_mol_by_patt = [{} for _ in range(n_patts)]
 
         # --- Step 1: Aggregate per molecule / strain ---
         for task_dict in per_task_impatoms:
@@ -937,35 +937,32 @@ def analyze_per_atom_overlap_by_alert(per_task_impatoms, alerts_compiled, global
                             ring_imp_sum[patt_idx][rkey] += (1 if extra_atom in tight_set else 0)
                             ring_imp_cnt[patt_idx][rkey] += 1
 
-                    # Keep smallest molecule as representative
+                    # Keep the 3 smallest unique molecules as representatives
                     n_atoms = mol.GetNumAtoms()
-                    cur = rep_mol_by_patt[patt_idx]
-                    if cur is None or n_atoms < cur[2]:
-                        rep_mol_by_patt[patt_idx] = (mol, best_match, n_atoms)
+                    rep_dict = rep_mol_by_patt[patt_idx]
+                    if mol_id not in rep_dict:
+                        rep_dict[mol_id] = (mol, best_match, n_atoms)
+                        if len(rep_dict) > 3:
+                            worst_id = max(rep_dict, key=lambda k: rep_dict[k][2])
+                            del rep_dict[worst_id]
 
         # --- Step 2: Visualize and record ---
         for patt_idx, patt in enumerate(patt_list):
-            rep_info = rep_mol_by_patt[patt_idx]
-            if rep_info is None:
+            rep_entries = sorted(rep_mol_by_patt[patt_idx].values(), key=lambda x: x[2])
+            if not rep_entries:
                 continue
 
-            rep_mol, rep_match, _ = rep_info
-            matched_set = set(rep_match)
-            match_pos_map = {atom_idx: pos for pos, atom_idx in enumerate(rep_match)}
+            patt_suffix = f"_patt{patt_idx}" if len(patt_list) > 1 else ""
 
-            atom_colors = {}
-            highlight_atoms = []
-
-            # SMARTS-position atoms
-            for smarts_pos, mol_atom_idx in enumerate(rep_match):
+            # Write CSV records once (importance values are per-SMARTS-position, same for all reps)
+            first_mol, first_match, _ = rep_entries[0]
+            first_matched_set = set(first_match)
+            first_match_pos_map = {atom_idx: pos for pos, atom_idx in enumerate(first_match)}
+            for smarts_pos, mol_atom_idx in enumerate(first_match):
                 cnt = pos_imp_cnt[patt_idx].get(smarts_pos, 0)
                 if cnt == 0:
                     continue
                 freq = pos_imp_sum[patt_idx][smarts_pos] / cnt
-                val = freq ** 2  # square for visual contrast
-                if val > 0.0025:
-                    atom_colors[mol_atom_idx] = (1.0, 1.0 - val, 1.0 - val)
-                    highlight_atoms.append(mol_atom_idx)
                 all_records.append({
                     "alert": alert_name, "patt_idx": patt_idx,
                     "key_type": "smarts_pos", "key": smarts_pos,
@@ -973,12 +970,10 @@ def analyze_per_atom_overlap_by_alert(per_task_impatoms, alerts_compiled, global
                     "importance_freq": round(freq, 4),
                     "n_instances": cnt,
                 })
-
-            # Ring-extension atoms
-            for ring in rep_mol.GetRingInfo().AtomRings():
+            for ring in first_mol.GetRingInfo().AtomRings():
                 ring_set = set(ring)
-                ring_match = ring_set & matched_set
-                ring_extra = ring_set - matched_set
+                ring_match = ring_set & first_matched_set
+                ring_extra = ring_set - first_matched_set
                 if not ring_match or not ring_extra:
                     continue
                 ring_list = list(ring)
@@ -990,19 +985,15 @@ def analyze_per_atom_overlap_by_alert(per_task_impatoms, alerts_compiled, global
                         m_pos = ring_list.index(ma)
                         d = min((nm_pos - m_pos) % ring_n, (m_pos - nm_pos) % ring_n)
                         if d < best_dist:
-                            best_dist, best_sp = d, match_pos_map[ma]
+                            best_dist, best_sp = d, first_match_pos_map[ma]
                     if best_sp is None:
                         continue
-                    elem = rep_mol.GetAtomWithIdx(extra_atom).GetSymbol()
+                    elem = first_mol.GetAtomWithIdx(extra_atom).GetSymbol()
                     rkey = (best_sp, best_dist, elem)
                     cnt = ring_imp_cnt[patt_idx].get(rkey, 0)
                     if cnt == 0:
                         continue
                     freq = ring_imp_sum[patt_idx][rkey] / cnt
-                    val = freq ** 2
-                    if val > 0.0025:
-                        atom_colors[extra_atom] = (1.0, 1.0 - val, 1.0 - val)
-                        highlight_atoms.append(extra_atom)
                     all_records.append({
                         "alert": alert_name, "patt_idx": patt_idx,
                         "key_type": "ring_ext", "key": str(rkey),
@@ -1011,24 +1002,71 @@ def analyze_per_atom_overlap_by_alert(per_task_impatoms, alerts_compiled, global
                         "n_instances": cnt,
                     })
 
-            try:
-                drawer = rdMolDraw2D.MolDraw2DCairo(600, 600)
-            except AttributeError:
-                drawer = rdMolDraw2D.MolDraw2D(600, 600)
+            # Draw the averaged heatmap on each of the (up to 3) representative molecules
+            for rep_idx, (r_mol, r_match, _) in enumerate(rep_entries):
+                r_matched_set = set(r_match)
+                r_match_pos_map = {atom_idx: pos for pos, atom_idx in enumerate(r_match)}
 
-            rdMolDraw2D.PrepareAndDrawMolecule(
-                drawer, rep_mol,
-                highlightAtoms=highlight_atoms,
-                highlightAtomColors=atom_colors,
-                highlightAtomRadii={i: 0.4 for i in highlight_atoms},
-            )
-            drawer.FinishDrawing()
-            png_bytes = drawer.GetDrawingText()
+                r_atom_colors = {}
+                r_highlight_atoms = []
 
-            patt_suffix = f"_patt{patt_idx}" if len(patt_list) > 1 else ""
-            outpath = os.path.join(plot_dir, f"{alert_name.replace('/', '_')}{patt_suffix}_smarts_pos_avg.png")
-            with open(outpath, "wb") as fh:
-                fh.write(png_bytes)
+                for smarts_pos, mol_atom_idx in enumerate(r_match):
+                    cnt = pos_imp_cnt[patt_idx].get(smarts_pos, 0)
+                    if cnt == 0:
+                        continue
+                    freq = pos_imp_sum[patt_idx][smarts_pos] / cnt
+                    val = freq ** 2
+                    if val > 0.0025:
+                        r_atom_colors[mol_atom_idx] = (1.0, 1.0 - val, 1.0 - val)
+                        r_highlight_atoms.append(mol_atom_idx)
+
+                for ring in r_mol.GetRingInfo().AtomRings():
+                    ring_set = set(ring)
+                    ring_match = ring_set & r_matched_set
+                    ring_extra = ring_set - r_matched_set
+                    if not ring_match or not ring_extra:
+                        continue
+                    ring_list = list(ring)
+                    ring_n = len(ring_list)
+                    for extra_atom in ring_extra:
+                        nm_pos = ring_list.index(extra_atom)
+                        best_sp, best_dist = None, ring_n
+                        for ma in ring_match:
+                            m_pos = ring_list.index(ma)
+                            d = min((nm_pos - m_pos) % ring_n, (m_pos - nm_pos) % ring_n)
+                            if d < best_dist:
+                                best_dist, best_sp = d, r_match_pos_map[ma]
+                        if best_sp is None:
+                            continue
+                        elem = r_mol.GetAtomWithIdx(extra_atom).GetSymbol()
+                        rkey = (best_sp, best_dist, elem)
+                        cnt = ring_imp_cnt[patt_idx].get(rkey, 0)
+                        if cnt == 0:
+                            continue
+                        freq = ring_imp_sum[patt_idx][rkey] / cnt
+                        val = freq ** 2
+                        if val > 0.0025:
+                            r_atom_colors[extra_atom] = (1.0, 1.0 - val, 1.0 - val)
+                            r_highlight_atoms.append(extra_atom)
+
+                try:
+                    drawer = rdMolDraw2D.MolDraw2DCairo(600, 600)
+                except AttributeError:
+                    drawer = rdMolDraw2D.MolDraw2D(600, 600)
+
+                rdMolDraw2D.PrepareAndDrawMolecule(
+                    drawer, r_mol,
+                    highlightAtoms=r_highlight_atoms,
+                    highlightAtomColors=r_atom_colors,
+                    highlightAtomRadii={i: 0.4 for i in r_highlight_atoms},
+                )
+                drawer.FinishDrawing()
+                outpath = os.path.join(
+                    plot_dir,
+                    f"{alert_name.replace('/', '_')}{patt_suffix}_smarts_pos_avg_rep{rep_idx}.png",
+                )
+                with open(outpath, "wb") as fh:
+                    fh.write(drawer.GetDrawingText())
 
             plot_important_atoms_by_alert(
                 alert_name, [patt],
@@ -1553,6 +1591,44 @@ def plot_heatmap(importances_dict, feature_names, title, filename, plot_dir):
     plt.close()
 
 
+def plot_shap_violin(importances_matrix, feature_names, title, filename, plot_dir):
+    import pandas as pd
+    _, n_feats = importances_matrix.shape
+    names = list(feature_names)[:n_feats]
+    if len(names) < n_feats:
+        names += [f"f{i}" for i in range(len(names), n_feats)]
+
+    means = importances_matrix.mean(axis=0)
+    order = np.argsort(-means)
+    sorted_matrix = importances_matrix[:, order]
+    sorted_names = [names[i] for i in order]
+
+    df_long = pd.DataFrame(sorted_matrix, columns=sorted_names).melt(
+        var_name="Feature", value_name="Importance"
+    )
+    df_long["Feature"] = pd.Categorical(df_long["Feature"], categories=sorted_names, ordered=True)
+
+    fig_height = max(6, n_feats * 0.35)
+    _, ax = plt.subplots(figsize=(10, fig_height))
+    sns.violinplot(
+        data=df_long,
+        x="Importance",
+        y="Feature",
+        orient="h",
+        inner="box",
+        cut=0,
+        scale="width",
+        palette="muted",
+        ax=ax,
+    )
+    ax.set_xlabel("Mean Absolute Attribution")
+    ax.set_ylabel("")
+    ax.set_title(title)
+    plt.tight_layout()
+    plt.savefig(os.path.join(plot_dir, filename), dpi=300)
+    plt.close()
+
+
 def main():
     ### Build/load model
     args = get_args()
@@ -1890,10 +1966,15 @@ def main():
         global_smiles, per_task_impatoms
     )
 
-    # Save and plot heatmap of % overlap for each strain
-    plot_toxic_overlap_heatmap(overlap_scores, mean_overlap_scores, args.output_dir)
+    # Filter to alerts with nonzero overall overlap before plotting
+    nonzero_alerts = mean_overlap_scores[mean_overlap_scores > 0].index
+    overlap_scores_nz = overlap_scores.loc[nonzero_alerts]
+    mean_overlap_scores_nz = mean_overlap_scores.loc[nonzero_alerts]
 
-    plot_alert_performance_bars(mean_overlap_scores, args.output_dir)
+    # Save and plot heatmap of % overlap for each strain
+    plot_toxic_overlap_heatmap(overlap_scores_nz, mean_overlap_scores_nz, args.output_dir)
+
+    plot_alert_performance_bars(mean_overlap_scores_nz, args.output_dir)
 
     # ---------------------------------------------------------------------------
     # Optional: Input Feature Importance via Integrated Gradients
@@ -2019,6 +2100,9 @@ def main():
         ig_per_task_labels = []
         ig_global_smiles = []
         ig_per_task_dfs = []
+        # Per-molecule importance arrays collected across all tasks for violin plot
+        all_node_importances_per_mol = []
+        all_edge_importances_per_mol = []
 
         for task_id in range(5):
             task = task_id
@@ -2137,6 +2221,7 @@ def main():
                         sel_node_attrs = np.abs(node_attr_all[tight_nodes])  # (K_nodes, F_node)
                         avg_node_feat_importance = sel_node_attrs.mean(axis=0)  # (F_node,)
                         task_node_importances.append(avg_node_feat_importance)
+                        all_node_importances_per_mol.append(avg_node_feat_importance)
 
                 # Edge features
                 tight_edges = imp["tight_edges"]
@@ -2146,6 +2231,7 @@ def main():
                         sel_edge_attrs = np.abs(edge_attr_all[tight_edges])  # (K_edges, F_edge)
                         avg_edge_feat_importance = sel_edge_attrs.mean(axis=0)
                         task_edge_importances.append(avg_edge_feat_importance)
+                        all_edge_importances_per_mol.append(avg_edge_feat_importance)
 
             # Aggregate
             if task_node_importances:
@@ -2232,6 +2318,24 @@ def main():
             "edge_feature_importance_heatmap.png",
             plot_dir
         )
+
+        # Violin plots (per-molecule distribution)
+        if all_node_importances_per_mol:
+            plot_shap_violin(
+                np.vstack(all_node_importances_per_mol),
+                node_feature_names,
+                "Overall Node Feature Importance (per molecule)",
+                "overall_node_feature_importance_violin.png",
+                plot_dir,
+            )
+        if all_edge_importances_per_mol:
+            plot_shap_violin(
+                np.vstack(all_edge_importances_per_mol),
+                edge_feature_names,
+                "Overall Edge Feature Importance (per molecule)",
+                "overall_edge_feature_importance_violin.png",
+                plot_dir,
+            )
 
 
 if __name__ == "__main__":
