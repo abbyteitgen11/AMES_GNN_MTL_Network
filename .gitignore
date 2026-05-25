@@ -25,6 +25,7 @@ AMES_FINAL/plan.md
 AMES_FINAL/__pycache__
 AMES_FINAL/plot_heatmap_bars.py
 AMES_FINAL/add_negative_examples.py
+*.claude
 *.DS_Store
 *.pt
 *.csv
