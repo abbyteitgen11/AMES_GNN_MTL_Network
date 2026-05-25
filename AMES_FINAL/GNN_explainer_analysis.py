@@ -23,6 +23,7 @@ import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
+from matplotlib.lines import Line2D
 import matplotlib.colors as mcolors
 import matplotlib.cm as cm
 from PIL import Image, ImageDraw, ImageFont
@@ -1591,42 +1592,109 @@ def plot_heatmap(importances_dict, feature_names, title, filename, plot_dir):
     plt.close()
 
 
-def plot_shap_violin(importances_matrix, feature_names, title, filename, plot_dir):
-    import pandas as pd
-    _, n_feats = importances_matrix.shape
-    names = list(feature_names)[:n_feats]
-    if len(names) < n_feats:
-        names += [f"f{i}" for i in range(len(names), n_feats)]
+def plot_shap_violin(node_matrix, node_feature_names, edge_matrix, edge_feature_names,
+                     node_groups, title, filename, plot_dir):
+    """
+    Standard SHAP-style summary scatter plot.
+    Each dot = one molecule; x = SHAP value (absolute IG attribution);
+    color = blue (low) → red (high) via coolwarm colormap.
+    One-hot node feature groups are averaged into a single score.
+    Node (circle) and edge (diamond) features share the same axes.
+    Values exported to CSV alongside the plot.
+    """
+    # --- Group one-hot node features ---
+    grouped_node_names = []
+    grouped_node_cols = []
+    grouped_indices = set()
 
-    means = importances_matrix.mean(axis=0)
-    order = np.argsort(-means)
-    sorted_matrix = importances_matrix[:, order]
-    sorted_names = [names[i] for i in order]
+    for group_name, group_feats in node_groups:
+        idxs = [i for i, n in enumerate(node_feature_names) if n in set(group_feats)]
+        if idxs:
+            grouped_node_cols.append(node_matrix[:, idxs].mean(axis=1))
+            grouped_node_names.append(group_name)
+            grouped_indices.update(idxs)
 
-    df_long = pd.DataFrame(sorted_matrix, columns=sorted_names).melt(
-        var_name="Feature", value_name="Importance"
+    for i, name in enumerate(node_feature_names):
+        if i not in grouped_indices:
+            grouped_node_cols.append(node_matrix[:, i])
+            grouped_node_names.append(name)
+
+    node_processed = np.column_stack(grouped_node_cols)
+
+    # --- Build long-form DataFrames ---
+    df_node_long = pd.DataFrame(node_processed, columns=grouped_node_names).melt(
+        var_name="Feature", value_name="SHAP Value"
     )
-    df_long["Feature"] = pd.Categorical(df_long["Feature"], categories=sorted_names, ordered=True)
+    df_node_long["Type"] = "Node"
 
-    fig_height = max(6, n_feats * 0.35)
+    edge_names = list(edge_feature_names)
+    df_edge_long = pd.DataFrame(edge_matrix, columns=edge_names).melt(
+        var_name="Feature", value_name="SHAP Value"
+    )
+    df_edge_long["Type"] = "Edge"
+
+    df_long = pd.concat([df_node_long, df_edge_long], ignore_index=True)
+
+    # Sort features by mean importance descending (most important at top after invert_yaxis)
+    feat_means = df_long.groupby("Feature")["SHAP Value"].mean().sort_values(ascending=False)
+    sorted_features = feat_means.index.tolist()
+
+    # --- Color scale: blue = low, red = high ---
+    all_vals = df_long["SHAP Value"].values
+    vmin = np.percentile(all_vals, 2)
+    vmax = np.percentile(all_vals, 98)
+    norm = plt.Normalize(vmin=vmin, vmax=vmax)
+    cmap = plt.cm.coolwarm  # blue=low, red=high
+
+    feat_type_map = {n: "Node" for n in grouped_node_names}
+    feat_type_map.update({n: "Edge" for n in edge_names})
+
+    # --- SHAP scatter plot ---
+    n_feats = len(sorted_features)
+    fig_height = max(6, n_feats * 0.45)
     _, ax = plt.subplots(figsize=(10, fig_height))
-    sns.violinplot(
-        data=df_long,
-        x="Importance",
-        y="Feature",
-        orient="h",
-        inner="box",
-        cut=0,
-        scale="width",
-        palette="muted",
-        ax=ax,
-    )
-    ax.set_xlabel("Mean Absolute Attribution")
+
+    rng = np.random.default_rng(seed=42)
+    for feat_idx, feat_name in enumerate(sorted_features):
+        subset = df_long[df_long["Feature"] == feat_name]
+        vals = subset["SHAP Value"].values
+        jitter = rng.uniform(-0.35, 0.35, size=len(vals))
+        colors = cmap(norm(vals))
+        marker = "o" if feat_type_map[feat_name] == "Node" else "D"
+        ax.scatter(vals, feat_idx + jitter, c=colors, alpha=0.5, s=8,
+                   linewidths=0, marker=marker, zorder=3)
+
+    ax.set_yticks(range(n_feats))
+    ax.set_yticklabels(sorted_features)
+    ax.invert_yaxis()
+    ax.axvline(0, color="lightgray", linewidth=0.8, zorder=1)
+
+    # Colorbar
+    sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+    sm.set_array([])
+    plt.colorbar(sm, ax=ax, label="SHAP Value", shrink=0.4, pad=0.01)
+
+    # Legend: node vs edge marker
+    legend_handles = [
+        Line2D([], [], color="gray", marker="o", linestyle="None",
+                      markersize=6, label="Node feature"),
+        Line2D([], [], color="gray", marker="D", linestyle="None",
+                      markersize=6, label="Edge feature"),
+    ]
+    ax.legend(handles=legend_handles, loc="lower right")
+
+    ax.set_xlabel("SHAP Value")
     ax.set_ylabel("")
     ax.set_title(title)
     plt.tight_layout()
     plt.savefig(os.path.join(plot_dir, filename), dpi=300)
     plt.close()
+
+    # --- Export CSV ---
+    csv_path = os.path.join(plot_dir, filename.replace(".png", "_values.csv"))
+    df_long[["Feature", "Type", "SHAP Value"]].sort_values(
+        ["Feature", "SHAP Value"]
+    ).to_csv(csv_path, index=False)
 
 
 def main():
@@ -2319,21 +2387,25 @@ def main():
             plot_dir
         )
 
-        # Violin plots (per-molecule distribution)
-        if all_node_importances_per_mol:
+        # SHAP-style scatter plot (node + edge combined)
+        if all_node_importances_per_mol and all_edge_importances_per_mol:
+            node_groups = [
+                ("Period", ["Period 1", "Period 2", "Period 3", "Period 4",
+                            "Period 5", "Period 6", "Period 7"]),
+                ("Block", ["s block", "p block", "d block", "f block"]),
+                ("Element group", ["Alkali metals", "Alkaline earth metals",
+                                   "Transition metals", "Poor metals", "Metalloids",
+                                   "Nonmetals", "Halogens", "Noble gasses",
+                                   "Lanthanides", "Actinides"]),
+            ]
             plot_shap_violin(
                 np.vstack(all_node_importances_per_mol),
                 node_feature_names,
-                "Overall Node Feature Importance (per molecule)",
-                "overall_node_feature_importance_violin.png",
-                plot_dir,
-            )
-        if all_edge_importances_per_mol:
-            plot_shap_violin(
                 np.vstack(all_edge_importances_per_mol),
                 edge_feature_names,
-                "Overall Edge Feature Importance (per molecule)",
-                "overall_edge_feature_importance_violin.png",
+                node_groups,
+                "Overall Feature Importance (per molecule)",
+                "overall_feature_importance_violin.png",
                 plot_dir,
             )
 

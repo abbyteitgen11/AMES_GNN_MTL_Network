@@ -273,7 +273,7 @@ def load_yaml_and_graph_info(input_file):
 
     n_node_features = database_data.get("nNodeFeatures")
     bond_angle_features = database_data.get("BondAngleFeatures", True)
-    dihedral_angle_features = database_data.get("DihedralFeatures", True)
+    dihedral_angle_features = database_data.get("DihedralAngleFeatures", True)
     n_edge_features = database_data.get("nDistanceFeatures", 1)  # 1 for raw, N for RBF
     if bond_angle_features:
         n_edge_features += 1  # bond-angle

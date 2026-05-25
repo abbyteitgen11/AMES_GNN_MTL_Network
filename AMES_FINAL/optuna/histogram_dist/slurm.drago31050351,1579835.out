@@ -1,0 +1,15 @@
+CUDA Available: True
+Device Name: NVIDIA A100-PCIE-40GB
+sending incremental file list
+./
+GNN_MTL.sh
+slurm.drago31050351,1579835.err
+slurm.drago31050351,1579835.out
+slurm.drago32030012,1556140.err
+slurm.drago32030012,1556140.out
+train_sample.yml
+optuna/
+output/
+
+sent 38,092 bytes  received 150 bytes  76,484.00 bytes/sec
+total size is 305,976,120  speedup is 8,001.05
