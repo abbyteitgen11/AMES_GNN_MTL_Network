@@ -1,4 +1,5 @@
-# AMES GNN-MTL: Graph Neural Network Multi-Task Learning for Ames Mutagenicity Prediction
+# A Multitask Graph Neural Network Framework for Ames Mutagenicity Prediction
+Abigail E. Teitgen, Eugenia Ulzurrun, Nuria E. Campillo, and Eduardo R. Hernández
 
 This codebase trains and evaluates a GNN-based multi-task learning model to predict Ames mutagenicity across five bacterial strains (TA98, TA100, TA102, TA1535, TA1537). Molecules are represented as graphs (GINEConv architecture); a shared graph encoder feeds into five task-specific prediction heads.
 
@@ -35,7 +36,6 @@ AMES_FINAL/
 │
 ├── smiles_to_xyz.py                 # Convert SMILES → 3D XYZ files
 ├── calculate_descriptors.py         # Compute Mordred 2D descriptors
-├── add_negative_examples.py         # Utility to augment dataset with negatives
 ├── build_graphs_new_dataset.py      # Graph building for additional datasets
 ├── counter.py                       # Count atom species present in XYZ database
 ├── count_species.py                 # Species counting helper
@@ -110,6 +110,8 @@ pip install \
 
 ---
 
+
+
 ## Data File Format (`data.csv`)
 
 The data file should contain at minimum:
@@ -150,6 +152,8 @@ SMILES CSV
 
 ## Step 1: Convert SMILES to XYZ (`smiles_to_xyz.py`)
 
+**Note: The XYZ files for the dataset used in this paper are provided in XYZ_files.zip, so you do not need to re-run this step**
+
 Generates 3D XYZ files from a SMILES CSV using RDKit ETKDGv3 conformer generation with MMFF/UFF optimization.
 
 **Multi-component SMILES (salts/counter-ions):** The script automatically keeps only the largest fragment (by heavy-atom count) when a SMILES contains multiple disconnected components. Single-atom fragments are retained.
@@ -173,6 +177,8 @@ python smiles_to_xyz.py \
 
 ## Step 2: Count Atom Species (`counter.py`)
 
+**Note: This has already been done for the current dataset and correctly updated in graph_maker_sample.yml, so you do not need to rerun this step**
+
 Before building graphs, run this to see which elements are present in the XYZ database. Use the output to set `species` and `nMaxNeighbours` in `graph_maker_sample.yml`.
 
 ```bash
@@ -192,6 +198,7 @@ python graph_maker.py graph_maker_sample.yml
 ```
 
 ### Graph Construction Configuration (`graph_maker_sample.yml`)
+**Note: The current graph_maker_sample.yml file will generate the graphs used in the paper, so you don't need to change any values unless desired to reproduce ablation analysis etc. The only thing to update are the data paths for your computer.**
 
 | Field | Description |
 |-------|-------------|
@@ -247,6 +254,40 @@ The resulting file is used with `run_model.py` by setting `data_file` in the tra
 
 ---
 
+## Visualizing the Graph Database (`visualize_graphs.py`)
+
+Renders each molecular graph side-by-side with the 2D chemical structure to verify atom types, connectivity, and bond distances.
+
+```bash
+python visualize_graphs.py \
+    --input_file train_sample.yml \
+    --n_graphs 100 \
+    --partition test \
+    --output_dir ./graph_viz \
+    --output_format pdf
+```
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--input_file` | `train_sample.yml` | YAML config (reads `database` and `data_file` paths) |
+| `--database_dir` | from YAML `database` | Path to graph database root |
+| `--data_file` | from YAML `data_file` | CSV with SMILES and labels |
+| `--n_graphs` | `20` | Number of graphs to visualize |
+| `--partition` | `test` | `train`, `validate`, `test`, or `all` |
+| `--output_dir` | `./graph_viz` | Directory to save output |
+| `--output_format` | `pdf` | `pdf` (all in one file) or `png` (one file per graph) |
+| `--show_H` | off | Include hydrogen atoms in the graph panel |
+
+Each figure shows two panels: RDKit 2D structure on the left and the molecular graph on the right, with nodes colored by element, edge color indicating bond distance, and labels showing mol ID and per-strain toxicity labels.
+
+**Outputs:**
+- `pdf` mode: `graphs.pdf` — one page per molecule
+- `png` mode: `fig_{mol_id}.png` per molecule
+
+---
+
+
+
 ## Training Configuration (`train_sample.yml`)
 
 All `run_model.py` modes read hyperparameters and paths from a YAML file. Key fields:
@@ -292,6 +333,7 @@ python run_model.py --mode <mode> --output_dir <dir> [--input_file <yaml>] [opti
 ```
 
 ### `train` — Train with fixed hyperparameters
+**Note: The current train_sample.yml file is set up with the optimized hyperparameters from the paper, so you will just need to update the paths.**
 
 ```bash
 python run_model.py \
@@ -304,6 +346,34 @@ python run_model.py \
 **Outputs:**
 - `checkpoints/checkpoint_epoch_N.pt` — model checkpoint at each epoch
 - `output/train_run1/tensorboard/` — TensorBoard event files
+
+---
+
+## Visualizing Training with TensorBoard
+
+TensorBoard logs are written to `<output_dir>/tensorboard/` during `train` mode.
+
+```bash
+tensorboard --logdir ./output/train_run1/tensorboard
+```
+
+Then open `http://localhost:6006`. The `Loss/train` and `Loss/val` scalars are logged at every epoch.
+
+---
+
+## Stopping Training Early (UserStopping)
+
+If `UserStopping` is listed in the `callbacks` section of the YAML, a `STOPFLAG.yml` file is created at the start of training. To stop training gracefully at the end of the current epoch, set:
+
+```yaml
+STOPFLAG: True
+```
+
+The model will save a checkpoint and exit cleanly.
+
+---
+
+
 
 ### `hp_opt` — Hyperparameter optimization with Optuna
 
@@ -333,6 +403,28 @@ python run_model.py ... --optuna_file ./optuna/study_20260101.pkl --n_trials 50
 **Outputs:**
 - `optuna/study_YYYYMMDD.pkl` — Optuna study (auto-named by date if `--optuna_file` not given)
 
+---
+
+### `viz_optuna` — Visualize an Optuna study
+
+```bash
+# Single study
+python run_model.py \
+    --mode viz_optuna \
+    --output_dir ./output/optuna_plots \
+    --optuna_file ./optuna/study_20260101.pkl
+
+# All studies in a directory
+python run_model.py \
+    --mode viz_optuna \
+    --output_dir ./output/optuna_plots \
+    --optuna_dir ./optuna
+```
+
+**Outputs:** `optimization_history.png`, `param_importances.png`, `val_loss_history.png`
+
+
+
 ### `seeds_cfv` — 5-fold cross-validation across multiple seeds
 
 ```bash
@@ -350,6 +442,8 @@ python run_model.py \
 - `val_losses.csv` — validation loss for every seed × fold
 
 Checkpoints saved to `--checkpoints_dir/metrics_{seed}_{fold}.pt`.
+
+---
 
 ### `eval` — Evaluate a single checkpoint on the test set
 
@@ -427,23 +521,8 @@ python run_model.py \
 - `validation_loss_heatmap.png` — heatmap of validation loss for every seed × fold
 - `top_seeds_by_val_loss.csv` — top 5 seeds ranked by average validation loss
 
-### `viz_optuna` — Visualize an Optuna study
 
-```bash
-# Single study
-python run_model.py \
-    --mode viz_optuna \
-    --output_dir ./output/optuna_plots \
-    --optuna_file ./optuna/study_20260101.pkl
 
-# All studies in a directory
-python run_model.py \
-    --mode viz_optuna \
-    --output_dir ./output/optuna_plots \
-    --optuna_dir ./optuna
-```
-
-**Outputs:** `optimization_history.png`, `param_importances.png`, `val_loss_history.png`
 
 ---
 
@@ -505,61 +584,9 @@ python GNN_explainer_analysis.py \
 
 ---
 
-## Visualizing the Graph Database (`visualize_graphs.py`)
 
-Renders each molecular graph side-by-side with the 2D chemical structure to verify atom types, connectivity, and bond distances.
 
-```bash
-python visualize_graphs.py \
-    --input_file train_sample.yml \
-    --n_graphs 100 \
-    --partition test \
-    --output_dir ./graph_viz \
-    --output_format pdf
-```
 
-| Argument | Default | Description |
-|----------|---------|-------------|
-| `--input_file` | `train_sample.yml` | YAML config (reads `database` and `data_file` paths) |
-| `--database_dir` | from YAML `database` | Path to graph database root |
-| `--data_file` | from YAML `data_file` | CSV with SMILES and labels |
-| `--n_graphs` | `20` | Number of graphs to visualize |
-| `--partition` | `test` | `train`, `validate`, `test`, or `all` |
-| `--output_dir` | `./graph_viz` | Directory to save output |
-| `--output_format` | `pdf` | `pdf` (all in one file) or `png` (one file per graph) |
-| `--show_H` | off | Include hydrogen atoms in the graph panel |
-
-Each figure shows two panels: RDKit 2D structure on the left and the molecular graph on the right, with nodes colored by element, edge color indicating bond distance, and labels showing mol ID and per-strain toxicity labels.
-
-**Outputs:**
-- `pdf` mode: `graphs.pdf` — one page per molecule
-- `png` mode: `fig_{mol_id}.png` per molecule
-
----
-
-## Visualizing Training with TensorBoard
-
-TensorBoard logs are written to `<output_dir>/tensorboard/` during `train` mode.
-
-```bash
-tensorboard --logdir ./output/train_run1/tensorboard
-```
-
-Then open `http://localhost:6006`. The `Loss/train` and `Loss/val` scalars are logged at every epoch.
-
----
-
-## Stopping Training Early (UserStopping)
-
-If `UserStopping` is listed in the `callbacks` section of the YAML, a `STOPFLAG.yml` file is created at the start of training. To stop training gracefully at the end of the current epoch, set:
-
-```yaml
-STOPFLAG: True
-```
-
-The model will save a checkpoint and exit cleanly.
-
----
 
 ## Key References
 
