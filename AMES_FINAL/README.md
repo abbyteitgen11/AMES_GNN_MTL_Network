@@ -5,6 +5,64 @@ This codebase trains and evaluates a GNN-based multi-task learning model to pred
 
 ---
 
+## Quickstart
+
+Follow these steps to reproduce the main results. See [Setup](#setup) first to install dependencies.
+
+**A) Build the graph database**
+
+Unzip the provided XYZ files, then build the graph database:
+
+```bash
+unzip XYZ_files.zip -d ./FILES_XYZ
+python graph_maker.py graph_maker_sample.yml
+```
+
+Update `DataBaseDirectory`, `TargetDirectory`, and `DataPath` in `graph_maker_sample.yml` to point to your local paths before running.
+
+**B) Train the model**
+
+```bash
+python run_model.py \
+    --mode train \
+    --input_file train_sample.yml \
+    --output_dir ./output/train \
+    --checkpoints_dir ./checkpoints
+```
+
+Update `database` and `data_file` in `train_sample.yml` to match your graph database and data paths.
+
+**C) Reproduce cross-validation evaluation results**
+
+Using the provided checkpoint files:
+
+```bash
+python run_model.py \
+    --mode top_seeds_eval \
+    --input_file train_sample.yml \
+    --output_dir ./output/eval \
+    --metrics_dir ./output/cfv_results \
+    --checkpoints_dir ./checkpoints \
+    --n_top_seeds 5 \
+    --use_thresholds --temperature_scaling --threshold_metric sn
+```
+
+The `checkpoints/` directory should contain the provided `metrics_{seed}_{fold}.pt` files. `metrics_dir` should point to the directory containing `val_losses.csv` from the cross-validation run (included with the checkpoints).
+
+**D) Run the explainer analysis**
+
+```bash
+python GNN_explainer_analysis.py \
+    --input_file train_sample.yml \
+    --output_dir ./output/explainer \
+    --checkpoint_file ./checkpoints/metrics_45_1.pt \
+    --analyze_input_features
+```
+
+Replace `metrics_45_1.pt` with whichever provided checkpoint you want to analyze.
+
+---
+
 ## Directory Structure
 
 ```
