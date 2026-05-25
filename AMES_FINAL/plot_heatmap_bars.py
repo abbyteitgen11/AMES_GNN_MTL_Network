@@ -2,9 +2,14 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
 import os
+import sys
 import seaborn as sns
 
-df = pd.read_excel('/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/output/final_results_test/overlap_plotting.xlsx')
+# Usage: python plot_heatmap_bars.py <excel_path> <output_dir>
+excel_path = sys.argv[1]
+output_dir = sys.argv[2]
+
+df = pd.read_excel(excel_path)
 df = df.sort_values('Average', ascending=True)
 
 mean_overlap = df['Average']
@@ -25,7 +30,7 @@ ax.set_xlim(0, 100)
 #ax.set_title("Structural Alert Detection Performance (Overlap > 0 Definition)")
 plt.tight_layout()
 
-outpath = os.path.join("/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/output", "alert_performance_bars.pdf")
+outpath = os.path.join(output_dir, "alert_performance_bars.pdf")
 plt.savefig(outpath, dpi=600, transparent=True)
 plt.close()
 
@@ -49,6 +54,6 @@ sns.heatmap(
 #plt.ylabel("Structural Alert")
 plt.tight_layout()
 
-outpath = os.path.join("/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES/output/", "toxic_overlap_by_strain_heatmap.pdf")
+outpath = os.path.join(output_dir, "toxic_overlap_by_strain_heatmap.pdf")
 plt.savefig(outpath, dpi=600, transparent=True)  # high-res + transparent bg
 plt.close()

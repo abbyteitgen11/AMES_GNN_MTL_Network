@@ -15,6 +15,9 @@ graphType: 'XG' # currently this is the only graph type implemented
 DataBaseDirectory: '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/DataBase_AMES/FILES_DEV'
 TargetDirectory: '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/GraphDataBase_AMES_NEW_RBF_2D'
 
+# path to the CSV file used to determine train/val/test splits
+DataPath: '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES_FINAL/data/data_new_with_split_descriptors.csv'
+
 # the file extensions, both for the input and for the graph files
 
 InputFileExtension: '.xyz'

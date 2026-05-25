@@ -1,6 +1,6 @@
 # AMES GNN-MTL: Graph Neural Network Multi-Task Learning for Ames Mutagenicity Prediction
 
-This codebase trains and evaluates a GNN-based multi-task learning model to predict Ames mutagenicity across five bacterial strains (TA98, TA100, TA102, TA1535, TA1537) using the ISSSTY dataset. Molecules are represented as graphs (GINEConv architecture); a shared graph encoder feeds into five task-specific prediction heads.
+This codebase trains and evaluates a GNN-based multi-task learning model to predict Ames mutagenicity across five bacterial strains (TA98, TA100, TA102, TA1535, TA1537). Molecules are represented as graphs (GINEConv architecture); a shared graph encoder feeds into five task-specific prediction heads.
 
 ---
 
@@ -10,37 +10,50 @@ This codebase trains and evaluates a GNN-based multi-task learning model to pred
 AMES_FINAL/
 ├── run_model.py                     # Main driver: train, evaluate, HP optimization, analysis
 ├── GNN_explainer_analysis.py        # GNNExplainer + Integrated Gradients analysis
-├── train_sample.yml                 # Example training configuration
-├── data.csv                         # Molecular data with SMILES and labels
-├── plan.md                          # Architecture and implementation notes
-│
-├── checkpoints/                     # Saved model checkpoints (.pt files)
-├── optuna/                          # Optuna study files (.pkl)
+├── graph_maker.py                   # Build graph database from XYZ files
+├── train_sample.yml                 # Example training/evaluation configuration
+├── graph_maker_sample.yml           # Example graph construction configuration
 │
 ├── BuildNN_GNN_MTL_GINEConv.py      # Model architecture (GINEConv GNN + MTL heads)
+├── TaskSpecificGNN.py               # Task-specific head wrapper (used by GNN explainer)
 ├── callbacks.py                     # EarlyStopping, LRScheduler, UserStopping
 ├── compute_metrics.py               # Metrics: sensitivity, specificity, MCC, balanced accuracy
-├── data.py                          # Data loading utilities
-├── load_data.py                     # Molecular descriptor loading
+├── masked_loss_function.py          # BCE loss with masking for missing labels (-1)
 ├── graph_dataset.py                 # PyTorch Geometric dataset wrapper
 ├── MTLDataset.py                    # Multi-task dataset class
-├── masked_loss_function.py          # BCE loss with masking for missing labels (-1)
+├── load_data.py                     # Molecular data loading and split assignment
+├── data.py                          # Data loading utilities
 ├── set_seed.py                      # Random seed utilities
-├── TaskSpecificGNN.py               # Task-specific head module
-├── features.py                      # Atom/bond feature definitions
-├── generate_graphs.py               # Graph generation from XYZ files
-├── graph_maker.py                   # Graph construction utilities
-└── [other helper modules]
+├── device.py                        # Device selection (CPU/CUDA)
+├── features.py                      # RBF distance feature definitions
+├── generate_graphs.py               # Graph generation loop from XYZ files
+├── atomic_structure_graphs.py       # Abstract graph base class
+├── set_up_atomic_structure_graphs.py# Factory for graph construction strategy
+├── XG_graphs.py                     # XG graph implementation
+├── count_model_parameters.py        # Parameter count utility
+├── exceptions.py                    # Custom exceptions
+│
+├── smiles_to_xyz.py                 # Convert SMILES → 3D XYZ files
+├── calculate_descriptors.py         # Compute Mordred 2D descriptors
+├── add_negative_examples.py         # Utility to augment dataset with negatives
+├── build_graphs_new_dataset.py      # Graph building for additional datasets
+├── counter.py                       # Count atom species present in XYZ database
+├── count_species.py                 # Species counting helper
+├── visualize_graphs.py              # Render molecular graphs side-by-side with 2D structures
+├── ISSSTY_utils.py                  # ISSSTY dataset utilities
+├── structure_utils.py               # Molecular structure helpers
+│
+└── STOPFLAG.yml                     # Set STOPFLAG: True to halt training gracefully
 ```
 
-The graph database lives outside this directory, and is created using generate_graphs.py:
+The graph database lives outside this directory, and is created using `graph_maker.py`:
 
 ```
 GraphDataBase_AMES/
-├── train/           # .pkl graph files for training molecules
-├── validate/        # .pkl graph files for validation molecules
-├── test/            # .pkl graph files for test molecules
-└── graph_description.yml
+├── train/                 # .pkl graph files for training molecules
+├── validate/              # .pkl graph files for validation molecules
+├── test/                  # .pkl graph files for test molecules
+└── graph_description.yml  # Auto-generated; records feature counts and construction params
 ```
 
 ---
@@ -77,6 +90,7 @@ pip install \
     numpy==2.4.2 \
     pandas==3.0.0 \
     scikit-learn==1.8.0 \
+    scipy \
     joblib==1.5.3 \
     tensorboard==2.20.0 \
     PyYAML==6.0.2 \
@@ -84,102 +98,115 @@ pip install \
     h5py==3.14.0 \
     Pillow==12.1.1 \
     markdown==3.8 \
+    mendeleev \
+    mordred \
     iterative-stratification
 ```
 
-### 5. Prepare the graph database
+> **Notes:**
+> - `mendeleev` is required by the graph construction modules to look up element properties (period, block, electronegativity, etc.) used as node features.
+> - `mordred` is only needed when running `calculate_descriptors.py` or using `inputMode: "descriptor"`/`"combined"`.
+> - `scipy` is required for temperature scaling in `run_model.py`.
 
-The model reads pre-computed molecular graphs from `GraphDataBase_AMES/`. If graphs do not yet exist for your molecules, generate them:
+---
+
+## Data File Format (`data.csv`)
+
+The data file should contain at minimum:
+
+| Column | Description |
+|--------|-------------|
+| `SMILES` | Canonical SMILES string |
+| `TA98`, `TA100`, `TA102`, `TA1535`, `TA1537` | Binary labels (0 = negative, 1 = positive, -1 = missing) |
+| `Overall` | Overall consensus label (used in `eval` mode for misclassification analysis) |
+| `split` | `train`, `validate`, or `test` |
+
+For `"descriptor"` and `"combined"` input modes, the file must also contain Mordred descriptor columns — generate these with `calculate_descriptors.py`.
+
+---
+
+## Workflow Overview
+
+```
+SMILES CSV
+    │
+    ├─ smiles_to_xyz.py          →  XYZ files (3D conformers)
+    │
+    ├─ counter.py                →  atom species summary (to configure graph_maker_sample.yml)
+    │
+    ├─ graph_maker.py            →  graph database (.pkl files + graph_description.yml)
+    │
+    ├─ calculate_descriptors.py  →  CSV with Mordred descriptor columns (optional)
+    │
+    ├─ run_model.py hp_opt       →  hyperparameter search (Optuna)
+    ├─ run_model.py train        →  train with fixed hyperparameters
+    ├─ run_model.py seeds_cfv    →  cross-validation across seeds
+    ├─ run_model.py eval         →  evaluate checkpoint on test set
+    │
+    └─ GNN_explainer_analysis.py →  structural alert overlap + feature importance
+```
+
+---
+
+## Step 1: Convert SMILES to XYZ (`smiles_to_xyz.py`)
+
+Generates 3D XYZ files from a SMILES CSV using RDKit ETKDGv3 conformer generation with MMFF/UFF optimization.
+
+**Multi-component SMILES (salts/counter-ions):** The script automatically keeps only the largest fragment (by heavy-atom count) when a SMILES contains multiple disconnected components. Single-atom fragments are retained.
+
+```bash
+python smiles_to_xyz.py \
+    --input_csv data.csv \
+    --smiles_col SMILES \
+    --output_dir ./FILES_XYZ
+```
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--input_csv` | `data_with_negatives.csv` | Input CSV with SMILES |
+| `--smiles_col` | `SMILES` | Name of the SMILES column |
+| `--output_dir` | `./FILES_XYZ_new` | Directory to write XYZ files |
+
+**Output:** One `{row}_ames_mutagenicity_data_{row}.xyz` file per molecule.
+
+---
+
+## Step 2: Count Atom Species (`counter.py`)
+
+Before building graphs, run this to see which elements are present in the XYZ database. Use the output to set `species` and `nMaxNeighbours` in `graph_maker_sample.yml`.
+
+```bash
+python counter.py graph_maker_sample.yml
+```
+
+Reads `DataBaseDirectory` from the YAML file and prints an element-count summary to stdout.
+
+---
+
+## Step 3: Build the Graph Database (`graph_maker.py`)
+
+Converts XYZ files to PyTorch Geometric graph objects and writes a `graph_description.yml` into the target directory that `run_model.py` uses to determine feature dimensions automatically.
 
 ```bash
 python graph_maker.py graph_maker_sample.yml
 ```
 
-The database path is set in the YAML config file (`database` key). The default points to:
-
-```
-/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/GraphDataBase_AMES/
-```
-
-Update this path in your YAML if your database is in a different location.
-
-**Multi-component SMILES (salts/counter-ions):** `smiles_to_xyz.py` automatically keeps only the largest fragment (by heavy-atom count) when a SMILES string contains multiple disconnected components (e.g. `COS(=O)(=O)[O-].C[n+]1c2ccccc2nc2ccccc21`). This prevents counter-ions and solvent molecules from appearing in the graph. Single-atom fragments are retained. A log line is printed for each molecule that is filtered.
-
----
-
-## Configuration File (YAML)
-
-All training modes read hyperparameters from a YAML file (see `train_sample.yml` for a complete example). Key fields:
+### Graph Construction Configuration (`graph_maker_sample.yml`)
 
 | Field | Description |
 |-------|-------------|
-| `database` | Path to the graph database directory |
-| `data_file` | Path to `data.csv` with SMILES, labels, and split assignments |
-| `nGraphConvolutionLayers` | Number of GINEConv layers |
-| `nNodeNeurons` / `nEdgeNeurons` | Hidden dimensions for node/edge features |
-| `nSharedLayers` / `nTargetSpecificLayers` | Depth of shared and task-specific heads |
-| `nShared` / `nTarget` | Neuron counts per layer (list) |
-| `dropoutGNN` / `dropoutShared` / `dropoutTarget` | Dropout rates |
-| `w1`–`w5` | Per-task loss weights |
-| `ActivationFunction` | e.g. `"Tanh"` |
-| `nEpochs` | Maximum training epochs |
-| `nBatch` | Batch size |
-| `learningRate` | Initial learning rate |
-| `L2Regularization` | Weight decay coefficient |
-| `weightedCostFunction` | Whether to use weighted BCE loss |
-| `inputMode` | Input feature mode: `"gnn"` (default), `"descriptor"`, or `"combined"` |
-| `callbacks` | `earlyStopping`, `LRScheduler`, `UserStopping` sub-sections |
-
-For graph construction configuration, see [Graph Construction](#graph-construction-graph_maker_sampleyml) below.
-
----
-
-## Input Modes
-
-The model supports three input feature modes, controlled by the `inputMode` YAML key:
-
-| Mode | Description | Data requirement |
-|------|-------------|-----------------|
-| `"gnn"` | Graph features only via GINEConv layers (default) | Graph database (`GraphDataBase_AMES/`) |
-| `"descriptor"` | Mordred 2D molecular descriptors only | CSV with descriptor columns (see below) |
-| `"combined"` | GNN graph embedding concatenated with descriptor vector | Both graph database and descriptor CSV |
-
-Set `inputMode: "gnn"` (or omit the key) to use the default graph-only mode.
-
-For `"descriptor"` and `"combined"` modes, `data_file` must point to a CSV that contains Mordred descriptor columns (e.g., `data_new_with_split_descriptors.csv`). Use `calculate_descriptors.py` to generate this file.
-
----
-
-## Compute Mordred Descriptors
-
-If your data file does not yet have Mordred descriptor columns (e.g., `data_new_with_split.csv`), generate them with:
-
-```bash
-python calculate_descriptors.py \
-    --input_csv data_new_with_split.csv \
-    --output_csv data_new_with_split_descriptors.csv
-```
-
-This computes all 2D Mordred descriptors for each SMILES and produces a new CSV with descriptor columns inserted between `source` and `TA98`. The resulting file can be used directly with `run_model.py` in `"descriptor"` or `"combined"` mode by setting `data_file` in the YAML.
-
----
-
-## Graph Construction (`graph_maker_sample.yml`)
-
-The graph database is built from XYZ files using `graph_maker.py`. The YAML config controls graph construction:
-
-| Field | Description |
-|-------|-------------|
-| `graphType` | Graph construction style (default `"XG"` — covalent-radius based) |
 | `DataBaseDirectory` | Path to source XYZ files |
 | `TargetDirectory` | Path to store output `.pkl` graph files |
+| `DataPath` | Path to the CSV file used to assign train/val/test splits |
+| `graphType` | Graph construction style (default `"XG"` — covalent-radius based) |
 | `nodeFeatures` | List of Mendeleev property keywords for node features |
 | `species` | List of chemical elements present in the dataset |
-| `nMaxNeighbours` | Maximum number of neighbours per atom |
-| `BondAngleFeatures` | Include bond angle cosine sums as edge features |
-| `DihedralAngleFeatures` | Include dihedral angle cosine sums as edge features |
-| `distanceEncoding` | `"raw"` (single float distance, default) or `"rbf"` (Gaussian RBF expansion) |
-| `RBFParameters` | Parameters for RBF encoding: `n_features`, `r_min`, `r_max`, `sigma` |
+| `nMaxNeighbours` | Maximum number of neighbours per atom (set from `counter.py` output) |
+| `BondAngleFeatures` | `True`/`False` — include bond angle cosine sums as edge features |
+| `DihedralAngleFeatures` | `True`/`False` — include dihedral angle cosine sums as edge features |
+| `distanceEncoding` | `"raw"` (single float, default) or `"rbf"` (Gaussian RBF expansion) |
+| `RBFParameters` | RBF encoding parameters: `n_features`, `r_min`, `r_max`, `sigma` |
+| `generate_graphs` | Set `False` to skip graph generation (useful for debugging the YAML) |
 
 ### Distance Encoding
 
@@ -189,7 +216,7 @@ By default, each edge stores the raw bond distance as a single float. With `dist
 u_k(d) = exp(-(d - mu_k)^2 / sigma^2)
 ```
 
-where the centers `mu_k` are evenly spaced between `r_min` and `r_max`. This provides a richer distance representation at the cost of larger edge feature vectors.
+where the centers `mu_k` are evenly spaced between `r_min` and `r_max`.
 
 Example RBF configuration:
 
@@ -202,7 +229,57 @@ RBFParameters:
   sigma: 0.5
 ```
 
-**Important:** Graphs must be regenerated when changing `distanceEncoding`, as the edge feature dimension changes. The model automatically reads the correct dimension from `graph_description.yml`.
+> **Important:** Graphs must be regenerated when changing `distanceEncoding` or toggling `BondAngleFeatures`/`DihedralAngleFeatures`, as the edge feature dimension changes. The model reads the correct dimension from `graph_description.yml` automatically.
+
+---
+
+## Step 4 (Optional): Compute Mordred Descriptors (`calculate_descriptors.py`)
+
+Only needed for `inputMode: "descriptor"` or `"combined"`. Computes all 2D Mordred descriptors and appends them as columns to the CSV.
+
+```bash
+python calculate_descriptors.py \
+    --input_csv data_new_with_split.csv \
+    --output_csv data_new_with_split_descriptors.csv
+```
+
+The resulting file is used with `run_model.py` by setting `data_file` in the training YAML.
+
+---
+
+## Training Configuration (`train_sample.yml`)
+
+All `run_model.py` modes read hyperparameters and paths from a YAML file. Key fields:
+
+| Field | Description |
+|-------|-------------|
+| `database` | Path to the graph database directory |
+| `data_file` | Path to CSV with SMILES, labels, split assignments (and optionally descriptors) |
+| `nGraphConvolutionLayers` | Number of GINEConv layers |
+| `nNodeNeurons` / `nEdgeNeurons` | Hidden dimensions for node/edge features |
+| `nSharedLayers` / `nTargetSpecificLayers` | Depth of shared and task-specific heads |
+| `nShared` / `nTarget` | Neuron counts per layer (list) |
+| `dropoutGNN` / `dropoutShared` / `dropoutTarget` | Dropout rates |
+| `momentumBatchNorm` | Batch normalization momentum |
+| `w1`–`w5` | Per-task loss weights |
+| `ActivationFunction` | e.g. `"Tanh"` |
+| `nEpochs` | Maximum training epochs |
+| `nBatch` | Batch size |
+| `learningRate` | Initial learning rate |
+| `L2Regularization` | Weight decay coefficient |
+| `weightedCostFunction` | Whether to use weighted BCE loss |
+| `inputMode` | `"gnn"` (default), `"descriptor"`, or `"combined"` |
+| `callbacks` | `earlyStopping`, `LRScheduler`, `UserStopping` sub-sections |
+
+---
+
+## Input Modes
+
+| Mode | Description | Data requirement |
+|------|-------------|-----------------|
+| `"gnn"` | Graph features only via GINEConv layers (default) | Graph database |
+| `"descriptor"` | Mordred 2D molecular descriptors only | CSV with descriptor columns |
+| `"combined"` | GNN graph embedding concatenated with descriptor vector | Both |
 
 ---
 
@@ -216,8 +293,6 @@ python run_model.py --mode <mode> --output_dir <dir> [--input_file <yaml>] [opti
 
 ### `train` — Train with fixed hyperparameters
 
-Trains the model using HP from the YAML file. Saves checkpoints and TensorBoard logs.
-
 ```bash
 python run_model.py \
     --mode train \
@@ -230,15 +305,9 @@ python run_model.py \
 - `checkpoints/checkpoint_epoch_N.pt` — model checkpoint at each epoch
 - `output/train_run1/tensorboard/` — TensorBoard event files
 
-Per-epoch output is printed to the console:
-```
-Epoch 1/100  train_loss=0.523411  val_loss=0.498762  lr=2.70e-04
-```
-Early stopping and LR reduction events are also logged when they occur.
-
 ### `hp_opt` — Hyperparameter optimization with Optuna
 
-Runs Optuna TPE search using 5-fold CV on the training set. Saves a study `.pkl` file that can be resumed. The study is saved after every completed trial so progress is preserved if the run is interrupted.
+Runs Optuna TPE search using 5-fold CV on the training set. The study is saved after every completed trial so progress is preserved if interrupted.
 
 ```bash
 python run_model.py \
@@ -249,35 +318,22 @@ python run_model.py \
     --n_trials 100
 ```
 
-To seed the first trial with the hyperparameters from the YAML config (giving the optimizer a strong baseline):
+To seed the first trial with the YAML hyperparameters (gives the optimizer a strong baseline):
 
 ```bash
-python run_model.py \
-    --mode hp_opt \
-    --input_file train_sample.yml \
-    --output_dir ./output/hp_search \
-    --optuna_dir ./optuna \
-    --n_trials 100 \
-    --seed_params
+python run_model.py ... --seed_params
 ```
 
 To resume an existing study:
 
 ```bash
-python run_model.py \
-    --mode hp_opt \
-    --input_file train_sample.yml \
-    --output_dir ./output/hp_search \
-    --optuna_file ./optuna/study_20260101.pkl \
-    --n_trials 50
+python run_model.py ... --optuna_file ./optuna/study_20260101.pkl --n_trials 50
 ```
 
 **Outputs:**
 - `optuna/study_YYYYMMDD.pkl` — Optuna study (auto-named by date if `--optuna_file` not given)
 
 ### `seeds_cfv` — 5-fold cross-validation across multiple seeds
-
-Runs 5-fold CV for each random seed. Useful for assessing model stability and selecting the best seed/fold for final evaluation.
 
 ```bash
 python run_model.py \
@@ -291,13 +347,11 @@ python run_model.py \
 **Outputs (in `--output_dir`):**
 - `metrics_{seed}_{fold}.csv` — per-fold classification metrics
 - `avg_val_losses.csv` — average validation loss per seed across 5 folds
-- `val_losses.csv` — validation loss for every seed × fold combination
+- `val_losses.csv` — validation loss for every seed × fold
 
-Checkpoints are saved to `--checkpoints_dir/metrics_{seed}_{fold}.pt`.
+Checkpoints saved to `--checkpoints_dir/metrics_{seed}_{fold}.pt`.
 
 ### `eval` — Evaluate a single checkpoint on the test set
-
-Loads a checkpoint and evaluates on the test set. ROC curves and Precision-Recall curves are always saved. By default uses a threshold of 0.5; use `--use_thresholds` to optimise thresholds on the validation set.
 
 ```bash
 # Default: 0.5 threshold for all tasks
@@ -329,11 +383,11 @@ python run_model.py \
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--threshold_metric` | `sn` | Metric to maximise: `sn`, `sp`, `bal_acc`, `ppv`, `npv`, `mcc`, `f1`, `h` |
-| `--tune_consensus_threshold` | off | Optimise one shared threshold for the consensus (OR) outcome instead of 5 per-task thresholds |
-| `--temperature_scaling` | off | Fit scalar temperature T on val set (minimises NLL) before thresholding. Can also be used without `--use_thresholds` to calibrate probabilities. |
+| `--tune_consensus_threshold` | off | Optimise one shared threshold for the consensus (OR) outcome |
+| `--temperature_scaling` | off | Fit scalar temperature T on val set before thresholding; can also be used without `--use_thresholds` to calibrate probabilities |
 
 **Outputs:**
-- `metrics.csv` — per-strain metrics (TP, TN, FP, FN, Sp, Sn, PPV, NPV, Acc, Bal acc, MCC, F1 score, H score)
+- `metrics.csv` — per-strain metrics (TP, TN, FP, FN, Sp, Sn, PPV, NPV, Acc, Bal acc, MCC, F1, H)
 - `metrics_cons.csv` — consensus (OR rule) metrics
 - `misclassified_files.csv` — molecules where consensus prediction was wrong
 - `model_output_raw.csv` — probabilities, true labels, binary predictions, and consensus per molecule
@@ -342,10 +396,9 @@ python run_model.py \
 
 ### `top_seeds_eval` — Evaluate top N seeds and average metrics
 
-Reads `val_losses.csv` (from `seeds_cfv`), selects the top `N` seeds by lowest average validation loss, loads their per-fold checkpoints, evaluates each on the test set, and averages results. Supports the same `--use_thresholds`, `--temperature_scaling`, and `--tune_consensus_threshold` flags as `eval`.
+Reads `val_losses.csv` from `seeds_cfv`, selects the top N seeds by lowest average validation loss, and averages test set results. Supports the same `--use_thresholds`, `--temperature_scaling`, and `--tune_consensus_threshold` flags as `eval`.
 
 ```bash
-# Default: 0.5 threshold
 python run_model.py \
     --mode top_seeds_eval \
     --input_file train_sample.yml \
@@ -353,16 +406,6 @@ python run_model.py \
     --metrics_dir ./output/cfv_results \
     --checkpoints_dir ./checkpoints \
     --n_top_seeds 5
-
-# With temperature scaling + threshold optimisation
-python run_model.py \
-    --mode top_seeds_eval \
-    --input_file train_sample.yml \
-    --output_dir ./output/top_seeds \
-    --metrics_dir ./output/cfv_results \
-    --checkpoints_dir ./checkpoints \
-    --n_top_seeds 5 \
-    --use_thresholds --temperature_scaling --threshold_metric sn
 ```
 
 **Outputs:**
@@ -371,8 +414,6 @@ python run_model.py \
 
 ### `analyze_cfv` — Plot and summarize cross-validation results
 
-Reads per-fold metric CSVs from a completed `seeds_cfv` run and generates summary plots. Identifies the top 5 seeds by lowest average validation loss.
-
 ```bash
 python run_model.py \
     --mode analyze_cfv \
@@ -380,7 +421,7 @@ python run_model.py \
     --metrics_dir ./output/cfv_results
 ```
 
-**Outputs (PNG files in `--output_dir`):**
+**Outputs:**
 - `metrics_barplot.png` — per-strain metrics bar chart
 - `mcc_barplot.png` — MCC per strain
 - `validation_loss_heatmap.png` — heatmap of validation loss for every seed × fold
@@ -388,36 +429,27 @@ python run_model.py \
 
 ### `viz_optuna` — Visualize an Optuna study
 
-Generates optimization history and hyperparameter importance plots for one or all studies in a directory.
-
-Single study:
-
 ```bash
+# Single study
 python run_model.py \
     --mode viz_optuna \
     --output_dir ./output/optuna_plots \
     --optuna_file ./optuna/study_20260101.pkl
-```
 
-All studies in a directory:
-
-```bash
+# All studies in a directory
 python run_model.py \
     --mode viz_optuna \
     --output_dir ./output/optuna_plots \
     --optuna_dir ./optuna
 ```
 
-**Outputs:**
-- `optimization_history.png`
-- `param_importances.png`
-- `val_loss_history.png`
+**Outputs:** `optimization_history.png`, `param_importances.png`, `val_loss_history.png`
 
 ---
 
-## GNNExplainer Analysis (`GNN_explainer_analysis.py`)
+## GNNExplainer + Feature Importance Analysis (`GNN_explainer_analysis.py`)
 
-Runs GNNExplainer to identify important molecular fragments, and optionally runs Integrated Gradients for input feature importance.
+Runs GNNExplainer to identify important molecular fragments and computes structural alert overlap scores. Optionally runs Integrated Gradients for input feature importance.
 
 ```bash
 python GNN_explainer_analysis.py \
@@ -446,16 +478,36 @@ python GNN_explainer_analysis.py \
     --data_file /path/to/custom_data.csv
 ```
 
-**Outputs:**
-- PDF reports with fragment importance visualizations per task
-- CSV files with atom/fragment importance scores
-- (with `--analyze_input_features`) Bar charts and heatmaps of node feature importances
+**Outputs (in `--output_dir`):**
+
+*Structural alert analysis:*
+- `alert_instance_grids/` — per-alert grid images showing each matching molecule with three-color atom highlighting:
+  - **Orange** = atoms in both the SMARTS match and the GNN important set (overlap)
+  - **Blue** = alert atoms not identified as important by the GNN
+  - **Red** = GNN-important atoms not in the alert
+- `alert_averaged_plots_positional/` — per-alert positional averaging heatmaps showing which SMARTS atom positions are most frequently GNN-important across all matching molecules. Up to 3 representative molecules per alert:
+  - `<alert>_smarts_pos_avg_rep0.png` — smallest matching molecule
+  - `<alert>_smarts_pos_avg_rep1.png` — second smallest
+  - `<alert>_smarts_pos_avg_rep2.png` — third smallest
+- `toxic_overlap_by_strain_heatmap.pdf` — heatmap of mean GNN overlap score (toxic molecules only) per alert per strain; alerts with zero overall overlap excluded
+- `alert_performance_bars.pdf` — horizontal bar chart of mean overlap score per alert, sorted descending; alerts with zero overlap excluded
+- `overlap_diagnostic.xlsx` — per-molecule diagnostic with raw SMARTS atom counts, expanded atom counts, GNN overlap counts, and computed overlap scores for cross-checking against manual calculations
+
+*Input feature importance (only with `--analyze_input_features`):*
+- `feature_importance_plots/node_feature_importance_task_N.png` — per-task node feature bar charts
+- `feature_importance_plots/edge_feature_importance_task_N.png` — per-task edge feature bar charts
+- `feature_importance_plots/overall_node_feature_importance.png` — overall node feature importance bar chart
+- `feature_importance_plots/overall_edge_feature_importance.png` — overall edge feature importance bar chart
+- `feature_importance_plots/node_feature_importance_heatmap.png` — node feature importance across tasks (heatmap)
+- `feature_importance_plots/edge_feature_importance_heatmap.png` — edge feature importance across tasks (heatmap)
+- `feature_importance_plots/overall_feature_importance_violin.png` — SHAP-style scatter plot of per-molecule feature importance distributions for both node and edge features on the same axes. One-hot encoded groups (Period 1–7, Block s/p/d/f, Element group) are averaged into single scores. Points are colored blue→red by attribution magnitude (coolwarm); circles = node features, diamonds = edge features; features sorted by mean importance.
+- `feature_importance_plots/overall_feature_importance_violin_values.csv` — long-form CSV of per-molecule SHAP values underlying the plot (columns: Feature, Type, SHAP Value)
 
 ---
 
 ## Visualizing the Graph Database (`visualize_graphs.py`)
 
-Loops through the graph database and renders each molecular graph side-by-side with the 2D chemical structure (from SMILES), so you can visually verify that atom types, connectivity, and bond distances were constructed correctly.
+Renders each molecular graph side-by-side with the 2D chemical structure to verify atom types, connectivity, and bond distances.
 
 ```bash
 python visualize_graphs.py \
@@ -468,18 +520,18 @@ python visualize_graphs.py \
 
 | Argument | Default | Description |
 |----------|---------|-------------|
-| `--input_file` | `train_sample.yml` | YAML config to read default `database` and `data_file` paths |
-| `--database_dir` | from YAML `database` key | Path to graph database root |
-| `--data_file` | from YAML `data_file` key | CSV with SMILES and labels |
-| `--n_graphs` | `20` | Number of graphs to visualize (first N by filename order) |
-| `--partition` | `test` | Which partition: `train`, `validate`, `test`, or `all` |
+| `--input_file` | `train_sample.yml` | YAML config (reads `database` and `data_file` paths) |
+| `--database_dir` | from YAML `database` | Path to graph database root |
+| `--data_file` | from YAML `data_file` | CSV with SMILES and labels |
+| `--n_graphs` | `20` | Number of graphs to visualize |
+| `--partition` | `test` | `train`, `validate`, `test`, or `all` |
 | `--output_dir` | `./graph_viz` | Directory to save output |
-| `--output_format` | `pdf` | `pdf` (all graphs in one file) or `png` (one file per graph) |
-| `--show_H` | off | Include H atoms in the graph panel (hidden by default) |
+| `--output_format` | `pdf` | `pdf` (all in one file) or `png` (one file per graph) |
+| `--show_H` | off | Include hydrogen atoms in the graph panel |
 
-Each figure shows two panels: the RDKit 2D structure on the left and the molecular graph on the right with nodes colored by element (CPK scheme), edge color indicating bond distance, and labels showing mol ID and per-strain toxicity labels.
+Each figure shows two panels: RDKit 2D structure on the left and the molecular graph on the right, with nodes colored by element, edge color indicating bond distance, and labels showing mol ID and per-strain toxicity labels.
 
-**Output:**
+**Outputs:**
 - `pdf` mode: `graphs.pdf` — one page per molecule
 - `png` mode: `fig_{mol_id}.png` per molecule
 
@@ -487,38 +539,25 @@ Each figure shows two panels: the RDKit 2D structure on the left and the molecul
 
 ## Visualizing Training with TensorBoard
 
-TensorBoard logs are written to `<output_dir>/tensorboard/` during `train` mode. To view them:
+TensorBoard logs are written to `<output_dir>/tensorboard/` during `train` mode.
 
 ```bash
 tensorboard --logdir ./output/train_run1/tensorboard
 ```
 
-Then open `http://localhost:6006` in a browser. The `Loss/train` and `Loss/val` scalars are logged at every epoch.
+Then open `http://localhost:6006`. The `Loss/train` and `Loss/val` scalars are logged at every epoch.
 
 ---
 
 ## Stopping Training Early (UserStopping)
 
-If `UserStopping` is listed in the `callbacks` section of the YAML, a `STOPFLAG.yml` file is created at the start of training. To stop training gracefully at the end of the current epoch, edit this file and set:
+If `UserStopping` is listed in the `callbacks` section of the YAML, a `STOPFLAG.yml` file is created at the start of training. To stop training gracefully at the end of the current epoch, set:
 
 ```yaml
 STOPFLAG: True
 ```
 
 The model will save a checkpoint and exit cleanly.
-
----
-
-## Data File Format (`data.csv`)
-
-The data file should contain at minimum:
-
-| Column | Description |
-|--------|-------------|
-| `SMILES` | Canonical SMILES string |
-| `TA98`, `TA100`, `TA102`, `TA1535`, `TA1537` | Binary labels (0 = negative, 1 = positive, -1 = missing) |
-| `Overall` | Overall consensus label (used in `eval` mode for misclassification analysis) |
-| `split` | `train`, `validate`, or `test` |
 
 ---
 
@@ -529,3 +568,4 @@ The data file should contain at minimum:
 - **CV**: MultilabelStratifiedKFold (5 folds) preserving label distribution
 - **Threshold optimization**: Coordinate ascent with 1-SE rule on validation set
 - **Consensus prediction**: OR rule across all 5 task heads
+- **Explainability**: GNNExplainer edge mask → top-15% edges define important atoms; SMARTS-position averaging aligns structural alert importance across molecules with different atom orderings

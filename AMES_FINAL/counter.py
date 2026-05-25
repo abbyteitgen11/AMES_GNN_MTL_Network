@@ -1,11 +1,15 @@
 from pathlib import Path
+import sys
 
 import glob
+import yaml
 
 from count_species import count_species
 
-source_directory = '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL/DataBase_AMES/FILES_XYZ'
+with open(sys.argv[1], "r") as f:
+    input_data = yaml.load(f, Loader=yaml.Loader)
 
+source_directory = input_data.get("DataBaseDirectory")
 source_directory_path = Path(source_directory)
 
 input_file_ext = '.xyz'
