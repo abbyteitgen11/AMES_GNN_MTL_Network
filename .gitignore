@@ -25,6 +25,8 @@ AMES_FINAL/plan.md
 AMES_FINAL/__pycache__
 AMES_FINAL/plot_heatmap_bars.py
 AMES_FINAL/add_negative_examples.py
+AMES_FINAL/prepare_single_task_data.py
+AMES_FINAL/train_single_task.yml
 report_AMES.docx
 *.claude
 *.claude/
