@@ -27,7 +27,8 @@ python run_model.py \
     --mode train \
     --input_file train_sample.yml \
     --output_dir ./output/train \
-    --checkpoints_dir ./checkpoints
+    --checkpoints_dir ./checkpoints \
+    --use_thresholds --temperature_scaling --threshold_metric bal_acc
 ```
 
 Update `database` and `data_file` in `train_sample.yml` to match your graph database and data paths.
@@ -40,14 +41,23 @@ Using the provided checkpoint files:
 python run_model.py \
     --mode top_seeds_eval \
     --input_file train_sample.yml \
-    --output_dir ./output/eval \
-    --metrics_dir ./output/cfv_results \
-    --checkpoints_dir ./checkpoints \
+    --output_dir ./output/XFV_eval \
+    --metrics_dir ./metrics \
+    --checkpoints_dir ./checkpoints/Final_RBF_XFV \
     --n_top_seeds 5 \
-    --use_thresholds --temperature_scaling --threshold_metric sn
+    --use_thresholds --temperature_scaling --threshold_metric bal_acc
 ```
 
 The `checkpoints/` directory should contain the provided `metrics_{seed}_{fold}.pt` files. `metrics_dir` should point to the directory containing `val_losses.csv` from the cross-validation run (included with the checkpoints).
+
+Plot and summarize cross-validation results:
+
+```bash
+python run_model.py \
+    --mode analyze_cfv \
+    --output_dir ./output/XFV_plots \
+    --metrics_dir ./metrics
+```
 
 **D) Run the explainer analysis**
 
@@ -55,11 +65,11 @@ The `checkpoints/` directory should contain the provided `metrics_{seed}_{fold}.
 python GNN_explainer_analysis.py \
     --input_file train_sample.yml \
     --output_dir ./output/explainer \
-    --checkpoint_file ./checkpoints/metrics_45_1.pt \
+    --checkpoint_file ./checkpoints/metrics_42_3.pt \
     --analyze_input_features
 ```
 
-Replace `metrics_45_1.pt` with whichever provided checkpoint you want to analyze.
+Replace `metrics_42_3.pt` with whichever provided checkpoint you want to analyze (metrics_41_1.pt is the checkpoint used in the paper).
 
 ---
 
@@ -511,14 +521,14 @@ python run_model.py \
     --mode eval \
     --input_file train_sample.yml \
     --output_dir ./output/eval_results \
-    --checkpoint_file ./checkpoints/metrics_45_1.pt
+    --checkpoint_file ./checkpoints/metrics_42_3.pt
 
 # Temperature scaling + per-task threshold optimisation (maximise sensitivity)
 python run_model.py \
     --mode eval \
     --input_file train_sample.yml \
     --output_dir ./output/eval_results \
-    --checkpoint_file ./checkpoints/metrics_45_1.pt \
+    --checkpoint_file ./checkpoints/metrics_42_3.pt \
     --use_thresholds --temperature_scaling --threshold_metric sn
 
 # Temperature scaling + single consensus threshold (maximise balanced accuracy)
@@ -526,7 +536,7 @@ python run_model.py \
     --mode eval \
     --input_file train_sample.yml \
     --output_dir ./output/eval_results \
-    --checkpoint_file ./checkpoints/metrics_45_1.pt \
+    --checkpoint_file ./checkpoints/metrics_42_3.pt \
     --use_thresholds --temperature_scaling --tune_consensus_threshold --threshold_metric bal_acc
 ```
 
@@ -545,6 +555,8 @@ python run_model.py \
 - `model_output_raw.csv` — probabilities, true labels, binary predictions, and consensus per molecule
 - `roc_curves.png` — ROC curves for each strain + consensus (AUC annotated)
 - `pr_curves.png` — Precision-Recall curves for each strain + consensus (AP annotated)
+
+---
 
 ### `top_seeds_eval` — Evaluate top N seeds and average metrics
 
@@ -592,7 +604,7 @@ Runs GNNExplainer to identify important molecular fragments and computes structu
 python GNN_explainer_analysis.py \
     --input_file train_sample.yml \
     --output_dir ./output/explainer \
-    --checkpoint_file ./checkpoints/metrics_45_1.pt
+    --checkpoint_file ./checkpoints/metrics_42_3.pt
 ```
 
 To also run Integrated Gradients input feature importance:
@@ -601,7 +613,7 @@ To also run Integrated Gradients input feature importance:
 python GNN_explainer_analysis.py \
     --input_file train_sample.yml \
     --output_dir ./output/explainer \
-    --checkpoint_file ./checkpoints/metrics_45_1.pt \
+    --checkpoint_file ./checkpoints/metrics_42_3.pt \
     --analyze_input_features
 ```
 
@@ -611,7 +623,7 @@ To override the data file path from the YAML:
 python GNN_explainer_analysis.py \
     --input_file train_sample.yml \
     --output_dir ./output/explainer \
-    --checkpoint_file ./checkpoints/metrics_45_1.pt \
+    --checkpoint_file ./checkpoints/metrics_42_3.pt \
     --data_file /path/to/custom_data.csv
 ```
 

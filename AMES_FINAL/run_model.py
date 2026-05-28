@@ -1997,21 +1997,41 @@ def run_top_seeds_eval(args):
 
     metrics_dir = args.metrics_dir or args.output_dir
 
-    # Read avg_val_losses.csv
-    csv_path = os.path.join(metrics_dir, "avg_val_losses.csv")
+    # Read val_losses.csv — select top seeds by avg loss, then best fold per seed
+    csv_path = os.path.join(metrics_dir, "val_losses.csv")
     if not os.path.exists(csv_path):
         raise FileNotFoundError(
-            f"avg_val_losses.csv not found in {metrics_dir}. "
+            f"val_losses.csv not found in {metrics_dir}. "
             "Run seeds_cfv mode first to generate this file."
         )
-    loss_df = pd.read_csv(csv_path)
-    # Format: columns are seed values, one data row
-    seed_losses = {int(col): float(loss_df[col].iloc[0]) for col in loss_df.columns}
-    sorted_seeds = sorted(seed_losses.items(), key=lambda x: x[1])
-    top_seeds = [s for s, _ in sorted_seeds[:args.n_top_seeds]]
-    logging.info(f"Top {args.n_top_seeds} seeds (by lowest avg val loss): {top_seeds}")
-    for s, l in sorted_seeds[:args.n_top_seeds]:
-        logging.info(f"  Seed {s}: avg val loss = {l:.6f}")
+    # Format: row0=,,Seed,...  row1=Fold,,s1,s2,...  rows2-6=,fold_idx,loss,...
+    #         empty row, then ,Average,...
+    raw = pd.read_csv(csv_path, header=None)
+    seed_labels = [int(v) for v in raw.iloc[1, 2:].tolist()]
+    fold_rows = raw.iloc[2:7]  # exactly 5 fold rows
+
+    # Build {seed: {fold: loss}}
+    seed_fold_losses = {s: {} for s in seed_labels}
+    for _, row in fold_rows.iterrows():
+        fold_idx = int(row.iloc[1])
+        for col_i, seed in enumerate(seed_labels):
+            seed_fold_losses[seed][fold_idx] = float(row.iloc[2 + col_i])
+
+    # Step 1+2: average across folds per seed, pick top N seeds
+    avg_loss_per_seed = {s: sum(folds.values()) / len(folds)
+                         for s, folds in seed_fold_losses.items()}
+    top_seeds = sorted(avg_loss_per_seed, key=avg_loss_per_seed.get)[:args.n_top_seeds]
+    logging.info(f"Top {args.n_top_seeds} seeds by lowest avg val loss:")
+    for s in top_seeds:
+        logging.info(f"  Seed {s}: avg val loss = {avg_loss_per_seed[s]:.6f}")
+
+    # Step 3: within each top seed, pick the fold with the lowest individual loss
+    top_pairs = []
+    for s in top_seeds:
+        best_fold = min(seed_fold_losses[s], key=seed_fold_losses[s].get)
+        best_loss = seed_fold_losses[s][best_fold]
+        top_pairs.append((s, best_fold))
+        logging.info(f"  Seed {s} → best fold {best_fold} (val loss = {best_loss:.6f})")
 
     # Load config
     input_data, n_node_features, n_edge_features, database_path = load_yaml_and_graph_info(args.input_file)
@@ -2060,77 +2080,93 @@ def run_top_seeds_eval(args):
 
     # Collect per-seed, per-fold metrics
     all_metrics_rows = []
+    all_consensus_rows = []
     strain_names = ["Strain TA98", "Strain TA100", "Strain TA102", "Strain TA1535", "Strain TA1537"]
 
-    for seed in top_seeds:
-        for fold in range(5):
-            ckpt_path = os.path.join(args.checkpoints_dir, f"metrics_{seed}_{fold}.pt")
-            if not os.path.exists(ckpt_path):
-                logging.warning(f"Checkpoint not found: {ckpt_path} — skipping.")
-                continue
+    for seed, fold in top_pairs:
+        ckpt_path = os.path.join(args.checkpoints_dir, f"metrics_{seed}_{fold}.pt")
+        if not os.path.exists(ckpt_path):
+            logging.warning(f"Checkpoint not found: {ckpt_path} — skipping.")
+            continue
 
-            model = build_model(params, n_node_features, n_edge_features,
-                                input_mode, n_descriptor_inputs)
-            checkpoint = torch.load(ckpt_path, map_location="cpu")
-            model.load_state_dict(checkpoint["model_state_dict"])
-            model = model.to(device)
-            model.eval()
+        model = build_model(params, n_node_features, n_edge_features,
+                            input_mode, n_descriptor_inputs)
+        checkpoint = torch.load(ckpt_path, map_location="cpu")
+        model.load_state_dict(checkpoint["model_state_dict"])
+        model = model.to(device)
+        model.eval()
 
-            # Val inference
-            y_logit_val, _, y_true_val, _ = run_inference(
-                model, valLoader, device, params, input_mode=input_mode, desc_dict=desc_dict
-            )
+        # Val inference
+        y_logit_val, _, y_true_val, _ = run_inference(
+            model, valLoader, device, params, input_mode=input_mode, desc_dict=desc_dict
+        )
 
-            # Temperature scaling
-            if args.temperature_scaling:
-                T = fit_temperature(y_true_val, y_logit_val)
-                logging.info(f"  Seed {seed} Fold {fold}: T = {T:.4f}")
-                y_logit_val = apply_temperature(y_logit_val, T)
-            else:
-                T = None
+        # Temperature scaling
+        if args.temperature_scaling:
+            T = fit_temperature(y_true_val, y_logit_val)
+            logging.info(f"  Seed {seed} Fold {fold}: T = {T:.4f}")
+            y_logit_val = apply_temperature(y_logit_val, T)
+        else:
+            T = None
 
-            # Threshold selection
-            if args.use_thresholds:
-                if args.tune_consensus_threshold:
-                    t = crossfit_single_threshold(
-                        y_true_val, y_logit_val, K=5, metric=args.threshold_metric, seed=42
-                    )
-                    fold_ths = [t] * 5
-                else:
-                    fold_ths = crossfit_thresholds_for_consensus(
-                        y_true_cat=y_true_val, y_prob_cat=y_logit_val, K=5,
-                        metric=args.threshold_metric, seed=42
-                    )
-                logging.info(f"  Seed {seed} Fold {fold} thresholds (optimising {args.threshold_metric}): {fold_ths}")
-            else:
-                fold_ths = None
-
-            # Test inference
-            y_logit_cat, _, y_true_cat, _ = run_inference(
-                model, testLoader, device, params, input_mode=input_mode, desc_dict=desc_dict
-            )
-            if T is not None:
-                y_logit_cat = apply_temperature(y_logit_cat, T)
-            if fold_ths is not None:
-                y_pred_cat = (y_logit_cat >= np.array(fold_ths)).astype(int)
-            else:
-                y_pred_cat = (y_logit_cat >= 0.5).astype(int)
-
-            for i, strain in enumerate(strain_names):
-                _, new_real, new_y_pred, _ = filter_nan(
-                    y_true_cat[:, i], y_pred_cat[:, i], y_logit_cat[:, i]
+        # Threshold selection
+        if args.use_thresholds:
+            if args.tune_consensus_threshold:
+                t = crossfit_single_threshold(
+                    y_true_val, y_logit_val, K=5, metric=args.threshold_metric, seed=42
                 )
-                metrics = get_metrics(new_real, new_y_pred)
-                m1 = list(metrics[0])
-                m2 = list(metrics[1])
-                npv, mcc = compute_npv_mcc(m1)
-                all_metrics_rows.append({
-                    "seed": seed, "fold": fold, "strain": strain,
-                    "TP": m1[0], "TN": m1[1], "FP": m1[2], "FN": m1[3],
-                    "Sp": m2[0], "Sn": m2[1], "PPV": m2[2], "NPV": npv,
-                    "Acc": m2[3], "Bal acc": m2[4], "MCC": mcc,
-                    "F1 score": m2[5], "H score": m2[6],
-                })
+                fold_ths = [t] * 5
+            else:
+                fold_ths = crossfit_thresholds_for_consensus(
+                    y_true_cat=y_true_val, y_prob_cat=y_logit_val, K=5,
+                    metric=args.threshold_metric, seed=42
+                )
+            logging.info(f"  Seed {seed} Fold {fold} thresholds (optimising {args.threshold_metric}): {fold_ths}")
+        else:
+            fold_ths = None
+
+        # Test inference
+        y_logit_cat, _, y_true_cat, _ = run_inference(
+            model, testLoader, device, params, input_mode=input_mode, desc_dict=desc_dict
+        )
+        if T is not None:
+            y_logit_cat = apply_temperature(y_logit_cat, T)
+        if fold_ths is not None:
+            y_pred_cat = (y_logit_cat >= np.array(fold_ths)).astype(int)
+        else:
+            y_pred_cat = (y_logit_cat >= 0.5).astype(int)
+
+        for i, strain in enumerate(strain_names):
+            _, new_real, new_y_pred, _ = filter_nan(
+                y_true_cat[:, i], y_pred_cat[:, i], y_logit_cat[:, i]
+            )
+            metrics = get_metrics(new_real, new_y_pred)
+            m1 = list(metrics[0])
+            m2 = list(metrics[1])
+            npv, mcc = compute_npv_mcc(m1)
+            all_metrics_rows.append({
+                "seed": seed, "fold": fold, "strain": strain,
+                "TP": m1[0], "TN": m1[1], "FP": m1[2], "FN": m1[3],
+                "Sp": m2[0], "Sn": m2[1], "PPV": m2[2], "NPV": npv,
+                "Acc": m2[3], "Bal acc": m2[4], "MCC": mcc,
+                "F1 score": m2[5], "H score": m2[6],
+            })
+
+        # Consensus metrics for this seed/fold
+        y_cons_pred = consensus_from_heads(y_pred_cat)
+        y_cons_true = consensus_truth(y_true_cat)
+        _, cons_true_f, cons_pred_f, _ = filter_nan(y_cons_true, y_cons_pred, y_cons_pred)
+        c_metrics = get_metrics(cons_true_f, cons_pred_f)
+        c1 = list(c_metrics[0])
+        c2 = list(c_metrics[1])
+        c_npv, c_mcc = compute_npv_mcc(c1)
+        all_consensus_rows.append({
+            "seed": seed, "fold": fold,
+            "TP": c1[0], "TN": c1[1], "FP": c1[2], "FN": c1[3],
+            "Sp": c2[0], "Sn": c2[1], "PPV": c2[2], "NPV": c_npv,
+            "Acc": c2[3], "Bal acc": c2[4], "MCC": c_mcc,
+            "F1 score": c2[5], "H score": c2[6],
+        })
 
     if not all_metrics_rows:
         logging.error("No checkpoints could be loaded. Exiting.")
@@ -2139,10 +2175,29 @@ def run_top_seeds_eval(args):
     df_all = pd.DataFrame(all_metrics_rows)
     df_all.to_csv(os.path.join(args.output_dir, "top_seeds_all_metrics.csv"), index=False)
 
-    # Average metrics across top seeds and folds
     metric_cols = ["Sp", "Sn", "PPV", "NPV", "Acc", "Bal acc", "MCC", "F1 score", "H score"]
-    df_avg = df_all.groupby("strain")[metric_cols].mean().reset_index()
+
+    # Per-strain: mean + std
+    df_avg_mean = df_all.groupby("strain")[metric_cols].mean()
+    df_avg_std = (df_all.groupby("strain")[metric_cols]
+                  .std(ddof=1)
+                  .rename(columns={c: c + "_std" for c in metric_cols}))
+    df_avg = pd.concat([df_avg_mean, df_avg_std], axis=1).reset_index()
     df_avg.to_csv(os.path.join(args.output_dir, "top_seeds_avg_metrics.csv"), index=False)
+
+    # Consensus: mean + std
+    if all_consensus_rows:
+        df_cons = pd.DataFrame(all_consensus_rows)
+        df_cons.to_csv(os.path.join(args.output_dir, "top_seeds_all_metrics_cons.csv"), index=False)
+        cons_agg = (df_cons[metric_cols]
+                    .agg(["mean", "std"])
+                    .T
+                    .rename(columns={"mean": "Mean", "std": "Std"})
+                    .reset_index()
+                    .rename(columns={"index": "Metric"}))
+        cons_agg.to_csv(os.path.join(args.output_dir, "top_seeds_avg_metrics_cons.csv"), index=False)
+        logging.info(f"Average consensus metrics across top {args.n_top_seeds} seeds:")
+        logging.info(cons_agg.to_string())
 
     logging.info(f"Average test metrics across top {args.n_top_seeds} seeds:")
     logging.info(df_avg.to_string())

@@ -1766,10 +1766,11 @@ def main():
     n_node_features = database_data.get("nNodeFeatures")
     edge_parameters = database_data.get("EdgeFeatures")
     bond_angle_features = database_data.get("BondAngleFeatures", True)
-    dihedral_angle_features = database_data.get("DihedralFeatures", True)
-    n_edge_features = 1  # 1 for distance features
-    if bond_angle_features: n_edge_features += 1  # bond-angle feature
-    if dihedral_angle_features: n_edge_features += 1  # dihedral-angle feature
+    dihedral_angle_features = database_data.get("DihedralAngleFeatures", True)
+    n_dist_feats = database_data.get("nDistanceFeatures", 1)  # 1 raw or N for RBF
+    n_edge_features = n_dist_feats
+    if bond_angle_features: n_edge_features += 1
+    if dihedral_angle_features: n_edge_features += 1
 
     # Training parameters
     nEpochs = input_data.get("nEpochs", 10)  # Number of epochs
@@ -2327,7 +2328,11 @@ def main():
             "Mass number", "Van der Waals radius"
         ]
 
-        edge_feature_names = ["Distance", "Bond angle", "Dihedral angle"]
+        edge_feature_names = (
+            ["Distance"] +
+            (["Bond angle"] if bond_angle_features else []) +
+            (["Dihedral angle"] if dihedral_angle_features else [])
+        )
 
         # Create output directory for feature importance plots
         plot_dir = os.path.join(args.output_dir, "feature_importance_plots")
@@ -2398,10 +2403,13 @@ def main():
                                    "Nonmetals", "Halogens", "Noble gasses",
                                    "Lanthanides", "Actinides"]),
             ]
+            edge_mat = np.vstack(all_edge_importances_per_mol)  # (n_mols, n_edge_features)
+            dist_avg = edge_mat[:, :n_dist_feats].mean(axis=1, keepdims=True)
+            edge_mat_grouped = np.hstack([dist_avg, edge_mat[:, n_dist_feats:]])
             plot_shap_violin(
                 np.vstack(all_node_importances_per_mol),
                 node_feature_names,
-                np.vstack(all_edge_importances_per_mol),
+                edge_mat_grouped,
                 edge_feature_names,
                 node_groups,
                 "Overall Feature Importance (per molecule)",
