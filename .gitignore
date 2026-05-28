@@ -22,6 +22,7 @@ AMES_FINAL/DRAGO/
 AMES_FINAL/metrics/
 AMES_FINAL/optuna/
 AMES_FINAL/plan.md
+AMES_FINAL/train_RBF.yml
 AMES_FINAL/__pycache__
 AMES_FINAL/plot_heatmap_bars.py
 AMES_FINAL/add_negative_examples.py
