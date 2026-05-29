@@ -73,6 +73,8 @@ def get_args():
                         help="Path to data.csv; if not set, uses data_file from YAML")
     parser.add_argument("--analyze_input_features", action="store_true",
                         help="If set, also run Integrated Gradients input feature importance analysis")
+    parser.add_argument("--analyze_input_features_only", action="store_true",
+                        help="Run only Integrated Gradients analysis; skip GNNExplainer entirely")
     return parser.parse_args()
 
 # Load structural alerts as SMARTS
@@ -206,11 +208,11 @@ def compute_overlap_score(mol, smarts, highlighted_atoms):
     return max(scores), matches
 
 # Compute overlap scores, return df
-def evaluate_alerts(smiles_list, important_atoms_per_mol, alerts, predictions, correct_val, correct_val_overall):
+def evaluate_alerts(smiles_list, important_atoms_per_mol, alerts, predictions, probs, correct_val, correct_val_overall):
     rows = []
 
-    for i, (smiles, imp_dict, pred, label, label_overall) in enumerate(
-            zip(smiles_list, important_atoms_per_mol, predictions, correct_val, correct_val_overall)):
+    for i, (smiles, imp_dict, pred, prob, label, label_overall) in enumerate(
+            zip(smiles_list, important_atoms_per_mol, predictions, probs, correct_val, correct_val_overall)):
         # mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
         mol = Chem.MolFromSmiles(smiles) if isinstance(smiles, str) else None
         if mol is None:
@@ -218,7 +220,8 @@ def evaluate_alerts(smiles_list, important_atoms_per_mol, alerts, predictions, c
                 rows.append({
                     "mol_id": i, "alert": name,
                     "tight_score": 0, "loose_score": 0,
-                    "prediction": pred, "label": label,
+                    "prediction": pred, "prob": prob,
+                    "label": label,
                     "label_overall": label_overall,
                     "alert_matched": False,
                 })
@@ -233,7 +236,7 @@ def evaluate_alerts(smiles_list, important_atoms_per_mol, alerts, predictions, c
                 "alert": name,
                 "tight_score": tight_score,
                 "loose_score": loose_score,
-                "prediction": pred,
+                "prediction": pred, "prob": prob,
                 "label": label,
                 "label_overall": label_overall,
                 "alert_matched": alert_matched,
@@ -1455,6 +1458,9 @@ def export_overlap_diagnostic_xlsx(alerts_compiled, per_task_dfs, n_tasks, outpu
     df_diag = pd.DataFrame(records)
     df_diag.to_excel(output_path, index=False)
     print(f"\nDiagnostic overlap file saved to {output_path}")
+    if df_diag.empty:
+        print("(no alert-matched molecules found; per-alert summary skipped)")
+        return
     print("\nMean atom counts per alert (raw SMARTS match vs. after expansion):")
     print(df_diag.groupby("alert")[["n_raw_match_atoms", "n_expanded_atoms"]].mean().round(2).to_string())
 
@@ -1488,21 +1494,196 @@ def plot_toxic_overlap_heatmap(overlap_scores, mean_overlap_scores, output_dir=N
 
 
 # ---------------------------------------------------------------------------
+# AUC by alert/strain and 4-category analysis
+# ---------------------------------------------------------------------------
+
+def compute_auc_by_alert_strain(alerts_compiled, per_task_dfs, n_tasks):
+    """AUROC for each (alert, strain) among alert-matched molecules with valid per-strain labels."""
+    from sklearn.metrics import roc_auc_score
+    all_alerts = [name for name, _ in alerts_compiled]
+    auc_df = pd.DataFrame(np.nan, index=all_alerts,
+                          columns=[f"Strain {i + 1}" for i in range(n_tasks)])
+    for task in range(n_tasks):
+        df_task = per_task_dfs[task][task].copy()
+        df_task = df_task[df_task["label"].isin([0, 1])]
+        for alert in all_alerts:
+            sub = df_task[(df_task["alert"] == alert) & df_task["alert_matched"]]
+            if len(sub) < 10 or sub["label"].nunique() < 2:
+                continue
+            try:
+                auc_df.loc[alert, f"Strain {task + 1}"] = roc_auc_score(sub["label"], sub["prob"])
+            except Exception:
+                pass
+    return auc_df
+
+
+def plot_auc_heatmap_by_strain(auc_df, output_dir=None):
+    """Heatmap of AUROC per alert × strain (mirrors the overlap heatmap)."""
+    mean_auc = auc_df.mean(axis=1, skipna=True)
+    nonzero = mean_auc[mean_auc.notna()].sort_values(ascending=False).index
+    auc_plot = auc_df.loc[nonzero]
+
+    plt.figure(figsize=(8, max(6, len(nonzero) * 0.4)))
+    sns.heatmap(
+        auc_plot,
+        cmap="RdYlGn",
+        vmin=0.0, vmax=1.0,
+        cbar_kws={"label": "AUROC"},
+        linewidths=0.5,
+        linecolor="lightgray",
+        annot=True,
+        fmt=".2f",
+    )
+    plt.title("AUROC per Structural Alert and Strain\n(alert-matched molecules only)")
+    plt.xlabel("Strain")
+    plt.ylabel("Structural Alert")
+    plt.tight_layout()
+    if output_dir:
+        plt.savefig(os.path.join(output_dir, "auc_by_alert_strain_heatmap.pdf"),
+                    dpi=600, transparent=True)
+        plt.close()
+    else:
+        plt.show()
+
+
+def compute_alert_category_auc(alerts_compiled, per_task_dfs, n_tasks):
+    """
+    For each alert, categorise all molecules into 4 groups based on alert presence
+    and overall Ames outcome, then compute a one-vs-rest AUROC per category using
+    the model's average probability across all strain heads.
+
+    Categories
+    ----------
+    A = alert_matched & label_overall==1  (alert present, mutagenic)
+    B = alert_matched & label_overall==0  (alert present, non-mutagenic)
+    C = ~alert_matched & label_overall==1 (alert absent, mutagenic)
+    D = ~alert_matched & label_overall==0 (alert absent, non-mutagenic)
+
+    AUC_X = AUROC(is_X ~ avg_model_prob) across all molecules for this alert.
+    Interpretation:
+      High AUC_A  → model correctly assigns high probability to alert+mutagenic.
+      Low  AUC_B  → model is NOT fooled by alert-positive non-mutagenic molecules.
+      High AUC_C  → model finds mutagenic molecules even without structural alerts.
+      Low  AUC_D  → model correctly assigns low probability to non-alert, non-mutagenic.
+    """
+    from sklearn.metrics import roc_auc_score
+
+    all_alerts = [name for name, _ in alerts_compiled]
+
+    # Build a molecule-level DataFrame with avg prob across tasks
+    task_frames = []
+    for task in range(n_tasks):
+        df_t = per_task_dfs[task][task][
+            ["mol_id", "alert", "prob", "label_overall", "alert_matched"]
+        ].copy().rename(columns={"prob": f"prob_{task}"})
+        task_frames.append(df_t)
+
+    df_merged = task_frames[0].copy()
+    for t in range(1, n_tasks):
+        df_merged = df_merged.merge(
+            task_frames[t][["mol_id", "alert", f"prob_{t}"]],
+            on=["mol_id", "alert"], how="left",
+        )
+    prob_cols = [f"prob_{t}" for t in range(n_tasks)]
+    df_merged["avg_prob"] = df_merged[prob_cols].mean(axis=1)
+    df_merged = df_merged[df_merged["label_overall"].isin([0, 1])]
+
+    rows = []
+    for alert in all_alerts:
+        df_a = df_merged[df_merged["alert"] == alert].copy()
+        if len(df_a) == 0:
+            continue
+        total = len(df_a)
+        is_A = (df_a["alert_matched"]) & (df_a["label_overall"] == 1)
+        is_B = (df_a["alert_matched"]) & (df_a["label_overall"] == 0)
+        is_C = (~df_a["alert_matched"]) & (df_a["label_overall"] == 1)
+        is_D = (~df_a["alert_matched"]) & (df_a["label_overall"] == 0)
+
+        row = {
+            "alert": alert,
+            "n_A": int(is_A.sum()), "frac_A": is_A.sum() / total,
+            "n_B": int(is_B.sum()), "frac_B": is_B.sum() / total,
+            "n_C": int(is_C.sum()), "frac_C": is_C.sum() / total,
+            "n_D": int(is_D.sum()), "frac_D": is_D.sum() / total,
+        }
+        probs_arr = df_a["avg_prob"].values
+        for cat, mask in [("A", is_A), ("B", is_B), ("C", is_C), ("D", is_D)]:
+            n_pos, n_neg = mask.sum(), (~mask).sum()
+            if n_pos >= 5 and n_neg >= 5:
+                try:
+                    row[f"AUC_{cat}"] = roc_auc_score(mask.astype(int), probs_arr)
+                except Exception:
+                    row[f"AUC_{cat}"] = np.nan
+            else:
+                row[f"AUC_{cat}"] = np.nan
+        rows.append(row)
+
+    return pd.DataFrame(rows)
+
+
+def plot_alert_category_heatmap(cat_df, output_dir=None):
+    """
+    Two side-by-side heatmaps per alert:
+      Left  — fraction of molecules in each category (A, B, C, D)
+      Right — one-vs-rest AUROC for each category
+    Alerts sorted by AUC_A descending.
+    """
+    cat_df = cat_df.dropna(subset=["AUC_A"], how="all").copy()
+    cat_df = cat_df.sort_values("AUC_A", ascending=False).set_index("alert")
+
+    frac_cols = ["frac_A", "frac_B", "frac_C", "frac_D"]
+    auc_cols  = ["AUC_A",  "AUC_B",  "AUC_C",  "AUC_D"]
+    n = len(cat_df)
+    fig_h = max(6, n * 0.35)
+
+    _, axes = plt.subplots(1, 2, figsize=(12, fig_h))
+
+    frac_data = cat_df[frac_cols].rename(columns={
+        "frac_A": "A\n(alert+mut)", "frac_B": "B\n(alert+non)",
+        "frac_C": "C\n(no alert+mut)", "frac_D": "D\n(no alert+non)",
+    })
+    sns.heatmap(frac_data * 100, ax=axes[0], cmap="Blues", vmin=0, vmax=100,
+                annot=True, fmt=".1f", linewidths=0.4, linecolor="lightgray",
+                cbar_kws={"label": "% of molecules"})
+    axes[0].set_title("Fraction of molecules per category (%)")
+    axes[0].set_xlabel("Category")
+    axes[0].set_ylabel("")
+
+    auc_data = cat_df[auc_cols].rename(columns={
+        "AUC_A": "A", "AUC_B": "B", "AUC_C": "C", "AUC_D": "D",
+    })
+    sns.heatmap(auc_data, ax=axes[1], cmap="RdYlGn", vmin=0, vmax=1,
+                annot=True, fmt=".2f", linewidths=0.4, linecolor="lightgray",
+                cbar_kws={"label": "One-vs-rest AUROC"})
+    axes[1].set_title("One-vs-rest AUROC per category")
+    axes[1].set_xlabel("Category")
+    axes[1].set_ylabel("")
+
+    plt.tight_layout()
+    if output_dir:
+        plt.savefig(os.path.join(output_dir, "alert_category_auc_heatmap.pdf"),
+                    dpi=600, transparent=True)
+        plt.close()
+    else:
+        plt.show()
+
+
+# ---------------------------------------------------------------------------
 # Helper functions for input feature importance analysis (Integrated Gradients)
 # ---------------------------------------------------------------------------
 
-def combine(smiles_list, important_atoms_per_mol, predictions, correct_val, correct_val_overall):
+def combine(smiles_list, important_atoms_per_mol, predictions, probs, correct_val, correct_val_overall):
     rows = []
 
-    for i, (smiles, imp_dict, pred, label, label_overall) in enumerate(
-            zip(smiles_list, important_atoms_per_mol, predictions, correct_val, correct_val_overall)):
+    for i, (smiles, imp_dict, pred, prob, label, label_overall) in enumerate(
+            zip(smiles_list, important_atoms_per_mol, predictions, probs, correct_val, correct_val_overall)):
         mol = Chem.MolFromSmiles(smiles)
 
         rows.append({
             "mol_id": i,
             "smiles": smiles,
             "imp_dict": imp_dict,
-            "prediction": pred,
+            "prediction": pred, "prob": prob,
             "label": label,
             "label_overall": label_overall,
             })
@@ -1836,219 +2017,248 @@ def main():
     model.load_state_dict(checkpoint['model_state_dict'])
     model.eval()
 
-    model = model.to(device)
-
-    per_task_dfs = []
-    per_task_impatoms = []
-    per_task_preds = []
-    per_task_labels = []
-    global_smiles = []
-
-    ### GNNExplainer analysis
-    for task_id in range(5):
-
-        task = task_id
-        model_args = (n_node_neurons, n_node_features, n_edge_neurons, n_edge_features, n_graph_convolution_layers,
-                      n_shared_layers, n_target_specific_layers, input_mode)
-
-        task_model = TaskSpecificGNN(model, task_idx=task, model_args=model_args)
-        task_model.eval()
-
-        explainer = Explainer(
-            model=task_model,
-            algorithm=GNNExplainer(epochs=100),
-            explanation_type='model',
-            node_mask_type='object',
-            edge_mask_type='object',
-            model_config=dict(
-                mode='binary_classification',
-                task_level='graph',
-                return_type='probs',
-            ),
-        )
-
-        ####Loop through dataset
-        node_masks_all = []
-        smiles_list = []
-        predictions = []
-        important_atoms_per_mol = []
-        correct_val = []
-        correct_val_overall = []
-
-        for i, data in enumerate(testDataset):  # limit if needed for speed
-            data = data.to(device)
-            data.batch = torch.zeros(data.x.size(0), dtype=torch.long)
-
-            explanation = explainer(
-                x=data.x,
-                edge_index=data.edge_index,
-                edge_attr=data.edge_attr,
-                batch=data.batch,
-                # global_feats=data.global_feats
+    if not args.analyze_input_features_only:
+        model = model.to(device)
+    
+        per_task_dfs = []
+        per_task_impatoms = []
+        per_task_preds = []
+        per_task_labels = []
+        global_smiles = []
+    
+        ### GNNExplainer analysis
+        for task_id in range(5):
+    
+            task = task_id
+            model_args = (n_node_neurons, n_node_features, n_edge_neurons, n_edge_features, n_graph_convolution_layers,
+                          n_shared_layers, n_target_specific_layers, input_mode)
+    
+            task_model = TaskSpecificGNN(model, task_idx=task, model_args=model_args)
+            task_model.eval()
+    
+            explainer = Explainer(
+                model=task_model,
+                algorithm=GNNExplainer(epochs=100),
+                explanation_type='model',
+                node_mask_type='object',
+                edge_mask_type='object',
+                model_config=dict(
+                    mode='binary_classification',
+                    task_level='graph',
+                    return_type='probs',
+                ),
             )
-
-            with torch.no_grad():
-                task_output = task_model(
+    
+            ####Loop through dataset
+            node_masks_all = []
+            smiles_list = []
+            predictions = []
+            probs = []
+            important_atoms_per_mol = []
+            correct_val = []
+            correct_val_overall = []
+    
+            for i, data in enumerate(testDataset):  # limit if needed for speed
+                data = data.to(device)
+                data.batch = torch.zeros(data.x.size(0), dtype=torch.long)
+    
+                explanation = explainer(
                     x=data.x,
                     edge_index=data.edge_index,
                     edge_attr=data.edge_attr,
                     batch=data.batch,
                     # global_feats=data.global_feats
                 )
+    
+                with torch.no_grad():
+                    task_output = task_model(
+                        x=data.x,
+                        edge_index=data.edge_index,
+                        edge_attr=data.edge_attr,
+                        batch=data.batch,
+                        # global_feats=data.global_feats
+                    )
+    
+                    _prob = task_output.item()
+                    prediction = int(_prob > 0.5)  # 1 = toxic, 0 = non-toxic
+                    predictions.append(prediction)
+                    probs.append(_prob)
+    
+                edge_mask = explanation.edge_mask.detach().cpu().numpy()
+    
+                # Tight filter
+                k_edges_tight = int(0.15 * edge_mask.size)  # max(8, int(0.15 * edge_mask.size))  # ~10–15%
+                top_e_tight = np.argsort(-edge_mask)[:k_edges_tight]
+    
+                imp_edges_tight = data.edge_index[:, torch.tensor(top_e_tight, device=data.edge_index.device)]
+                imp_nodes_tight = sorted(set(imp_edges_tight.view(-1).tolist()))
+    
+                G = to_networkx(data, to_undirected=True)
+                #sub_tight = G.subgraph(imp_nodes_tight).copy()
+                # if sub_tight.number_of_nodes() > 0:
+                #    lcc_tight = max(nx.connected_components(sub_tight), key=len)
+                #    important_atoms_tight = sorted(list(lcc_tight))
+                # else:
+                #    important_atoms_tight = []
+                # if sub_tight.number_of_nodes() > 0:
+                #    important_atoms_tight = imp_nodes_tight
+                # else:
+                #    important_atoms_tight = []
+                #if sub_tight.number_of_nodes() > 0:
+                    # Keep *all* connected components, not just the largest
+                    #comps = max(nx.connected_components(sub_tight), key=len)
+                    #important_atoms_tight = sorted(list(comps))
+                important_atoms_tight = imp_nodes_tight
+                    # comps = list(nx.connected_components(sub_tight))
+                    # important_atoms_tight = sorted(set().union(*comps))
+                #else:
+                    #important_atoms_tight = []
+    
+                # Loose filter
+                k_edges_loose = int(0.15 * edge_mask.size)  # max(8, int(0.15 * edge_mask.size))  # ~25–30%
+                top_e_loose = np.argsort(-edge_mask)[:k_edges_loose]
+    
+                imp_edges_loose = data.edge_index[:, torch.tensor(top_e_loose, device=data.edge_index.device)]
+                imp_nodes_loose = sorted(set(imp_edges_loose.view(-1).tolist()))
+    
+                sub_loose = G.subgraph(imp_nodes_loose).copy()
+                if sub_loose.number_of_nodes() > 0:
+                    # Keep *all* connected components, not just the largest
+                    comps = max(nx.connected_components(sub_loose), key=len)
+                    important_atoms_loose = sorted(list(comps))
+                    # comps = list(nx.connected_components(sub_loose))
+                    # important_atoms_loose = sorted(set().union(*comps))
+                else:
+                    important_atoms_loose = []
+                # if sub_loose.number_of_nodes() > 0:
+                #    important_atoms_loose = imp_nodes_loose
+                # else:
+                #    important_atoms_tight = []
+    
+                # Collect both sets
+                important_atoms_per_mol.append({
+                    "tight": important_atoms_tight,
+                    "loose": important_atoms_loose
+                })
+    
+                # Extract SMILES
+                # CSV file with structure data
+                csv_file = data_file
+                df = pd.read_csv(csv_file)
+                filepath = os.path.basename(data.file_name)
+    
+                molecule_index = molecule_index = int(
+                    re.search(r'(\d+)_', filepath).group(1))  # get molecule number from input file name
+    
+                # Resolve column names to support both CSV formats
+                _strain_cols = ['TA98', 'TA100', 'TA102', 'TA1535', 'TA1537']
+                smiles_col = 'SMILES RDKit' if 'SMILES RDKit' in df.columns else 'SMILES'
+                row = df.iloc[molecule_index - 1]
+    
+                # Extract the SMILES string from the specific row and column
+                smiles_string = row[smiles_col]
+                smiles_list.append(smiles_string)
+    
+                correct = row[_strain_cols[task]]
+                correct_val.append(correct)
+    
+                correct_overall = row['Overall']
+                correct_val_overall.append(correct_overall)
+    
+            per_task_impatoms.append({task_id: important_atoms_per_mol})
+            per_task_preds.append({task_id: predictions})
+            per_task_labels.append({task_id: correct_val})
+            global_smiles = smiles_list
+    
+            alerts = load_alerts()
+    
+            df = evaluate_alerts(smiles_list, important_atoms_per_mol, alerts, predictions, probs, correct_val, correct_val_overall)  # Compute overlap scores by comparing alerts and important nodes, store all in df
+            df = df[(df["label"] != -1) & (df["label_overall"] != -1)]
+            per_task_dfs.append({task_id: df})
+    
+            # Consider an alert present if tight_score > 0 or loose_score > 0
+            #df['alert_present'] = (df['tight_score'] > 0) | (df['loose_score'] > 0)
+            df['alert_present'] = (df['tight_score'] > 0)
+    
+        # Known structural alerts
+        alerts_compiled = load_alerts()
+    
+        alert_fps = compute_alert_fps(alerts_compiled)
+    
+        ### Fragment analysis
+        # Which alerts were detected by GNNExplainer, do they overlap with known alerts
+        df_rows, per_task_top_sets, frag_examples = build_fragment_catalog(per_task_impatoms, per_task_preds, per_task_labels, global_smiles, alerts_compiled, alert_fps, min_pos_count=3, top_k=200)
+    
+        # Save and plot fragment analysis (initial)
+        save_fragment_artifacts(df_rows, per_task_top_sets, frag_examples, args.output_dir, alerts_compiled, global_smiles, topN_grid=24)
+    
+        # Divide into novel vs not, eliminate alerts with < 2 heavy atoms
+        alert_frags, novel_frags = get_fragment_info_lists(df_rows, alerts_compiled, global_smiles, min_heavy_atoms=4)
+    
+        # Save and plot novel vs not fragments
+        n_alert, n_novel = plot_combined_known_vs_novel(alert_frags, novel_frags, args.output_dir, top_n_each=30)
+    
+        ### Overlap with known structural alerts per molecule per task
+        # Save PDF summary for all molecules with highlighted alerts
+        alerts_present_by_mol = assemble_and_save_summary(per_task_dfs, per_task_impatoms, per_task_preds, per_task_labels, global_smiles, alerts_compiled, args.output_dir)
+    
+        # Plot per-atom overlap on known structural alerts
+        analyze_per_atom_overlap_by_alert(per_task_impatoms, alerts_compiled, global_smiles, per_task_dfs, per_task_labels, args.output_dir)
+    
+        ### Strain-specific structural alert detection analysis
+        # For each alert, calculate % correctly identified and mean overlap score (toxic vs nontoxic)
+        #df_perf = compute_overall_alert_performance(alerts_compiled, alerts_present_by_mol, per_task_dfs, 5, global_smiles, args.output_dir)
+    
+        # Save and plot per-alert bar graph, output order of alerts for second plot (sorted by mean toxic overlap)
+        #order = plot_alert_performance_bars(df_perf, args.output_dir)
+    
+        overlap_scores, mean_overlap_scores = compute_toxic_overlap_by_strain(alerts_compiled, per_task_dfs, 5, alerts_present_by_mol)
+    
+        export_overlap_diagnostic_xlsx(
+            alerts_compiled, per_task_dfs, 5,
+            os.path.join(args.output_dir, "overlap_diagnostic.xlsx"),
+            global_smiles, per_task_impatoms
+        )
+    
+        # Filter to alerts with nonzero overall overlap before plotting
+        nonzero_alerts = mean_overlap_scores[mean_overlap_scores > 0].index
+        overlap_scores_nz = overlap_scores.loc[nonzero_alerts]
+        mean_overlap_scores_nz = mean_overlap_scores.loc[nonzero_alerts]
+    
+        # Save and plot heatmap of % overlap for each strain
+        plot_toxic_overlap_heatmap(overlap_scores_nz, mean_overlap_scores_nz, args.output_dir)
+    
+        plot_alert_performance_bars(mean_overlap_scores_nz, args.output_dir)
 
-                prediction = int(task_output.item() > 0.5)  # 1 = toxic, 0 = non-toxic
-                predictions.append(prediction)
+        # AUC heatmap (AUROC per alert × strain, alert-matched molecules)
+        auc_by_strain = compute_auc_by_alert_strain(alerts_compiled, per_task_dfs, 5)
+        nonzero_auc_alerts = auc_by_strain.dropna(how="all").index
+        if len(nonzero_auc_alerts) > 0:
+            plot_auc_heatmap_by_strain(auc_by_strain.loc[nonzero_auc_alerts], args.output_dir)
+            auc_by_strain.to_csv(
+                os.path.join(args.output_dir, "auc_by_alert_strain.csv"), index=True
+            )
 
-            edge_mask = explanation.edge_mask.detach().cpu().numpy()
-
-            # Tight filter
-            k_edges_tight = int(0.15 * edge_mask.size)  # max(8, int(0.15 * edge_mask.size))  # ~10–15%
-            top_e_tight = np.argsort(-edge_mask)[:k_edges_tight]
-
-            imp_edges_tight = data.edge_index[:, torch.tensor(top_e_tight, device=data.edge_index.device)]
-            imp_nodes_tight = sorted(set(imp_edges_tight.view(-1).tolist()))
-
-            G = to_networkx(data, to_undirected=True)
-            #sub_tight = G.subgraph(imp_nodes_tight).copy()
-            # if sub_tight.number_of_nodes() > 0:
-            #    lcc_tight = max(nx.connected_components(sub_tight), key=len)
-            #    important_atoms_tight = sorted(list(lcc_tight))
-            # else:
-            #    important_atoms_tight = []
-            # if sub_tight.number_of_nodes() > 0:
-            #    important_atoms_tight = imp_nodes_tight
-            # else:
-            #    important_atoms_tight = []
-            #if sub_tight.number_of_nodes() > 0:
-                # Keep *all* connected components, not just the largest
-                #comps = max(nx.connected_components(sub_tight), key=len)
-                #important_atoms_tight = sorted(list(comps))
-            important_atoms_tight = imp_nodes_tight
-                # comps = list(nx.connected_components(sub_tight))
-                # important_atoms_tight = sorted(set().union(*comps))
-            #else:
-                #important_atoms_tight = []
-
-            # Loose filter
-            k_edges_loose = int(0.15 * edge_mask.size)  # max(8, int(0.15 * edge_mask.size))  # ~25–30%
-            top_e_loose = np.argsort(-edge_mask)[:k_edges_loose]
-
-            imp_edges_loose = data.edge_index[:, torch.tensor(top_e_loose, device=data.edge_index.device)]
-            imp_nodes_loose = sorted(set(imp_edges_loose.view(-1).tolist()))
-
-            sub_loose = G.subgraph(imp_nodes_loose).copy()
-            if sub_loose.number_of_nodes() > 0:
-                # Keep *all* connected components, not just the largest
-                comps = max(nx.connected_components(sub_loose), key=len)
-                important_atoms_loose = sorted(list(comps))
-                # comps = list(nx.connected_components(sub_loose))
-                # important_atoms_loose = sorted(set().union(*comps))
-            else:
-                important_atoms_loose = []
-            # if sub_loose.number_of_nodes() > 0:
-            #    important_atoms_loose = imp_nodes_loose
-            # else:
-            #    important_atoms_tight = []
-
-            # Collect both sets
-            important_atoms_per_mol.append({
-                "tight": important_atoms_tight,
-                "loose": important_atoms_loose
-            })
-
-            # Extract SMILES
-            # CSV file with structure data
-            csv_file = data_file
-            df = pd.read_csv(csv_file)
-            filepath = os.path.basename(data.file_name)
-
-            molecule_index = molecule_index = int(
-                re.search(r'(\d+)_', filepath).group(1))  # get molecule number from input file name
-
-            # Resolve column names to support both CSV formats
-            _strain_cols = ['TA98', 'TA100', 'TA102', 'TA1535', 'TA1537']
-            smiles_col = 'SMILES RDKit' if 'SMILES RDKit' in df.columns else 'SMILES'
-            row = df.iloc[molecule_index - 1]
-
-            # Extract the SMILES string from the specific row and column
-            smiles_string = row[smiles_col]
-            smiles_list.append(smiles_string)
-
-            correct = row[_strain_cols[task]]
-            correct_val.append(correct)
-
-            correct_overall = row['Overall']
-            correct_val_overall.append(correct_overall)
-
-        per_task_impatoms.append({task_id: important_atoms_per_mol})
-        per_task_preds.append({task_id: predictions})
-        per_task_labels.append({task_id: correct_val})
-        global_smiles = smiles_list
-
-        alerts = load_alerts()
-
-        df = evaluate_alerts(smiles_list, important_atoms_per_mol, alerts, predictions, correct_val, correct_val_overall)  # Compute overlap scores by comparing alerts and important nodes, store all in df
-        df = df[(df["label"] != -1) & (df["label_overall"] != -1)]
-        per_task_dfs.append({task_id: df})
-
-        # Consider an alert present if tight_score > 0 or loose_score > 0
-        #df['alert_present'] = (df['tight_score'] > 0) | (df['loose_score'] > 0)
-        df['alert_present'] = (df['tight_score'] > 0)
-
-    # Known structural alerts
-    alerts_compiled = load_alerts()
-
-    alert_fps = compute_alert_fps(alerts_compiled)
-
-    ### Fragment analysis
-    # Which alerts were detected by GNNExplainer, do they overlap with known alerts
-    df_rows, per_task_top_sets, frag_examples = build_fragment_catalog(per_task_impatoms, per_task_preds, per_task_labels, global_smiles, alerts_compiled, alert_fps, min_pos_count=3, top_k=200)
-
-    # Save and plot fragment analysis (initial)
-    save_fragment_artifacts(df_rows, per_task_top_sets, frag_examples, args.output_dir, alerts_compiled, global_smiles, topN_grid=24)
-
-    # Divide into novel vs not, eliminate alerts with < 2 heavy atoms
-    alert_frags, novel_frags = get_fragment_info_lists(df_rows, alerts_compiled, global_smiles, min_heavy_atoms=4)
-
-    # Save and plot novel vs not fragments
-    n_alert, n_novel = plot_combined_known_vs_novel(alert_frags, novel_frags, args.output_dir, top_n_each=30)
-
-    ### Overlap with known structural alerts per molecule per task
-    # Save PDF summary for all molecules with highlighted alerts
-    alerts_present_by_mol = assemble_and_save_summary(per_task_dfs, per_task_impatoms, per_task_preds, per_task_labels, global_smiles, alerts_compiled, args.output_dir)
-
-    # Plot per-atom overlap on known structural alerts
-    analyze_per_atom_overlap_by_alert(per_task_impatoms, alerts_compiled, global_smiles, per_task_dfs, per_task_labels, args.output_dir)
-
-    ### Strain-specific structural alert detection analysis
-    # For each alert, calculate % correctly identified and mean overlap score (toxic vs nontoxic)
-    #df_perf = compute_overall_alert_performance(alerts_compiled, alerts_present_by_mol, per_task_dfs, 5, global_smiles, args.output_dir)
-
-    # Save and plot per-alert bar graph, output order of alerts for second plot (sorted by mean toxic overlap)
-    #order = plot_alert_performance_bars(df_perf, args.output_dir)
-
-    overlap_scores, mean_overlap_scores = compute_toxic_overlap_by_strain(alerts_compiled, per_task_dfs, 5, alerts_present_by_mol)
-
-    export_overlap_diagnostic_xlsx(
-        alerts_compiled, per_task_dfs, 5,
-        os.path.join(args.output_dir, "overlap_diagnostic.xlsx"),
-        global_smiles, per_task_impatoms
-    )
-
-    # Filter to alerts with nonzero overall overlap before plotting
-    nonzero_alerts = mean_overlap_scores[mean_overlap_scores > 0].index
-    overlap_scores_nz = overlap_scores.loc[nonzero_alerts]
-    mean_overlap_scores_nz = mean_overlap_scores.loc[nonzero_alerts]
-
-    # Save and plot heatmap of % overlap for each strain
-    plot_toxic_overlap_heatmap(overlap_scores_nz, mean_overlap_scores_nz, args.output_dir)
-
-    plot_alert_performance_bars(mean_overlap_scores_nz, args.output_dir)
+        # 4-category analysis (A/B/C/D fractions + one-vs-rest AUROC)
+        cat_df = compute_alert_category_auc(alerts_compiled, per_task_dfs, 5)
+        if len(cat_df) > 0:
+            cat_df.to_csv(
+                os.path.join(args.output_dir, "alert_category_auc.csv"), index=False
+            )
+            # Summary row: mean across all alerts
+            auc_cols = ["AUC_A", "AUC_B", "AUC_C", "AUC_D"]
+            summary = cat_df[auc_cols].agg(["mean", "std"]).T.rename(
+                columns={"mean": "Mean", "std": "Std"}
+            ).reset_index().rename(columns={"index": "Category"})
+            summary.to_csv(
+                os.path.join(args.output_dir, "alert_category_auc_summary.csv"), index=False
+            )
+            plot_alert_category_heatmap(cat_df, args.output_dir)
 
     # ---------------------------------------------------------------------------
     # Optional: Input Feature Importance via Integrated Gradients
     # ---------------------------------------------------------------------------
-    if args.analyze_input_features:
+    if args.analyze_input_features or args.analyze_input_features_only:
 
         def integrated_gradients(task_model, data, baseline_x=None, baseline_edge=None,
                                  steps=50, device=torch.device("cpu")):
@@ -2068,7 +2278,8 @@ def main():
             # -------------------------------
             # 2. Construct dihedral mask
             # -------------------------------
-            dihedral_mask = ~torch.isnan(edge_attr[:, 2])  # True where valid
+            _dihedral_idx = n_edge_features - 1  # dihedral is always the last edge feature
+            dihedral_mask = ~torch.isnan(edge_attr[:, _dihedral_idx])  # True where valid
 
             # -------------------------------
             # 3. Create a clean version (NaNs -> 0)
@@ -2151,9 +2362,9 @@ def main():
             # 8. Mask dihedral importance
             #    Set attribution = 0 for edges where dihedral doesn't exist
             # -------------------------------
-            if edge_attributions.size(1) > 2:
-                edge_attributions[:, 2] = edge_attributions[:, 2] * dihedral_mask.float()
-                edge_attributions[:, 2] = torch.nan_to_num(edge_attributions[:, 2], nan=0.0)
+            if dihedral_angle_features and edge_attributions.size(1) >= n_edge_features:
+                edge_attributions[:, _dihedral_idx] = edge_attributions[:, _dihedral_idx] * dihedral_mask.float()
+                edge_attributions[:, _dihedral_idx] = torch.nan_to_num(edge_attributions[:, _dihedral_idx], nan=0.0)
 
             # Restore model training state
             if was_training:
@@ -2185,6 +2396,7 @@ def main():
             # Storage
             smiles_list = []
             predictions = []
+            probs = []
             important_atoms_per_mol = []
             correct_val = []
             correct_val_overall = []
@@ -2203,8 +2415,10 @@ def main():
                         edge_attr=data.edge_attr,
                         batch=data.batch
                     )
-                    pred = int(out.item() > 0.5)
+                    _prob = out.item()
+                    pred = int(_prob > 0.5)
                     predictions.append(pred)
+                    probs.append(_prob)
 
                 # Compute IG attributions
                 node_attr, edge_attr = integrated_gradients(task_model, data, baseline_x=None, baseline_edge=None,
@@ -2267,7 +2481,7 @@ def main():
             ig_per_task_labels.append({task_id: correct_val})
             ig_global_smiles = smiles_list
 
-            df = combine(smiles_list, important_atoms_per_mol, predictions, correct_val, correct_val_overall)
+            df = combine(smiles_list, important_atoms_per_mol, predictions, probs, correct_val, correct_val_overall)
             df = df[(df["label"] != -1) & (df["label_overall"] != -1)]
             ig_per_task_dfs.append({task_id: df})
 
@@ -2320,6 +2534,16 @@ def main():
 
         overall_node_importance = np.mean(np.vstack(all_node_importances), axis=0)
         overall_edge_importance = np.mean(np.vstack(all_edge_importances), axis=0)
+
+        # Group RBF distance bins into a single "Distance" value
+        def _group_edge(arr):
+            dist = arr[:n_dist_feats].mean()
+            return np.concatenate([[dist], arr[n_dist_feats:]])
+
+        for t in range(5):
+            if isinstance(ig_edge_feature_importance[t], np.ndarray):
+                ig_edge_feature_importance[t] = _group_edge(ig_edge_feature_importance[t])
+        overall_edge_importance = _group_edge(overall_edge_importance)
 
         node_feature_names = [
             "Period 1", "Period 2", "Period 3", "Period 4", "Period 5", "Period 6", "Period 7", "s block", "p block", "d block", "f block",
