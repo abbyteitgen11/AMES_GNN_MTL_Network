@@ -28,6 +28,7 @@ AMES_FINAL/plot_heatmap_bars.py
 AMES_FINAL/add_negative_examples.py
 AMES_FINAL/prepare_single_task_data.py
 AMES_FINAL/train_single_task.yml
+AMES_FINAL/train_2D.yml
 report_AMES.docx
 *.claude
 *.claude/
