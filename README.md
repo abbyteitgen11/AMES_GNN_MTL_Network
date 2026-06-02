@@ -69,7 +69,7 @@ python GNN_explainer_analysis.py \
     --analyze_input_features
 ```
 
-Replace `metrics_42_3.pt` with whichever provided checkpoint you want to analyze (metrics_41_1.pt is the checkpoint used in the paper).
+Replace `metrics_42_3.pt` with whichever provided checkpoint you want to analyze (metrics_42_3.pt is the checkpoint used in the paper).
 
 ---
 
@@ -560,7 +560,14 @@ python run_model.py \
 
 ### `top_seeds_eval` — Evaluate top N seeds and average metrics
 
-Reads `val_losses.csv` from `seeds_cfv`, selects the top N seeds by lowest average validation loss, and averages test set results. Supports the same `--use_thresholds`, `--temperature_scaling`, and `--tune_consensus_threshold` flags as `eval`.
+Reads `val_losses.csv` from `seeds_cfv`, selects the top N seed/fold pairs, and averages test set metrics across them. The selection procedure is:
+
+1. For each seed, compute the **average validation loss across all 5 folds**.
+2. Rank seeds by that average; keep the top N (lowest loss).
+3. Within each top seed, pick the **single best fold** (lowest individual fold loss).
+4. Evaluate those N (seed, fold) pairs and average their test metrics.
+
+Supports the same `--use_thresholds`, `--temperature_scaling`, and `--tune_consensus_threshold` flags as `eval`.
 
 ```bash
 python run_model.py \
@@ -573,8 +580,8 @@ python run_model.py \
 ```
 
 **Outputs:**
-- `top_seeds_all_metrics.csv` — per-seed, per-fold test metrics
-- `top_seeds_avg_metrics.csv` — metrics averaged across top seeds and folds
+- `top_seeds_all_metrics.csv` — per (seed, fold) test metrics
+- `top_seeds_avg_metrics.csv` — metrics averaged across the top seed/fold pairs
 
 ### `analyze_cfv` — Plot and summarize cross-validation results
 
@@ -601,20 +608,25 @@ python run_model.py \
 Runs GNNExplainer to identify important molecular fragments and computes structural alert overlap scores. Optionally runs Integrated Gradients for input feature importance.
 
 ```bash
+# GNNExplainer only
 python GNN_explainer_analysis.py \
     --input_file train_sample.yml \
     --output_dir ./output/explainer \
     --checkpoint_file ./checkpoints/metrics_42_3.pt
-```
 
-To also run Integrated Gradients input feature importance:
-
-```bash
+# GNNExplainer + Integrated Gradients feature importance
 python GNN_explainer_analysis.py \
     --input_file train_sample.yml \
     --output_dir ./output/explainer \
     --checkpoint_file ./checkpoints/metrics_42_3.pt \
     --analyze_input_features
+
+# Integrated Gradients only (skip GNNExplainer — faster for re-running IG analysis)
+python GNN_explainer_analysis.py \
+    --input_file train_sample.yml \
+    --output_dir ./output/explainer \
+    --checkpoint_file ./checkpoints/metrics_42_3.pt \
+    --analyze_input_features_only
 ```
 
 To override the data file path from the YAML:
@@ -627,9 +639,19 @@ python GNN_explainer_analysis.py \
     --data_file /path/to/custom_data.csv
 ```
 
+Replace `metrics_42_3.pt` with whichever provided checkpoint you want to analyze (`metrics_41_1.pt` is the checkpoint used in the paper).
+
+**Key flags:**
+
+| Flag | Description |
+|------|-------------|
+| `--analyze_input_features` | Also run Integrated Gradients and generate feature importance plots |
+| `--analyze_input_features_only` | Skip GNNExplainer entirely; run Integrated Gradients only |
+| `--data_file` | Override the `data_file` path from the YAML |
+
 **Outputs (in `--output_dir`):**
 
-*Structural alert analysis:*
+*Structural alert analysis (GNNExplainer path):*
 - `alert_instance_grids/` — per-alert grid images showing each matching molecule with three-color atom highlighting:
   - **Orange** = atoms in both the SMARTS match and the GNN important set (overlap)
   - **Blue** = alert atoms not identified as important by the GNN
@@ -639,18 +661,32 @@ python GNN_explainer_analysis.py \
   - `<alert>_smarts_pos_avg_rep1.png` — second smallest
   - `<alert>_smarts_pos_avg_rep2.png` — third smallest
 - `toxic_overlap_by_strain_heatmap.pdf` — heatmap of mean GNN overlap score (toxic molecules only) per alert per strain; alerts with zero overall overlap excluded
+- `alert_auc_by_strain_heatmap.pdf` — heatmap of AUROC per alert per strain (model predicted probability vs ground-truth mutagenicity for alert-matched molecules; requires ≥10 samples per cell)
 - `alert_performance_bars.pdf` — horizontal bar chart of mean overlap score per alert, sorted descending; alerts with zero overlap excluded
-- `overlap_diagnostic.xlsx` — per-molecule diagnostic with raw SMARTS atom counts, expanded atom counts, GNN overlap counts, and computed overlap scores for cross-checking against manual calculations
+- `alert_category_auc_heatmap.pdf` — two-panel figure per alert: (left) fraction of molecules in each of four categories; (right) one-vs-rest AUROC per category. Categories are defined relative to each alert:
+  - **A** = has alert + mutagenic
+  - **B** = has alert + not mutagenic
+  - **C** = no alert + mutagenic
+  - **D** = no alert + not mutagenic
+- `alert_category_auc_summary.csv` — table of fractions and AUROCs per category for each alert
+- `overlap_diagnostic.xlsx` — per-molecule diagnostic with raw SMARTS atom counts, expanded atom counts, GNN overlap counts, and computed overlap scores
+- `summary_rows/` — molecule summary PDFs, one row per molecule (5 strain cells + consensus + alert overview), important GNN atoms highlighted in **uniform red**:
+  - `summary_correct_toxic.pdf` — correctly predicted mutagenic molecules
+  - `summary_correct_nontoxic.pdf` — correctly predicted non-mutagenic molecules
+  - `summary_incorrect.pdf` — incorrectly predicted molecules
+- `summary_rows_scaled/` — same layout as `summary_rows/` but with **importance-scaled red** (darker red = higher GNNExplainer edge-mask score) and an extra **"Avg (all strains)"** column showing per-node attribution averaged across all 5 strains:
+  - `summary_correct_toxic.pdf`, `summary_correct_nontoxic.pdf`, `summary_incorrect.pdf`
+  - `summary_correct_toxic_smiles.csv`, `summary_correct_nontoxic_smiles.csv`, `summary_incorrect_smiles.csv` — SMILES strings in PDF row order, plus `avg_attributions` column (JSON dict mapping atom index → mean edge-mask score across 5 strains)
 
-*Input feature importance (only with `--analyze_input_features`):*
+*Input feature importance (`--analyze_input_features` or `--analyze_input_features_only`):*
 - `feature_importance_plots/node_feature_importance_task_N.png` — per-task node feature bar charts
 - `feature_importance_plots/edge_feature_importance_task_N.png` — per-task edge feature bar charts
 - `feature_importance_plots/overall_node_feature_importance.png` — overall node feature importance bar chart
 - `feature_importance_plots/overall_edge_feature_importance.png` — overall edge feature importance bar chart
 - `feature_importance_plots/node_feature_importance_heatmap.png` — node feature importance across tasks (heatmap)
 - `feature_importance_plots/edge_feature_importance_heatmap.png` — edge feature importance across tasks (heatmap)
-- `feature_importance_plots/overall_feature_importance_violin.png` — SHAP-style scatter plot of per-molecule feature importance distributions for both node and edge features on the same axes. One-hot encoded groups (Period 1–7, Block s/p/d/f, Element group) are averaged into single scores. Points are colored blue→red by attribution magnitude (coolwarm); circles = node features, diamonds = edge features; features sorted by mean importance.
-- `feature_importance_plots/overall_feature_importance_violin_values.csv` — long-form CSV of per-molecule SHAP values underlying the plot (columns: Feature, Type, SHAP Value)
+- `feature_importance_plots/overall_feature_importance_violin.png` — SHAP-style layered violin plot of signed per-molecule Integrated Gradients attributions. Each row = one feature; x = IG attribution value (positive or negative); dot color = normalized input feature value (blue = low, red = high) via coolwarm; gray violin outlines show density; dots are beeswarm-jittered. One-hot node feature groups (Period 1–7, Block s/p/d/f, Element group) are averaged into single scores. RBF distance bins are averaged into a single "Distance" feature. Circles = node features, diamonds = edge features; features sorted by mean absolute attribution.
+- `feature_importance_plots/overall_feature_importance_violin_values.csv` — per-molecule values underlying the violin plot (columns: Feature, Type, SHAP Value, Feature Value)
 
 ---
 
@@ -665,4 +701,5 @@ python GNN_explainer_analysis.py \
 - **CV**: MultilabelStratifiedKFold (5 folds) preserving label distribution
 - **Threshold optimization**: Coordinate ascent with 1-SE rule on validation set
 - **Consensus prediction**: OR rule across all 5 task heads
-- **Explainability**: GNNExplainer edge mask → top-15% edges define important atoms; SMARTS-position averaging aligns structural alert importance across molecules with different atom orderings
+- **GNNExplainer**: Edge mask → top-15% edges define important atoms; SMARTS-position averaging aligns structural alert importance across molecules with different atom orderings; node importance scaled by summed incident edge-mask weight
+- **Integrated Gradients**: Signed per-feature attributions computed along a straight-line path from a zero baseline; RBF distance bins averaged into a single "Distance" score; visualized as a SHAP-style layered violin plot colored by input feature value

@@ -578,6 +578,15 @@ def assemble_and_save_summary(per_task_dfs, per_task_impatoms, per_task_preds, p
     rows_correct_toxic = []
     rows_correct_nontoxic = []
     rows_incorrect = []
+    rows_correct_toxic_scaled = []
+    rows_correct_nontoxic_scaled = []
+    rows_incorrect_scaled = []
+    smiles_correct_toxic = []
+    smiles_correct_nontoxic = []
+    smiles_incorrect = []
+    avg_attr_correct_toxic = []
+    avg_attr_correct_nontoxic = []
+    avg_attr_incorrect = []
 
     for mol_id in range(n_mols):
         df0 = per_task_dfs[0]
@@ -593,12 +602,14 @@ def assemble_and_save_summary(per_task_dfs, per_task_impatoms, per_task_preds, p
         # mol = Chem.AddHs(Chem.MolFromSmiles(global_smiles[mol_id]))
 
         strain_cells = []
+        strain_cells_scaled = []
         for task in range(n_tasks):
             pdf = per_task_dfs[task]
             pdf_task = pdf[task]
             mol_df = pdf_task[pdf_task['mol_id'] == mol_id]
             if mol_df.empty:
                 strain_cells.append(blank_image(cell_size))
+                strain_cells_scaled.append(blank_image(cell_size))
                 continue
             per_task_labels_t = per_task_labels[task]
             correct_label = int(per_task_labels_t[task][mol_id])
@@ -606,6 +617,9 @@ def assemble_and_save_summary(per_task_dfs, per_task_impatoms, per_task_preds, p
             pred = int(per_task_preds_t[task][mol_id])
             if correct_label == -1:
                 im = blank_image(cell_size)
+                strain_cells.append(im)
+                strain_cells_scaled.append(blank_image(cell_size))
+                continue
             else:
                 highlight_atoms, atom_colors, highlight_bonds, bond_colors = [], {}, [], {}
                 for _, row in mol_df.iterrows():
@@ -627,7 +641,7 @@ def assemble_and_save_summary(per_task_dfs, per_task_impatoms, per_task_preds, p
                                     highlight_bonds.append(bid)
                                     bond_colors[bid] = color
 
-                # Add important atoms for this strain
+                # Add important atoms for this strain (uniform red)
                 imp = per_task_impatoms[task]
                 imp_t = imp[task]
                 tight = imp_t[mol_id]['tight'] if mol_id < len(imp_t) else []
@@ -649,7 +663,38 @@ def assemble_and_save_summary(per_task_dfs, per_task_impatoms, per_task_preds, p
                 text = f"P:{pred} / L:{correct_label}"
                 draw.rectangle([(0, 0), (im.size[0], 18)], fill=(255, 255, 255))
                 draw.text((4, 0), text, fill=(0, 0, 0), font=font)
-            strain_cells.append(im)
+                strain_cells.append(im)
+
+                # --- Scaled cell: importance-scaled red ---
+                _tight_scores = imp_t[mol_id].get('tight_scores', {}) if mol_id < len(imp_t) else {}
+                highlight_atoms_sc = list(highlight_atoms)
+                atom_colors_sc = dict(atom_colors)
+                highlight_bonds_sc = list(highlight_bonds)
+                bond_colors_sc = dict(bond_colors)
+                if tight and _tight_scores:
+                    _scores = [_tight_scores.get(a, 0.0) for a in tight]
+                    _s_min, _s_max = min(_scores), max(_scores)
+                    _s_range = _s_max - _s_min if _s_max != _s_min else 1.0
+                    for a, sc in zip(tight, _scores):
+                        t_norm = (sc - _s_min) / _s_range   # 0=least, 1=most important
+                        atom_colors_sc[a] = (1.0 - 0.1 * t_norm, 0.8 * (1.0 - t_norm), 0.8 * (1.0 - t_norm))
+                        if a not in highlight_atoms_sc:
+                            highlight_atoms_sc.append(a)
+                else:
+                    for a in tight:
+                        atom_colors_sc[a] = (1.0, 0.3, 0.3)
+                        if a not in highlight_atoms_sc:
+                            highlight_atoms_sc.append(a)
+                im_sc = draw_with_colors(mol, highlight_atoms_sc, atom_colors_sc,
+                                         highlight_bonds_sc, bond_colors_sc, size=cell_size)
+                _draw_sc = ImageDraw.Draw(im_sc)
+                try:
+                    _font_sc = ImageFont.truetype('DejaVuSans.ttf', 14)
+                except Exception:
+                    _font_sc = ImageFont.load_default()
+                _draw_sc.rectangle([(0, 0), (im_sc.size[0], 18)], fill=(255, 255, 255))
+                _draw_sc.text((4, 0), text, fill=(0, 0, 0), font=_font_sc)
+                strain_cells_scaled.append(im_sc)
 
         preds = []
         for t in range(n_tasks):
@@ -669,15 +714,74 @@ def assemble_and_save_summary(per_task_dfs, per_task_impatoms, per_task_preds, p
         im_alerts_present = draw_with_colors(mol, list(atom_highlights.keys()), atom_highlights,
                                              list(bond_highlights.keys()), bond_highlights, size=cell_size)
 
+        # --- Averaged attribution cell (scaled PDF only) ---
+        # Per-node score = mean of tight_scores across all 5 strains (0 if absent in a strain)
+        _node_avg_scores = {}
+        for _task_avg in range(n_tasks):
+            _imp_t_avg = per_task_impatoms[_task_avg][_task_avg]
+            if mol_id < len(_imp_t_avg):
+                for _node, _sc in _imp_t_avg[mol_id].get('tight_scores', {}).items():
+                    _node_avg_scores[_node] = _node_avg_scores.get(_node, 0.0) + _sc / n_tasks
+
+        _avg_ha, _avg_ac, _avg_hb, _avg_bc = [], {}, [], {}
+        # Carry alert colours from task 0 for context
+        _mol_df_0 = per_task_dfs[0][0]
+        _mol_df_0 = _mol_df_0[_mol_df_0['mol_id'] == mol_id]
+        for _, _row0 in _mol_df_0.iterrows():
+            if _row0['alert_present']:
+                _name0 = _row0['alert']
+                _patt0 = next((p for n, p in alerts_compiled if n == _name0), None)
+                if _patt0:
+                    for _match0 in mol.GetSubstructMatches(_patt0):
+                        _col0 = alert_colors.get(_name0, (0.5, 0.5, 0.5))
+                        for _a0 in _match0:
+                            _avg_ha.append(_a0)
+                            _avg_ac[_a0] = _col0
+                        for _b0 in mol.GetBonds():
+                            _u0, _v0 = _b0.GetBeginAtomIdx(), _b0.GetEndAtomIdx()
+                            if _u0 in _match0 and _v0 in _match0:
+                                _bid0 = _b0.GetIdx()
+                                _avg_hb.append(_bid0)
+                                _avg_bc[_bid0] = _col0
+
+        if _node_avg_scores:
+            _avg_s_min = min(_node_avg_scores.values())
+            _avg_s_max = max(_node_avg_scores.values())
+            _avg_s_range = _avg_s_max - _avg_s_min if _avg_s_max != _avg_s_min else 1.0
+            for _node, _sc in _node_avg_scores.items():
+                _t_n = (_sc - _avg_s_min) / _avg_s_range
+                _avg_ac[_node] = (1.0 - 0.1 * _t_n, 0.8 * (1.0 - _t_n), 0.8 * (1.0 - _t_n))
+                if _node not in _avg_ha:
+                    _avg_ha.append(_node)
+
+        avg_cell = draw_with_colors(mol, _avg_ha, _avg_ac, _avg_hb, _avg_bc, size=cell_size)
+        _draw_avg = ImageDraw.Draw(avg_cell)
+        try:
+            _font_avg = ImageFont.truetype('DejaVuSans.ttf', 14)
+        except Exception:
+            _font_avg = ImageFont.load_default()
+        _draw_avg.rectangle([(0, 0), (avg_cell.size[0], 18)], fill=(255, 255, 255))
+        _draw_avg.text((4, 0), "Avg (all strains)", fill=(0, 0, 0), font=_font_avg)
+
         row_imgs = strain_cells + [cons_im, im_alerts_present]
         row_concat = hstack_images(row_imgs, pad=4)
+        row_concat_scaled = hstack_images(strain_cells_scaled + [cons_im, im_alerts_present, avg_cell], pad=4)
 
         if consensus == 1 and overall_label == 1:
             rows_correct_toxic.append(row_concat)
+            rows_correct_toxic_scaled.append(row_concat_scaled)
+            smiles_correct_toxic.append(global_smiles[mol_id])
+            avg_attr_correct_toxic.append(_node_avg_scores)
         elif consensus == 0 and overall_label == 0:
             rows_correct_nontoxic.append(row_concat)
+            rows_correct_nontoxic_scaled.append(row_concat_scaled)
+            smiles_correct_nontoxic.append(global_smiles[mol_id])
+            avg_attr_correct_nontoxic.append(_node_avg_scores)
         else:
             rows_incorrect.append(row_concat)
+            rows_incorrect_scaled.append(row_concat_scaled)
+            smiles_incorrect.append(global_smiles[mol_id])
+            avg_attr_incorrect.append(_node_avg_scores)
 
     # Save category PDFs
     outdir = os.path.join(output_dir, "summary_rows")
@@ -692,6 +796,21 @@ def assemble_and_save_summary(per_task_dfs, per_task_impatoms, per_task_preds, p
     save_rows_to_pdf(rows_incorrect,
                      os.path.join(outdir, "summary_incorrect.pdf"),
                      alert_colors)
+
+    # Save importance-scaled PDFs and SMILES CSVs
+    outdir_scaled = os.path.join(output_dir, "summary_rows_scaled")
+    os.makedirs(outdir_scaled, exist_ok=True)
+    for rows, smiles_list, avg_attr_list, stem in [
+        (rows_correct_toxic_scaled,    smiles_correct_toxic,    avg_attr_correct_toxic,    "summary_correct_toxic"),
+        (rows_correct_nontoxic_scaled, smiles_correct_nontoxic, avg_attr_correct_nontoxic, "summary_correct_nontoxic"),
+        (rows_incorrect_scaled,        smiles_incorrect,        avg_attr_incorrect,        "summary_incorrect"),
+    ]:
+        save_rows_to_pdf(rows, os.path.join(outdir_scaled, f"{stem}.pdf"), alert_colors)
+        if smiles_list:
+            pd.DataFrame({
+                "SMILES": smiles_list,
+                "avg_attributions": [json.dumps({str(k): v for k, v in d.items()}) for d in avg_attr_list],
+            }).to_csv(os.path.join(outdir_scaled, f"{stem}_smiles.csv"), index=False)
 
     return alerts_present_by_mol
 
@@ -2140,7 +2259,16 @@ def main():
                     # important_atoms_tight = sorted(set().union(*comps))
                 #else:
                     #important_atoms_tight = []
-    
+
+                # Per-node importance: sum of edge_mask for all incident edges
+                _node_edge_sum = {}
+                for _e in range(edge_mask.size):
+                    _u = int(data.edge_index[0, _e])
+                    _v = int(data.edge_index[1, _e])
+                    _node_edge_sum[_u] = _node_edge_sum.get(_u, 0.0) + float(edge_mask[_e])
+                    _node_edge_sum[_v] = _node_edge_sum.get(_v, 0.0) + float(edge_mask[_e])
+                tight_scores = {n: _node_edge_sum.get(n, 0.0) for n in important_atoms_tight}
+
                 # Loose filter
                 k_edges_loose = int(0.15 * edge_mask.size)  # max(8, int(0.15 * edge_mask.size))  # ~25–30%
                 top_e_loose = np.argsort(-edge_mask)[:k_edges_loose]
@@ -2165,7 +2293,8 @@ def main():
                 # Collect both sets
                 important_atoms_per_mol.append({
                     "tight": important_atoms_tight,
-                    "loose": important_atoms_loose
+                    "loose": important_atoms_loose,
+                    "tight_scores": tight_scores,
                 })
     
                 # Extract SMILES
