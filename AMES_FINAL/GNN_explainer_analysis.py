@@ -587,6 +587,12 @@ def assemble_and_save_summary(per_task_dfs, per_task_impatoms, per_task_preds, p
     avg_attr_correct_toxic = []
     avg_attr_correct_nontoxic = []
     avg_attr_incorrect = []
+    # Per-strain + average cell render data, captured so single-molecule SVGs
+    # can be regenerated from the CSV without rerunning the analysis.
+    cells_correct_toxic = []
+    cells_correct_nontoxic = []
+    cells_incorrect = []
+    strain_names = ['TA98', 'TA100', 'TA102', 'TA1535', 'TA1537']
 
     for mol_id in range(n_mols):
         df0 = per_task_dfs[0]
@@ -603,6 +609,7 @@ def assemble_and_save_summary(per_task_dfs, per_task_impatoms, per_task_preds, p
 
         strain_cells = []
         strain_cells_scaled = []
+        strain_cell_data = []
         for task in range(n_tasks):
             pdf = per_task_dfs[task]
             pdf_task = pdf[task]
@@ -610,6 +617,7 @@ def assemble_and_save_summary(per_task_dfs, per_task_impatoms, per_task_preds, p
             if mol_df.empty:
                 strain_cells.append(blank_image(cell_size))
                 strain_cells_scaled.append(blank_image(cell_size))
+                strain_cell_data.append({"strain": strain_names[task], "blank": True})
                 continue
             per_task_labels_t = per_task_labels[task]
             correct_label = int(per_task_labels_t[task][mol_id])
@@ -619,6 +627,7 @@ def assemble_and_save_summary(per_task_dfs, per_task_impatoms, per_task_preds, p
                 im = blank_image(cell_size)
                 strain_cells.append(im)
                 strain_cells_scaled.append(blank_image(cell_size))
+                strain_cell_data.append({"strain": strain_names[task], "blank": True})
                 continue
             else:
                 highlight_atoms, atom_colors, highlight_bonds, bond_colors = [], {}, [], {}
@@ -696,6 +705,16 @@ def assemble_and_save_summary(per_task_dfs, per_task_impatoms, per_task_preds, p
                 _draw_sc.text((4, 0), text, fill=(0, 0, 0), font=_font_sc)
                 strain_cells_scaled.append(im_sc)
 
+                # Capture the exact scaled-cell inputs so the per-strain SVG matches the PDF cell.
+                strain_cell_data.append({
+                    "strain": strain_names[task],
+                    "atoms": sorted({int(a) for a in highlight_atoms_sc}),
+                    "atom_colors": {int(a): [float(c) for c in col] for a, col in atom_colors_sc.items()},
+                    "bonds": sorted({int(b) for b in highlight_bonds_sc}),
+                    "bond_colors": {int(b): [float(c) for c in col] for b, col in bond_colors_sc.items()},
+                    "header": f"{strain_names[task]}  {text}",
+                })
+
         preds = []
         for t in range(n_tasks):
             preds_t = per_task_preds[t]
@@ -763,6 +782,18 @@ def assemble_and_save_summary(per_task_dfs, per_task_impatoms, per_task_preds, p
         _draw_avg.rectangle([(0, 0), (avg_cell.size[0], 18)], fill=(255, 255, 255))
         _draw_avg.text((4, 0), "Avg (all strains)", fill=(0, 0, 0), font=_font_avg)
 
+        # Capture the average cell inputs (matches the scaled-PDF avg cell exactly).
+        avg_cell_data = {
+            "atoms": sorted({int(a) for a in _avg_ha}),
+            "atom_colors": {int(a): [float(c) for c in col] for a, col in _avg_ac.items()},
+            "bonds": sorted({int(b) for b in _avg_hb}),
+            "bond_colors": {int(b): [float(c) for c in col] for b, col in _avg_bc.items()},
+            "header": "Avg (all strains)",
+            "consensus": int(consensus),
+            "overall_label": int(overall_label),
+        }
+        cell_record = {"strains": strain_cell_data, "avg": avg_cell_data}
+
         row_imgs = strain_cells + [cons_im, im_alerts_present]
         row_concat = hstack_images(row_imgs, pad=4)
         row_concat_scaled = hstack_images(strain_cells_scaled + [cons_im, im_alerts_present, avg_cell], pad=4)
@@ -772,16 +803,19 @@ def assemble_and_save_summary(per_task_dfs, per_task_impatoms, per_task_preds, p
             rows_correct_toxic_scaled.append(row_concat_scaled)
             smiles_correct_toxic.append(global_smiles[mol_id])
             avg_attr_correct_toxic.append(_node_avg_scores)
+            cells_correct_toxic.append(cell_record)
         elif consensus == 0 and overall_label == 0:
             rows_correct_nontoxic.append(row_concat)
             rows_correct_nontoxic_scaled.append(row_concat_scaled)
             smiles_correct_nontoxic.append(global_smiles[mol_id])
             avg_attr_correct_nontoxic.append(_node_avg_scores)
+            cells_correct_nontoxic.append(cell_record)
         else:
             rows_incorrect.append(row_concat)
             rows_incorrect_scaled.append(row_concat_scaled)
             smiles_incorrect.append(global_smiles[mol_id])
             avg_attr_incorrect.append(_node_avg_scores)
+            cells_incorrect.append(cell_record)
 
     # Save category PDFs
     outdir = os.path.join(output_dir, "summary_rows")
@@ -800,16 +834,17 @@ def assemble_and_save_summary(per_task_dfs, per_task_impatoms, per_task_preds, p
     # Save importance-scaled PDFs and SMILES CSVs
     outdir_scaled = os.path.join(output_dir, "summary_rows_scaled")
     os.makedirs(outdir_scaled, exist_ok=True)
-    for rows, smiles_list, avg_attr_list, stem in [
-        (rows_correct_toxic_scaled,    smiles_correct_toxic,    avg_attr_correct_toxic,    "summary_correct_toxic"),
-        (rows_correct_nontoxic_scaled, smiles_correct_nontoxic, avg_attr_correct_nontoxic, "summary_correct_nontoxic"),
-        (rows_incorrect_scaled,        smiles_incorrect,        avg_attr_incorrect,        "summary_incorrect"),
+    for rows, smiles_list, avg_attr_list, cells_list, stem in [
+        (rows_correct_toxic_scaled,    smiles_correct_toxic,    avg_attr_correct_toxic,    cells_correct_toxic,    "summary_correct_toxic"),
+        (rows_correct_nontoxic_scaled, smiles_correct_nontoxic, avg_attr_correct_nontoxic, cells_correct_nontoxic, "summary_correct_nontoxic"),
+        (rows_incorrect_scaled,        smiles_incorrect,        avg_attr_incorrect,        cells_incorrect,        "summary_incorrect"),
     ]:
         save_rows_to_pdf(rows, os.path.join(outdir_scaled, f"{stem}.pdf"), alert_colors)
         if smiles_list:
             pd.DataFrame({
                 "SMILES": smiles_list,
                 "avg_attributions": [json.dumps({str(k): v for k, v in d.items()}) for d in avg_attr_list],
+                "row_cells": [json.dumps(c) for c in cells_list],
             }).to_csv(os.path.join(outdir_scaled, f"{stem}_smiles.csv"), index=False)
 
     return alerts_present_by_mol
@@ -938,6 +973,31 @@ def hstack_images(imgs, pad=6, bg=(255, 255, 255)):
         x += im.size[0] + pad
     return new_im
 
+def save_attribution_color_scale_svg(plot_dir):
+    """Standalone vertical color-scale legend matching the per-atom red shading used in the
+    alert_averaged_plots_positional molecule plots: color(f) = (1, 1-f**2, 1-f**2), f in [0,1]."""
+    from matplotlib.colors import LinearSegmentedColormap
+
+    n = 256
+    f = np.linspace(0.0, 1.0, n)
+    colors = [(1.0, 1.0 - v ** 2, 1.0 - v ** 2) for v in f]   # white -> dark red, squared like atoms
+    cmap = LinearSegmentedColormap.from_list("attribution_red", colors, N=n)
+
+    fig, ax = plt.subplots(figsize=(1.6, 6))
+    gradient = f.reshape(-1, 1)                                # value axis linear in freq
+    ax.imshow(gradient, aspect="auto", cmap=cmap, origin="lower", extent=[0, 1, 0.0, 1.0])
+    ax.set_xticks([])
+    ax.yaxis.set_label_position("right")
+    ax.yaxis.tick_right()
+    ax.set_yticks(np.linspace(0.0, 1.0, 6))                   # 0.0, 0.2, ... 1.0
+    ax.set_ylabel("Relative attribution", rotation=270, labelpad=18, va="bottom")
+    plt.tight_layout()
+
+    svg_path = os.path.join(plot_dir, "attribution_color_scale.svg")
+    fig.savefig(svg_path, format="svg", transparent=True)
+    plt.close(fig)
+
+
 def analyze_per_atom_overlap_by_alert(per_task_impatoms, alerts_compiled, global_smiles, per_task_dfs, per_task_labels, output_dir):
     """
     Compute per-SMARTS-position GNN importance frequency across all toxic molecules matching
@@ -956,6 +1016,7 @@ def analyze_per_atom_overlap_by_alert(per_task_impatoms, alerts_compiled, global
     os.makedirs(output_dir, exist_ok=True)
     plot_dir = os.path.join(output_dir, "alert_averaged_plots_positional")
     os.makedirs(plot_dir, exist_ok=True)
+    save_attribution_color_scale_svg(plot_dir)   # one legend for the whole folder
 
     alert_dict = defaultdict(list)
     for name, patt in alerts_compiled:
@@ -1190,6 +1251,21 @@ def analyze_per_atom_overlap_by_alert(per_task_impatoms, alerts_compiled, global
                 )
                 with open(outpath, "wb") as fh:
                     fh.write(drawer.GetDrawingText())
+
+                drawer_svg = rdMolDraw2D.MolDraw2DSVG(600, 600)
+                rdMolDraw2D.PrepareAndDrawMolecule(
+                    drawer_svg, r_mol,
+                    highlightAtoms=r_highlight_atoms,
+                    highlightAtomColors=r_atom_colors,
+                    highlightAtomRadii={i: 0.4 for i in r_highlight_atoms},
+                )
+                drawer_svg.FinishDrawing()
+                svg_path = os.path.join(
+                    plot_dir,
+                    f"{alert_name.replace('/', '_')}{patt_suffix}_smarts_pos_avg_rep{rep_idx}.svg",
+                )
+                with open(svg_path, "w") as fh:
+                    fh.write(drawer_svg.GetDrawingText())
 
             plot_important_atoms_by_alert(
                 alert_name, [patt],
@@ -1474,6 +1550,19 @@ def compute_detection_frequencies(alerts_compiled, per_task_dfs, n_tasks):
 
     return detection_freqs
 
+def _order_alerts(index, order):
+    """Return `index` reordered to follow `order`; alerts not in `order` are appended
+    at the end in their original relative order."""
+    if order is None:
+        return list(index)
+    order = list(order)
+    order_set = set(order)
+    index_set = set(index)
+    in_order = [a for a in order if a in index_set]
+    leftovers = [a for a in index if a not in order_set]
+    return in_order + leftovers
+
+
 def plot_alert_performance_bars(df_perf, output_dir=None):
     order = df_perf.sort_values(ascending=False).index
     df_perf = df_perf.loc[order]
@@ -1636,13 +1725,14 @@ def compute_auc_by_alert_strain(alerts_compiled, per_task_dfs, n_tasks):
     return auc_df
 
 
-def plot_auc_heatmap_by_strain(auc_df, output_dir=None):
+def plot_auc_heatmap_by_strain(auc_df, output_dir=None, order=None):
     """Heatmap of AUROC per alert × strain (mirrors the overlap heatmap)."""
     mean_auc = auc_df.mean(axis=1, skipna=True)
-    nonzero = mean_auc[mean_auc.notna()].sort_values(ascending=False).index
-    auc_plot = auc_df.loc[nonzero]
+    shown = mean_auc[mean_auc.notna()].index          # which alerts to display
+    ordered = _order_alerts(shown, order)             # match the alert performance bars order
+    auc_plot = auc_df.loc[ordered]
 
-    plt.figure(figsize=(8, max(6, len(nonzero) * 0.4)))
+    plt.figure(figsize=(8, max(6, len(ordered) * 0.4)))
     sns.heatmap(
         auc_plot,
         cmap="RdYlGn",
@@ -1740,15 +1830,15 @@ def compute_alert_category_auc(alerts_compiled, per_task_dfs, n_tasks):
     return pd.DataFrame(rows)
 
 
-def plot_alert_category_heatmap(cat_df, output_dir=None):
+def plot_alert_category_heatmap(cat_df, output_dir=None, order=None):
     """
     Two side-by-side heatmaps per alert:
       Left  — fraction of molecules in each category (A, B, C, D)
       Right — one-vs-rest AUROC for each category
-    Alerts sorted by AUC_A descending.
+    Alerts ordered to match the alert performance bars (`order`).
     """
-    cat_df = cat_df.dropna(subset=["AUC_A"], how="all").copy()
-    cat_df = cat_df.sort_values("AUC_A", ascending=False).set_index("alert")
+    cat_df = cat_df.dropna(subset=["AUC_A"], how="all").copy().set_index("alert")
+    cat_df = cat_df.loc[_order_alerts(cat_df.index, order)]
 
     frac_cols = ["frac_A", "frac_B", "frac_C", "frac_D"]
     auc_cols  = ["AUC_A",  "AUC_B",  "AUC_C",  "AUC_D"]
@@ -2010,6 +2100,7 @@ def plot_shap_violin(node_matrix, node_feature_names,
     ax.set_title(title)
     plt.tight_layout()
     plt.savefig(os.path.join(plot_dir, filename), dpi=300)
+    plt.savefig(os.path.join(plot_dir, os.path.splitext(filename)[0] + ".svg"))
     plt.close()
 
     # --- Export CSV ---
@@ -2384,13 +2475,15 @@ def main():
         # Save and plot heatmap of % overlap for each strain
         plot_toxic_overlap_heatmap(overlap_scores_nz, mean_overlap_scores_nz, args.output_dir)
     
-        plot_alert_performance_bars(mean_overlap_scores_nz, args.output_dir)
+        # Reference ordering for all alert figures (mean toxic overlap, descending)
+        alert_order = plot_alert_performance_bars(mean_overlap_scores_nz, args.output_dir)
 
         # AUC heatmap (AUROC per alert × strain, alert-matched molecules)
         auc_by_strain = compute_auc_by_alert_strain(alerts_compiled, per_task_dfs, 5)
         nonzero_auc_alerts = auc_by_strain.dropna(how="all").index
         if len(nonzero_auc_alerts) > 0:
-            plot_auc_heatmap_by_strain(auc_by_strain.loc[nonzero_auc_alerts], args.output_dir)
+            plot_auc_heatmap_by_strain(auc_by_strain.loc[nonzero_auc_alerts], args.output_dir,
+                                       order=alert_order)
             auc_by_strain.to_csv(
                 os.path.join(args.output_dir, "auc_by_alert_strain.csv"), index=True
             )
@@ -2409,7 +2502,7 @@ def main():
             summary.to_csv(
                 os.path.join(args.output_dir, "alert_category_auc_summary.csv"), index=False
             )
-            plot_alert_category_heatmap(cat_df, args.output_dir)
+            plot_alert_category_heatmap(cat_df, args.output_dir, order=alert_order)
 
     # ---------------------------------------------------------------------------
     # Optional: Input Feature Importance via Integrated Gradients
@@ -2516,7 +2609,11 @@ def main():
 
             # -------------------------------
             # 8. Mask dihedral importance
-            #    Set attribution = 0 for edges where dihedral doesn't exist
+            #    Set attribution = 0 for edges where dihedral doesn't exist.
+            #    NOTE: separate from this masking, the dihedral *input* is itself unreliable in
+            #    XG-built databases (XG_graphs.py ~line 224 computes dihedral only for the last edge
+            #    per molecule), so dihedral importance is ~0 by construction. See the caveat near
+            #    `edge_feature_names`.
             # -------------------------------
             if dihedral_angle_features and edge_attributions.size(1) >= n_edge_features:
                 edge_attributions[:, _dihedral_idx] = edge_attributions[:, _dihedral_idx] * dihedral_mask.float()
@@ -2701,9 +2798,12 @@ def main():
         overall_node_importance = np.mean(np.vstack(all_node_importances), axis=0)
         overall_edge_importance = np.mean(np.vstack(all_edge_importances), axis=0)
 
-        # Group RBF distance bins into a single "Distance" value
+        # Group RBF distance bins into a single "Distance" value.
+        # IG is additive across input dims, so the distance's total attribution is the SUM over
+        # its n_dist_feats RBF bins (averaging would divide by n_dist_feats and cancel opposite
+        # signs, making distance importance look ~n_dist_feats x too small).
         def _group_edge(arr):
-            dist = arr[:n_dist_feats].mean()
+            dist = arr[:n_dist_feats].sum()
             return np.concatenate([[dist], arr[n_dist_feats:]])
 
         for t in range(5):
@@ -2718,6 +2818,14 @@ def main():
             "Mass number", "Van der Waals radius"
         ]
 
+        # CAVEAT — dihedral feature is broken at graph construction (not here):
+        # databases built by the `XG` builder have the dihedral loop in XG_graphs.py (~line 224)
+        # indented at the same level as `for n in range(num_edges)`, so it runs once per molecule
+        # after the edge loop and only writes a value for the LAST edge; every other edge has
+        # dihedral = 0. Consequently the "Dihedral angle" IG attribution below is ~0 by construction
+        # (a data artifact, NOT a real result). Fixing it requires editing XG_graphs.py, rebuilding
+        # the graph database, and retraining the model. (Bond angle and distance are computed per-edge
+        # and are fine.)
         edge_feature_names = (
             ["Distance"] +
             (["Bond angle"] if bond_angle_features else []) +
@@ -2797,13 +2905,27 @@ def main():
                                    "Lanthanides", "Actinides"]),
             ]
             edge_mat = np.vstack(all_edge_importances_per_mol)  # (n_mols, n_edge_features)
-            dist_avg = edge_mat[:, :n_dist_feats].mean(axis=1, keepdims=True)
-            edge_mat_grouped = np.hstack([dist_avg, edge_mat[:, n_dist_feats:]])
+            # Sum the RBF-bin attributions (additive IG total) into a single "Distance" attribution.
+            dist_attr = edge_mat[:, :n_dist_feats].sum(axis=1, keepdims=True)
+            edge_mat_grouped = np.hstack([dist_attr, edge_mat[:, n_dist_feats:]])
 
             node_feat_mat = np.vstack(all_node_feat_values_per_mol)  # (n_mols, n_node_features)
             edge_feat_mat = np.vstack(all_edge_feat_values_per_mol)  # (n_mols, n_edge_features)
-            dist_feat_avg = edge_feat_mat[:, :n_dist_feats].mean(axis=1, keepdims=True)
-            edge_feat_mat_grouped = np.hstack([dist_feat_avg, edge_feat_mat[:, n_dist_feats:]])
+            # Decode an actual distance (Å) from the RBF activations for the colormap. The mean of the
+            # bins is ~constant across bonds (a Gaussian bump over densely-spaced centers sums to a
+            # near-constant), so it carries no distance info; the activation-weighted center does.
+            rbf_params = database_data.get("RBFParameters", {}) or {}
+            r_min = float(rbf_params.get("r_min", 0.0))
+            r_max = float(rbf_params.get("r_max", 5.0))
+            rbf_block = edge_feat_mat[:, :n_dist_feats]
+            if n_dist_feats > 1:
+                mu = np.linspace(r_min, r_max, n_dist_feats)
+                denom = rbf_block.sum(axis=1, keepdims=True)
+                denom = np.where(denom == 0, 1.0, denom)
+                dist_feat = (rbf_block @ mu).reshape(-1, 1) / denom   # weighted-mean distance, Å
+            else:
+                dist_feat = rbf_block                                 # raw (non-RBF) distance scalar
+            edge_feat_mat_grouped = np.hstack([dist_feat, edge_feat_mat[:, n_dist_feats:]])
 
             plot_shap_violin(
                 np.vstack(all_node_importances_per_mol),

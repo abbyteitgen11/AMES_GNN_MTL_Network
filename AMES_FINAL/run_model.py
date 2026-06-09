@@ -1771,6 +1771,28 @@ def plot_eval_curves(y_true_cat, y_prob_cat, output_dir, prefix=""):
         axes_pr[5].set_ylabel("Precision")
         axes_pr[5].legend()
 
+        # Standalone consensus-only figures (SVG): one ROC curve and one PR curve.
+        fig_roc_cons, ax_roc_cons = plt.subplots(figsize=(5, 5))
+        ax_roc_cons.plot(fpr, tpr, label=f"AUC={auc_val:.3f}")
+        ax_roc_cons.plot([0, 1], [0, 1], "k--", lw=0.8)
+        ax_roc_cons.set_title("Consensus")
+        ax_roc_cons.set_xlabel("FPR")
+        ax_roc_cons.set_ylabel("TPR")
+        ax_roc_cons.legend()
+        fig_roc_cons.tight_layout()
+        fig_roc_cons.savefig(os.path.join(output_dir, f"{prefix}roc_curve_consensus.svg"))
+        plt.close(fig_roc_cons)
+
+        fig_pr_cons, ax_pr_cons = plt.subplots(figsize=(5, 5))
+        ax_pr_cons.plot(rec, prec, label=f"AP={ap:.3f}")
+        ax_pr_cons.set_title("Consensus")
+        ax_pr_cons.set_xlabel("Recall")
+        ax_pr_cons.set_ylabel("Precision")
+        ax_pr_cons.legend()
+        fig_pr_cons.tight_layout()
+        fig_pr_cons.savefig(os.path.join(output_dir, f"{prefix}pr_curve_consensus.svg"))
+        plt.close(fig_pr_cons)
+
     for fig, name in [(fig_roc, "roc_curves"), (fig_pr, "pr_curves")]:
         fig.tight_layout()
         fig.savefig(os.path.join(output_dir, f"{prefix}{name}.png"), dpi=300)
