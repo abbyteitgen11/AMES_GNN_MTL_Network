@@ -221,23 +221,24 @@ class XG(AtomicStructureGraphs):
                     cosijk = np.dot(rij, rik) / (dij * dik)
                     bond_features[n, n_dist] += cosijk
 
-        if self.dihedral_angle_feature:  # include dihedral features
-            for nk in range(n_neighbours[i]):
-                k = neighbour_id[i, nk]
-                if k == j: continue  # k must be different from j
-                rki = positions[i, :] - positions[k, :]
-                for nl in range(n_neighbours[j]):
-                    l = neighbour_id[j, nl]
-                    if l in (k, i): continue  # cannot define dihedral if l==k or l==i
-                    rjl = positions[l, :] - positions[j, :]
+            if self.dihedral_angle_feature:  # include dihedral features
+                for nk in range(n_neighbours[i]):
+                    k = neighbour_id[i, nk]
+                    if k == j: continue  # k must be different from j
+                    rki = positions[i, :] - positions[k, :]
+                    for nl in range(n_neighbours[j]):
+                        l = neighbour_id[j, nl]
+                        if l in (k, i): continue  # cannot define dihedral if l==k or l==i
+                        rjl = positions[l, :] - positions[j, :]
 
-                    # to define a dihedral angle, atoms k-i-j and i-j-l
-                    # must be non-co-linear; if either triad is colinear, then
-                    # get_dihedral_angle returns a value of None to avoid ill-defined
-                    # dihedral angles
+                        # to define a dihedral angle, atoms k-i-j and i-j-l
+                        # must be non-co-linear; if either triad is colinear, then
+                        # get_dihedral_angle returns a value of None to avoid ill-defined
+                        # dihedral angles
 
-                    coskijl = get_dihedral_angle(rki, rij, rjl)
-                    if coskijl: bond_features[n, n_dist + 1] += coskijl
+                        coskijl = get_dihedral_angle(rki, rij, rjl)
+                        if coskijl is not None:  # keep genuine cos(phi)=0 (90 deg) terms; skip only undefined
+                            bond_features[n, n_dist + 1] += coskijl
 
         spec_id = torch.zeros((n_atoms), dtype=int)
 

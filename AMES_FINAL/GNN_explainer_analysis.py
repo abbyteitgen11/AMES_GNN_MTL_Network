@@ -2610,10 +2610,9 @@ def main():
             # -------------------------------
             # 8. Mask dihedral importance
             #    Set attribution = 0 for edges where dihedral doesn't exist.
-            #    NOTE: separate from this masking, the dihedral *input* is itself unreliable in
-            #    XG-built databases (XG_graphs.py ~line 224 computes dihedral only for the last edge
-            #    per molecule), so dihedral importance is ~0 by construction. See the caveat near
-            #    `edge_feature_names`.
+            #    NOTE: the dihedral *input* construction bug (only the last edge per molecule got a
+            #    value) was fixed in XG_graphs.py; dihedral importance is only valid for graph
+            #    databases rebuilt with that fix. See the caveat near `edge_feature_names`.
             # -------------------------------
             if dihedral_angle_features and edge_attributions.size(1) >= n_edge_features:
                 edge_attributions[:, _dihedral_idx] = edge_attributions[:, _dihedral_idx] * dihedral_mask.float()
@@ -2818,14 +2817,12 @@ def main():
             "Mass number", "Van der Waals radius"
         ]
 
-        # CAVEAT — dihedral feature is broken at graph construction (not here):
-        # databases built by the `XG` builder have the dihedral loop in XG_graphs.py (~line 224)
-        # indented at the same level as `for n in range(num_edges)`, so it runs once per molecule
-        # after the edge loop and only writes a value for the LAST edge; every other edge has
-        # dihedral = 0. Consequently the "Dihedral angle" IG attribution below is ~0 by construction
-        # (a data artifact, NOT a real result). Fixing it requires editing XG_graphs.py, rebuilding
-        # the graph database, and retraining the model. (Bond angle and distance are computed per-edge
-        # and are fine.)
+        # NOTE on the dihedral feature: a graph-construction bug (dihedral loop scoped outside the
+        # edge loop, so only the last edge per molecule got a value) was fixed in XG_graphs.py. The
+        # "Dihedral angle" importance below is therefore only meaningful for graph databases REBUILT
+        # with the fixed XG_graphs.py (and a model retrained on them). For any older XG database the
+        # dihedral column is ~0 for all but one edge per molecule, so its importance there is a data
+        # artifact, not a real result. (Bond angle and distance are computed per-edge and are fine.)
         edge_feature_names = (
             ["Distance"] +
             (["Bond angle"] if bond_angle_features else []) +

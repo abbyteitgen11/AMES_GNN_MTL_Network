@@ -13,7 +13,7 @@ graphType: 'XG' # currently this is the only graph type implemented
 
 # address where to find the data-base files, and where to put the graph files once created
 DataBaseDirectory: '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/DataBase_AMES/FILES_DEV'
-TargetDirectory: '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/GraphDataBase_AMES_NEW_RBF_2D'
+TargetDirectory: '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/GraphDataBase_AMES_NEW'
 
 # path to the CSV file used to determine train/val/test splits
 DataPath: '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES_FINAL/data/data_new_with_split_descriptors.csv'
@@ -58,17 +58,17 @@ nMaxNeighbours: 850 # Needs to be adjusted based on max number of atoms in molec
 
 # bond angle features
 
-BondAngleFeatures: False
+BondAngleFeatures: True
 
 # optionally, edges can also have dihedral features, i.e. a sum of cosines of the dihedral angles
 # in which the edge participates as the central edge. A dihedral angle in a sequence of three
 # consecutive edges, 1-2-3-4 is the cosine of the angle between planes 1-2-3 and 2-3-4, and is
 # assigned to edge 2-3.
 
-DihedralAngleFeatures: False
+DihedralAngleFeatures: True
 
 # Edge distance encoding: "raw" (default, single float) or "rbf" (Gaussian radial basis functions)
-distanceEncoding: "rbf"
+distanceEncoding: "raw"
 
 # RBF parameters (only used when distanceEncoding is "rbf")
 # n_features: number of Gaussian basis functions
