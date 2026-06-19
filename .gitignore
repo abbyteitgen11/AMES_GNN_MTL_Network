@@ -32,6 +32,9 @@ AMES_FINAL/train_2D.yml
 AMES_FINAL/paper_submission/
 AMES_FINAL/plot_molecule_svgs.py
 AMES_FINAL/train_sample_martinez.yml
+AMES_FINAL/README_shap.md
+AMES_FINAL/SHAP_methods_and_interpretation.md
+AMES_FINAL/train_descriptors.yml
 report_AMES.docx
 *.claude
 *.claude/
