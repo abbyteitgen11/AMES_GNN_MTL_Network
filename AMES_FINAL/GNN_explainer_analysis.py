@@ -38,6 +38,7 @@ from torch_geometric.loader import DataLoader
 from torch_geometric.explain import GNNExplainer, PGExplainer, Explainer
 from torch_geometric.utils import to_networkx
 import networkx as nx
+
 from networkx.drawing import nx_agraph
 from rdkit import Chem
 from rdkit.Chem.Draw import rdMolDraw2D
@@ -2004,7 +2005,12 @@ def plot_shap_violin(node_matrix, node_feature_names,
         idxs = [i for i, n in enumerate(node_feature_names) if n in set(group_feats)]
         if idxs:
             grouped_node_cols.append(node_matrix[:, idxs].mean(axis=1))
-            grouped_node_feat_cols.append(node_feat_values[:, idxs].mean(axis=1))
+            # Color value for a one-hot family: composition-weighted mean category index (columns are in
+            # ordinal order). The plain mean of indicators is a constant 1/group_size and carries no info.
+            _v = node_feat_values[:, idxs]
+            _w = _v.sum(axis=1)
+            _w = np.where(_w == 0, 1.0, _w)
+            grouped_node_feat_cols.append((_v @ np.arange(len(idxs))) / _w)
             grouped_node_names.append(group_name)
             grouped_indices.update(idxs)
 
@@ -2033,11 +2039,13 @@ def plot_shap_violin(node_matrix, node_feature_names,
     sorted_shap = all_shap[:, sort_order]
     sorted_feat_vals = all_feat_vals[:, sort_order]
 
-    # Normalise feature values per feature for colormap (0=low, 1=high)
-    feat_min = sorted_feat_vals.min(axis=0, keepdims=True)
-    feat_max = sorted_feat_vals.max(axis=0, keepdims=True)
-    feat_range = np.where(feat_max - feat_min == 0, 1.0, feat_max - feat_min)
-    norm_feat_vals = (sorted_feat_vals - feat_min) / feat_range  # (n_mols, n_feats)
+    # Normalise feature values per feature for colormap (0=low, 1=high). Robust 5-95 percentile clip
+    # (matches shap.summary_plot); min-max is dominated by the heavy right-skew of molecular feature
+    # values and washes the bulk to one color.
+    feat_lo = np.nanpercentile(sorted_feat_vals, 5, axis=0, keepdims=True)
+    feat_hi = np.nanpercentile(sorted_feat_vals, 95, axis=0, keepdims=True)
+    feat_range = np.where(feat_hi - feat_lo == 0, 1.0, feat_hi - feat_lo)
+    norm_feat_vals = np.clip((sorted_feat_vals - feat_lo) / feat_range, 0.0, 1.0)  # (n_mols, n_feats)
 
     n_feats = len(sorted_names)
     fig_height = max(6, n_feats * 0.5)
@@ -2829,6 +2837,17 @@ def main():
             (["Dihedral angle"] if dihedral_angle_features else [])
         )
 
+        # Node one-hot feature groupings (shared by the IG violin and the SHAP analysis below).
+        node_groups = [
+            ("Period", ["Period 1", "Period 2", "Period 3", "Period 4",
+                        "Period 5", "Period 6", "Period 7"]),
+            ("Block", ["s block", "p block", "d block", "f block"]),
+            ("Element group", ["Alkali metals", "Alkaline earth metals",
+                               "Transition metals", "Poor metals", "Metalloids",
+                               "Nonmetals", "Halogens", "Noble gasses",
+                               "Lanthanides", "Actinides"]),
+        ]
+
         # Create output directory for feature importance plots
         plot_dir = os.path.join(args.output_dir, "feature_importance_plots")
         os.makedirs(plot_dir, exist_ok=True)
@@ -2892,15 +2911,6 @@ def main():
                 and all_node_feat_values_per_mol and all_edge_feat_values_per_mol
                 and len(all_node_feat_values_per_mol) == len(all_node_importances_per_mol)
                 and len(all_edge_feat_values_per_mol) == len(all_edge_importances_per_mol)):
-            node_groups = [
-                ("Period", ["Period 1", "Period 2", "Period 3", "Period 4",
-                            "Period 5", "Period 6", "Period 7"]),
-                ("Block", ["s block", "p block", "d block", "f block"]),
-                ("Element group", ["Alkali metals", "Alkaline earth metals",
-                                   "Transition metals", "Poor metals", "Metalloids",
-                                   "Nonmetals", "Halogens", "Noble gasses",
-                                   "Lanthanides", "Actinides"]),
-            ]
             edge_mat = np.vstack(all_edge_importances_per_mol)  # (n_mols, n_edge_features)
             # Sum the RBF-bin attributions (additive IG total) into a single "Distance" attribution.
             dist_attr = edge_mat[:, :n_dist_feats].sum(axis=1, keepdims=True)
