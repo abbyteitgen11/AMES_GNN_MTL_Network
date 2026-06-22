@@ -35,6 +35,7 @@ AMES_FINAL/train_sample_martinez.yml
 AMES_FINAL/README_shap.md
 AMES_FINAL/SHAP_methods_and_interpretation.md
 AMES_FINAL/train_descriptors.yml
+AMES_FINAL/refilter_novel_fragments.py
 report_AMES.docx
 *.claude
 *.claude/
