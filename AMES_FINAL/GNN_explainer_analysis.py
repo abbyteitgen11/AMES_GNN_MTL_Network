@@ -122,6 +122,28 @@ def load_alerts():
             compiled.append((name, patt))
     return compiled
 
+
+# Extra SMARTS used ONLY by the novel-fragment detection (NOT the overlap/heatmap/AUC analyses), to
+# suppress "near-miss" categories the base list lacks so they stop showing up as novel candidates.
+_EXTRA_ALERTS = [
+    ("Aromatic azo (extended)", "[c][NX2]=[NX2][#6]"),
+    ("gem/poly-halo alkane (extended)", "[CX4]([F,Cl,Br,I])[F,Cl,Br,I]"),
+    ("1,1-/halo alkene (extended)", "[CX3](=[CX3])[F,Cl,Br,I]"),
+    ("Nitro group, any (extended)", "[$([NX3](=O)=O),$([N+](=O)[O-])]"),
+    ("Sulfonate/sulfate ester (extended)", "[OX2][SX4](=O)(=O)"),
+]
+
+
+def load_extended_alerts():
+    """Base alerts (load_alerts) PLUS a few extra near-miss SMARTS, for the NOVEL-FRAGMENT analysis
+    only. load_alerts() is intentionally left unchanged so every other alert analysis is unaffected."""
+    compiled = load_alerts()
+    for name, smarts in _EXTRA_ALERTS:
+        patt = Chem.MolFromSmarts(smarts)
+        if patt:
+            compiled.append((name, patt))
+    return compiled
+
 def expand_fragment_atoms(mol, atom_indices, radius=1):
     expanded = set(atom_indices)
     for a in atom_indices:
@@ -312,39 +334,158 @@ def build_fragment_catalog(per_task_impatoms, per_task_preds, per_task_labels, g
 
     return df_rows, per_task_top_sets, frag_examples
 
+
+# Radii of the circular environments mined around important atoms (tunable).
+_SUBSTRUCTURE_RADII = (2, 3)
+
+# Functional groups kept INTACT when cutting circular environments, so the radius boundary never
+# truncates them into chemically meaningless bare-[N+]/OS artifacts (which also hid known alerts).
+_COMPLETION_SMARTS = [
+    "[$([NX3](=O)=O),$([N+](=O)[O-])]",  # nitro (C- or N-)
+    "[SX4](=O)(=O)",                      # sulfonyl / sulfonate / sulfate
+    "[NX2]=[NX2]",                        # azo / azoxy
+    "[NX2]=O",                            # nitroso
+    "[CX2]#[NX1]",                        # nitrile
+]
+_COMPLETION_PATTS = [Chem.MolFromSmarts(s) for s in _COMPLETION_SMARTS]
+
+
+def _group_matches(mol):
+    """Atom-index sets of completion functional groups in `mol`, for boundary completion."""
+    out = []
+    for patt in _COMPLETION_PATTS:
+        if patt is None:
+            continue
+        for m in mol.GetSubstructMatches(patt):
+            out.append(set(m))
+    return out
+
+
+def _circular_env_smiles(mol, atom_idx, radius, group_matches=()):
+    """Canonical, H-free SMILES of the radius-`radius` circular environment around `atom_idx`, with
+    any touched functional group completed and net-charged/invalid artifacts dropped."""
+    env = Chem.FindAtomEnvironmentOfRadiusN(mol, radius, atom_idx)
+    if not env:
+        return None
+    atoms = set()
+    for b in env:
+        bond = mol.GetBondWithIdx(b)
+        atoms.add(bond.GetBeginAtomIdx())
+        atoms.add(bond.GetEndAtomIdx())
+    if len(atoms) < 2:
+        return None
+    # Complete any functional group the environment touches (no truncated nitro/sulfonate/azo/etc.).
+    for g in group_matches:
+        if atoms & g:
+            atoms |= g
+    try:
+        smi = Chem.MolFragmentToSmiles(mol, atomsToUse=sorted(atoms), canonical=True)
+        fm = Chem.MolFromSmiles(smi, sanitize=False)
+        if fm is None:
+            return None
+        Chem.SanitizeMol(fm, catchErrors=True)
+        fm = Chem.RemoveHs(fm)
+        if Chem.GetFormalCharge(fm) != 0:   # drop residual bare-[N+]/carbanion/under-valent artifacts
+            return None
+        return Chem.MolToSmiles(fm) or None
+    except Exception:
+        return None
+
+
+def build_substructure_catalog(per_task_impatoms, per_task_preds, per_task_labels, global_smiles,
+                               alerts_compiled, alert_fps, radii=_SUBSTRUCTURE_RADII, top_k=200,
+                               **_ignored):
+    """Recurring-substructure mining for novel-fragment detection (replaces the whole-region dedup).
+
+    For each molecule/task, extracts the radius-r circular environments around the model's TIGHT
+    important HEAVY atoms (on the implicit-H mol; heavy indices are graph-aligned, so this also keeps
+    hydrogens out of the novel analysis), deduplicates substructures within the molecule, and tallies
+    occurrence/positive-occurrence counts across all explanations. Same `df_rows` schema as
+    build_fragment_catalog, so all downstream fragment functions/figures are unchanged.
+    """
+    n_tasks = len(per_task_impatoms)
+    n_mols = len(global_smiles)
+    frag_counts_per_task = [Counter() for _ in range(n_tasks)]
+    frag_pos_counts_per_task = [Counter() for _ in range(n_tasks)]
+    frag_examples = defaultdict(set)
+
+    for task_idx in range(n_tasks):
+        imp_for_task = per_task_impatoms[task_idx].get(task_idx, [])
+        preds_for_task = per_task_preds[task_idx].get(task_idx, [])
+        for mol_id, impdict in enumerate(imp_for_task):
+            if mol_id >= n_mols:
+                break
+            smiles = global_smiles[mol_id]
+            mol = Chem.MolFromSmiles(smiles) if isinstance(smiles, str) else None
+            if mol is None:
+                continue
+            n_heavy = mol.GetNumAtoms()  # implicit-H mol -> all atoms are heavy
+            centers = [a for a in impdict.get("tight", []) if 0 <= a < n_heavy]
+            if not centers:
+                continue
+            grp_matches = _group_matches(mol)  # functional groups to keep intact (computed once/mol)
+            # collect the SET of substructures this molecule contributes (dedup within molecule)
+            subs = set()
+            for a in centers:
+                for r in radii:
+                    s = _circular_env_smiles(mol, a, r, grp_matches)
+                    if s:
+                        subs.add(s)
+            if not subs:
+                continue
+            pred = int(preds_for_task[mol_id]) if mol_id < len(preds_for_task) else 0
+            for s in subs:
+                frag_counts_per_task[task_idx][s] += 1
+                if pred == 1:
+                    frag_pos_counts_per_task[task_idx][s] += 1
+                frag_examples[s].add(mol_id)
+
+    all_frags = set()
+    for c in frag_counts_per_task:
+        all_frags.update(c.keys())
+
+    df_rows = []
+    for frag in all_frags:
+        counts = [frag_counts_per_task[t][frag] for t in range(n_tasks)]
+        pos_counts = [frag_pos_counts_per_task[t][frag] for t in range(n_tasks)]
+        frag_alert_matches = compare_fragment_to_alerts(frag, alerts_compiled, alert_fps)
+        matched_alerts = [m[0] for m in frag_alert_matches] if frag_alert_matches else []
+        df_rows.append({
+            "fragment": frag,
+            "total_count": sum(counts),
+            "total_pos_count": sum(pos_counts),
+            **{f"count_t{t}": counts[t] for t in range(n_tasks)},
+            **{f"pos_t{t}": pos_counts[t] for t in range(n_tasks)},
+            "matched_alerts": ";".join(sorted(set(matched_alerts))),
+            "examples": ";".join(str(x) for x in sorted(list(frag_examples.get(frag, set())))[:10]),
+        })
+
+    per_task_top_sets = [set(f for f, _ in frag_counts_per_task[t].most_common(top_k))
+                         for t in range(n_tasks)]
+    return df_rows, per_task_top_sets, frag_examples
+
 def get_fragment_smiles(mol, atom_indices):
+    """Extract a clean, canonical, hydrogen-free SMILES for the selected atoms.
+
+    Uses RDKit's MolFragmentToSmiles so bond orders and aromaticity are inherited from the parent
+    molecule (no more invalid 'cc(...)'-style fragments), then round-trips + RemoveHs so the result
+    is a valid canonical SMILES that deduplicates and substructure-matches against the alert SMARTS.
+    """
     if mol is None or not atom_indices:
         return None
-
     n_atoms = mol.GetNumAtoms()
-    if any(a >= n_atoms or a < 0 for a in atom_indices):
-        #raise ValueError(f"Invalid atom index in {atom_indices} (mol has {n_atoms} atoms)")
+    atom_indices = [a for a in set(atom_indices) if 0 <= a < n_atoms]
+    if not atom_indices:
         return None
-
-    # Create a submol by copying only selected atoms and connecting bonds
-    atom_indices_set = set(atom_indices)
-    emol = Chem.EditableMol(Chem.Mol())
-
-    # Map from old to new atom indices
-    old_to_new = {}
-    for old_idx in atom_indices:
-        old_atom = mol.GetAtomWithIdx(old_idx)
-        new_atom = Chem.Atom(old_atom.GetSymbol())
-        new_idx = emol.AddAtom(new_atom)
-        old_to_new[old_idx] = new_idx
-
-    # Add bonds that connect selected atoms
-    for bond in mol.GetBonds():
-        a1, a2 = bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()
-        if a1 in atom_indices_set and a2 in atom_indices_set:
-            emol.AddBond(old_to_new[a1], old_to_new[a2], bond.GetBondType())
-
-    submol = emol.GetMol()
     try:
-        # Sanitize lightly (skip valence enforcement to avoid issues with radicals)
-        Chem.SanitizeMol(submol, sanitizeOps=Chem.SanitizeFlags.SANITIZE_NONE)
-        smi = Chem.MolToSmiles(submol, canonical=False)
-        return smi
+        frag_smi = Chem.MolFragmentToSmiles(mol, atomsToUse=atom_indices, canonical=True)
+        fm = Chem.MolFromSmiles(frag_smi, sanitize=False)
+        if fm is None:
+            return None
+        Chem.SanitizeMol(fm, catchErrors=True)
+        fm = Chem.RemoveHs(fm)
+        smi = Chem.MolToSmiles(fm)
+        return smi or None
     except Exception as e:
         print(f"[get_fragment_smiles] Extraction failed: {e}")
         return None
@@ -398,17 +539,101 @@ def compare_fragment_to_alerts(frag_smiles, alerts_compiled,
     return results
 
 
+# Organic atom set (everything else => metal / inorganic artifact): H,B,C,N,O,F,P,S,Cl,Br,I
+_ORGANIC_ATOMS = {1, 5, 6, 7, 8, 9, 15, 16, 17, 35, 53}
+
+
+def _fragment_mol_props(frag_smiles, alerts_compiled):
+    """Canonical mol + properties for a fragment SMILES, or None if invalid.
+    matched_alerts is recomputed robustly (both substructure directions) on the canonical fragment."""
+    if not isinstance(frag_smiles, str) or not frag_smiles:
+        return None
+    m = Chem.MolFromSmiles(frag_smiles, sanitize=False)
+    if m is None:
+        return None
+    try:
+        Chem.SanitizeMol(m, catchErrors=True)
+        m = Chem.RemoveHs(m)
+    except Exception:
+        return None
+    zs = [a.GetAtomicNum() for a in m.GetAtoms()]
+    matched = [n for n, p in alerts_compiled
+               if p is not None and (m.HasSubstructMatch(p) or p.HasSubstructMatch(m))]
+    return {
+        "mol": m,
+        "n_heavy": m.GetNumHeavyAtoms(),
+        "n_hetero": sum(1 for z in zs if z not in (1, 6)),
+        "has_ring": m.GetRingInfo().NumRings() > 0,
+        "has_metal": any(z not in _ORGANIC_ATOMS for z in zs),
+        "net_charge": Chem.GetFormalCharge(m),
+        "matched_alerts": ";".join(sorted(set(matched))),
+    }
+
+
+def select_novel_fragments(df_rows, alerts_compiled, min_heavy=5, min_hetero=2, min_support=5):
+    """Single, unified definition of a 'novel' fragment, used by BOTH the CSV and the figure (and the
+    standalone refilter script). Canonicalizes + deduplicates fragments (summing counts), then keeps a
+    fragment iff it matches no known alert, is fully organic, has >= min_heavy heavy atoms and (a ring
+    OR >= min_hetero heteroatoms), has >= min_support total occurrences, and is enriched in positive
+    predictions (pos_frac >= dataset base rate). Returns a DataFrame (canonical `fragment`, `mol`,
+    properties, `pos_frac`) ranked by enrichment.
+    """
+    df = pd.DataFrame(df_rows)
+    if df.empty:
+        return df
+    per_task = [c for c in df.columns if c.startswith("count_t") or c.startswith("pos_t")]
+
+    # Canonicalize + deduplicate by canonical SMILES, summing counts.
+    merged = {}
+    for _, r in df.iterrows():
+        info = _fragment_mol_props(r.get("fragment"), alerts_compiled)
+        if info is None:
+            continue
+        csmi = Chem.MolToSmiles(info["mol"])
+        e = merged.get(csmi)
+        if e is None:
+            e = {"fragment": csmi, "mol": info["mol"], "n_heavy": info["n_heavy"],
+                 "n_hetero": info["n_hetero"], "has_ring": info["has_ring"],
+                 "has_metal": info["has_metal"], "net_charge": info["net_charge"],
+                 "matched_alerts": info["matched_alerts"],
+                 "total_count": 0, "total_pos_count": 0, **{c: 0 for c in per_task}}
+            merged[csmi] = e
+        e["total_count"] += int(r.get("total_count", 0) or 0)
+        e["total_pos_count"] += int(r.get("total_pos_count", 0) or 0)
+        for c in per_task:
+            e[c] += int(r.get(c, 0) or 0)
+
+    cand = pd.DataFrame(list(merged.values()))
+    if cand.empty:
+        return cand
+    base_rate = cand["total_pos_count"].sum() / max(1, cand["total_count"].sum())
+    cand["pos_frac"] = cand["total_pos_count"] / cand["total_count"].clip(lower=1)
+    keep = (
+        (cand["matched_alerts"] == "")
+        & (~cand["has_metal"])
+        & (cand["net_charge"] == 0)
+        & (cand["n_heavy"] >= min_heavy)
+        & (cand["has_ring"] | (cand["n_hetero"] >= min_hetero))
+        & (cand["total_count"] >= min_support)
+        & (cand["pos_frac"] >= base_rate)
+    )
+    return cand[keep].sort_values(["pos_frac", "total_pos_count"], ascending=False).reset_index(drop=True)
+
+
 def save_fragment_artifacts(df_rows, per_task_sets, frag_examples, output_dir, alerts_compiled, global_smiles, topN_grid=24):
     # Save CSV summary
     df_frags = pd.DataFrame(df_rows)
     frag_csv = os.path.join(output_dir, "explainer_discovered_fragments_summary.csv")
     df_frags.sort_values("total_pos_count", ascending=False).to_csv(frag_csv, index=False)
 
-    # Identify novel candidates: frequent in positives and not matching known alerts
+    # Identify novel candidates with the unified, stricter definition (organic, non-trivial,
+    # enriched in positives, not a known alert). Same definition is used for the figure below.
     df_sorted = df_frags.sort_values("total_pos_count", ascending=False)
-    novel = df_sorted[(df_sorted["total_pos_count"] >= min(3, max(3, int(len(global_smiles) * 0.005)))) & (
-            df_sorted["matched_alerts"] == "")]
-    novel.to_csv(os.path.join(output_dir, "explainer_novel_fragment_candidates.csv"), index=False)
+    novel = select_novel_fragments(df_rows, alerts_compiled)
+    novel_cols = ["fragment", "n_heavy", "n_hetero", "has_ring",
+                  "total_count", "total_pos_count", "pos_frac", "matched_alerts"]
+    novel[[c for c in novel_cols if c in novel.columns]].to_csv(
+        os.path.join(output_dir, "explainer_novel_fragment_candidates.csv"), index=False)
 
     # Save grid image of top fragments (top by total_pos_count)
     top_frags = df_sorted.head(topN_grid)["fragment"].tolist()
@@ -447,67 +672,28 @@ def save_fragment_artifacts(df_rows, per_task_sets, frag_examples, output_dir, a
     img = Draw.MolsToGridImage(mols, molsPerRow=min(6, len(mols)), subImgSize=(200, 200), legends=legends)
     img.save(os.path.join(output_dir, "top_discovered_fragments_grid.pdf"))
 
-# Eliminate alerts with < 2 heavy atoms and sort into novel vs non novel
+# Split fragments into known-alert vs novel, using the SAME unified novel definition as the CSV.
 def get_fragment_info_lists(df_rows, alerts_compiled, global_smiles, min_heavy_atoms=2):
-    alert_frags, novel_frags = [], []
+    # Novel: identical definition/ranking as explainer_novel_fragment_candidates.csv.
+    novel_df = select_novel_fragments(df_rows, alerts_compiled)
+    novel_frags = [{
+        "fragment": r["fragment"], "mol": r["mol"], "alerts": "",
+        "total_pos_count": r["total_pos_count"], "total_count": r["total_count"],
+        "pos_frac": r.get("pos_frac", 0.0),
+    } for _, r in novel_df.iterrows()]
+
+    # Known-alert fragments: organic, >= min_heavy_atoms, and matching a known alert (recomputed).
+    alert_frags = []
     for r in df_rows:
-        frag = r["fragment"]
-        #if not frag:
-        #    continue
-        #mol = Chem.MolFromSmiles(frag)
-        #if mol is None:
-        #    continue
-
-        if frag is None:
-            return []
-        try:
-            frag_base = Chem.MolFromSmiles(frag)
-            if frag_base is None:
-                # Try sanitization: sometimes fragments miss valence info
-                try:
-                    frag_base = Chem.MolFromSmiles(frag, sanitize=False)
-                    Chem.SanitizeMol(frag_base, catchErrors=True)
-                except Exception:
-                    print(f"[Warning] Could not sanitize invalid fragment: {frag}")
-                    return []
-            # frag_mol = Chem.AddHs(frag_base)
-        except Exception as e:
-            print(f"[Error] Could not parse fragment SMILES {frag}: {e}")
-            return []
-
-        mol = frag_base
-
-        if mol is None:
-            return []
-
-
-        if mol.GetNumHeavyAtoms() < min_heavy_atoms:
+        info = _fragment_mol_props(r.get("fragment"), alerts_compiled)
+        if info is None or info["has_metal"] or info["n_heavy"] < min_heavy_atoms:
             continue
-        if all(a.GetSymbol() in ("C", "H") for a in mol.GetAtoms()):
-            continue
-
-        alerts = r["matched_alerts"]
-        total_pos_count = r["total_pos_count"]
-        total_count = r["total_count"]
-
-        entry = {
-            "fragment": frag,
-            "mol": mol,
-            "alerts": alerts,
-            "total_pos_count": total_pos_count,
-            "total_count": total_count,
-        }
-
-        #if (r["total_pos_count"] >= min(3, max(3, int(len(global_smiles) * 0.005)))) & (
-        #        r["matched_alerts"] == ""):
-        if r["matched_alerts"] == "":
-            novel_frags.append(entry)
-        elif alerts:
-            alert_frags.append(entry)
-
-    # sort by total_pos_count descending
+        if info["matched_alerts"]:
+            alert_frags.append({
+                "fragment": r["fragment"], "mol": info["mol"], "alerts": info["matched_alerts"],
+                "total_pos_count": r["total_pos_count"], "total_count": r["total_count"],
+            })
     alert_frags.sort(key=lambda x: x["total_pos_count"], reverse=True)
-    novel_frags.sort(key=lambda x: x["total_pos_count"], reverse=True)
     return alert_frags, novel_frags
 
 def plot_combined_known_vs_novel(alert_frags, novel_frags, output_dir, top_n_each=30):
@@ -2437,18 +2623,22 @@ def main():
     
         # Known structural alerts
         alerts_compiled = load_alerts()
-    
-        alert_fps = compute_alert_fps(alerts_compiled)
-    
-        ### Fragment analysis
-        # Which alerts were detected by GNNExplainer, do they overlap with known alerts
-        df_rows, per_task_top_sets, frag_examples = build_fragment_catalog(per_task_impatoms, per_task_preds, per_task_labels, global_smiles, alerts_compiled, alert_fps, min_pos_count=3, top_k=200)
-    
+
+        ### Fragment analysis (NOVEL-FRAGMENT DETECTION ONLY)
+        # Uses the EXTENDED alert list + recurring-substructure mining. This block is isolated: every
+        # other analysis below keeps using the base `alerts_compiled` / `load_alerts()`.
+        extended_alerts = load_extended_alerts()
+        extended_alert_fps = compute_alert_fps(extended_alerts)
+        # Recurring circular substructures mined around the model's tight important atoms.
+        df_rows, per_task_top_sets, frag_examples = build_substructure_catalog(
+            per_task_impatoms, per_task_preds, per_task_labels, global_smiles,
+            extended_alerts, extended_alert_fps, top_k=200)
+
         # Save and plot fragment analysis (initial)
-        save_fragment_artifacts(df_rows, per_task_top_sets, frag_examples, args.output_dir, alerts_compiled, global_smiles, topN_grid=24)
-    
+        save_fragment_artifacts(df_rows, per_task_top_sets, frag_examples, args.output_dir, extended_alerts, global_smiles, topN_grid=24)
+
         # Divide into novel vs not, eliminate alerts with < 2 heavy atoms
-        alert_frags, novel_frags = get_fragment_info_lists(df_rows, alerts_compiled, global_smiles, min_heavy_atoms=4)
+        alert_frags, novel_frags = get_fragment_info_lists(df_rows, extended_alerts, global_smiles, min_heavy_atoms=4)
     
         # Save and plot novel vs not fragments
         n_alert, n_novel = plot_combined_known_vs_novel(alert_frags, novel_frags, args.output_dir, top_n_each=30)
