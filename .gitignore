@@ -36,6 +36,8 @@ AMES_FINAL/README_shap.md
 AMES_FINAL/SHAP_methods_and_interpretation.md
 AMES_FINAL/train_descriptors.yml
 AMES_FINAL/refilter_novel_fragments.py
+AMES_FINAL/README_full.md
+AMES_FINAL/novel_fragment_literature_assessment.md
 report_AMES.docx
 *.claude
 *.claude/
