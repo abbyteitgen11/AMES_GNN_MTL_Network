@@ -85,6 +85,8 @@ python GNN_explainer_analysis.py \
 
 Replace `metrics_77_0.pt` with whichever provided checkpoint you want to analyze (metrics_77_0.pt is the checkpoint used in the paper).
 
+Note: Only metrics_77_0.pt is provided in the checkpoints/final directory, due to size constraints. To reproduce all checkpoints, rerun crossfold validation analysis (see below)
+
 ---
 
 ## Code overview

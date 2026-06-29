@@ -27,7 +27,7 @@ python run_model.py \
     --mode train \
     --input_file train_sample.yml \
     --output_dir ./output/train \
-    --checkpoints_dir ./checkpoints \
+    --checkpoints_dir ./checkpoints/final/ \
     --use_thresholds --temperature_scaling --threshold_metric bal_acc
 ```
 
@@ -40,7 +40,7 @@ python run_model.py \
     --mode eval \
     --input_file train_sample.yml \
     --output_dir ./output/eval \
-    --checkpoint_file ./checkpoints/metrics_77_0.pt \
+    --checkpoint_file ./checkpoints/final/metrics_77_0.pt \
     --use_thresholds --temperature_scaling --threshold_metric bal_acc
 ```
 
@@ -56,13 +56,13 @@ python run_model.py \
     --mode top_seeds_eval \
     --input_file train_sample.yml \
     --output_dir ./output/XFV_eval \
-    --metrics_dir ./metrics \
-    --checkpoints_dir ./checkpoints \
+    --metrics_dir ./metrics/final/ \
+    --checkpoints_dir ./checkpoints/final/ \
     --n_top_seeds 5 \
     --use_thresholds --temperature_scaling --threshold_metric bal_acc
 ```
 
-The `checkpoints/` directory should contain the provided `metrics_{seed}_{fold}.pt` files. `metrics_dir` should point to the directory containing `val_losses.csv` from the cross-validation run, here is `metrics/`.
+The `checkpoints/final/` directory should contain the provided `metrics_{seed}_{fold}.pt` files. `metrics_dir` should point to the directory containing `val_losses.csv` from the cross-validation run, here is `metrics/final/`.
 
 Plot and summarize cross-validation results:
 
@@ -70,7 +70,7 @@ Plot and summarize cross-validation results:
 python run_model.py \
     --mode analyze_cfv \
     --output_dir ./output/XFV_plots \
-    --metrics_dir ./metrics
+    --metrics_dir ./metrics/final/
 ```
 
 **Run the explainer analysis**
@@ -79,11 +79,13 @@ python run_model.py \
 python GNN_explainer_analysis.py \
     --input_file train_sample.yml \
     --output_dir ./output/explainer \
-    --checkpoint_file ./checkpoints/metrics_77_0.pt \
+    --checkpoint_file ./checkpoints/final/metrics_77_0.pt \
     --analyze_input_features
 ```
 
 Replace `metrics_77_0.pt` with whichever provided checkpoint you want to analyze (metrics_77_0.pt is the checkpoint used in the paper).
+
+Note: Only metrics_77_0.pt is provided in the checkpoints/final directory, due to size constraints. To reproduce all checkpoints, rerun crossfold validation analysis (see below)
 
 ---
 
@@ -424,11 +426,11 @@ python run_model.py \
     --mode train \
     --input_file train_sample.yml \
     --output_dir ./output/train_run1 \
-    --checkpoints_dir ./checkpoints
+    --checkpoints_dir ./checkpoints/final
 ```
 
 **Outputs:**
-- `checkpoints/checkpoint_epoch_N.pt` — model checkpoint at each epoch
+- `checkpoints/final/checkpoint_epoch_N.pt` — model checkpoint at each epoch
 - `output/train_run1/tensorboard/` — TensorBoard event files
 
 ---
@@ -516,7 +518,7 @@ python run_model.py \
     --mode seeds_cfv \
     --input_file train_sample.yml \
     --output_dir ./output/cfv_results \
-    --checkpoints_dir ./checkpoints \
+    --checkpoints_dir ./checkpoints/final \
     --seeds "3 7 15 24 42 45 62 77 79 88 90"
 ```
 
@@ -537,14 +539,14 @@ python run_model.py \
     --mode eval \
     --input_file train_sample.yml \
     --output_dir ./output/eval_results \
-    --checkpoint_file ./checkpoints/metrics_77_0.pt
+    --checkpoint_file ./checkpoints/final/metrics_77_0.pt
 
 # Temperature scaling + per-task threshold optimisation (maximise sensitivity)
 python run_model.py \
     --mode eval \
     --input_file train_sample.yml \
     --output_dir ./output/eval_results \
-    --checkpoint_file ./checkpoints/metrics_77_0.pt \
+    --checkpoint_file ./checkpoints/final/metrics_77_0.pt \
     --use_thresholds --temperature_scaling --threshold_metric sn
 
 # Temperature scaling + single consensus threshold (maximise balanced accuracy)
@@ -552,7 +554,7 @@ python run_model.py \
     --mode eval \
     --input_file train_sample.yml \
     --output_dir ./output/eval_results \
-    --checkpoint_file ./checkpoints/metrics_77_0.pt \
+    --checkpoint_file ./checkpoints/final/metrics_77_0.pt \
     --use_thresholds --temperature_scaling --tune_consensus_threshold --threshold_metric bal_acc
 ```
 
@@ -591,8 +593,8 @@ python run_model.py \
     --mode top_seeds_eval \
     --input_file train_sample.yml \
     --output_dir ./output/top_seeds \
-    --metrics_dir ./output/cfv_results \
-    --checkpoints_dir ./checkpoints \
+    --metrics_dir ./metrics/final/ \
+    --checkpoints_dir ./checkpoints/final/ \
     --n_top_seeds 5
 ```
 
@@ -606,7 +608,7 @@ python run_model.py \
 python run_model.py \
     --mode analyze_cfv \
     --output_dir ./output/cfv_plots \
-    --metrics_dir ./output/cfv_results
+    --metrics_dir ./metrics/final/
 ```
 
 **Outputs:**
@@ -629,7 +631,7 @@ Runs GNNExplainer to identify important molecular fragments, computes structural
 python GNN_explainer_analysis.py \
     --input_file train_sample.yml \
     --output_dir ./output/explainer \
-    --checkpoint_file ./checkpoints/metrics_77_0.pt
+    --checkpoint_file ./checkpoints/final/metrics_77_0.pt
 ```
 
 To override the data file path from the YAML:
@@ -638,7 +640,7 @@ To override the data file path from the YAML:
 python GNN_explainer_analysis.py \
     --input_file train_sample.yml \
     --output_dir ./output/explainer \
-    --checkpoint_file ./checkpoints/metrics_77_0.pt \
+    --checkpoint_file ./checkpoints/final/metrics_77_0.pt \
     --data_file /path/to/custom_data.csv
 ```
 
@@ -722,7 +724,7 @@ Verify: `python -c "import shap, torch, torch_geometric; print(torch.cuda.is_ava
 source ~/venvs/ames_shap/bin/activate
 python shap_analysis_standalone.py \
     --input_file train_sample.yml
-    --checkpoint_file ./checkpoints/metrics_77_0.pt \
+    --checkpoint_file ./checkpoints/final/metrics_77_0.pt \
     --output_dir ./output/SHAP
     --device auto \
     --shap_max_mols 20 \
