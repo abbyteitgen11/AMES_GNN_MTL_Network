@@ -1,5 +1,4 @@
-
-# a sample yaml input file
+# a sample yaml input file, contains the defaults from the paper
 
 # This input file specifies how graph objects are to be constructed; it reads information
 # for defining node (atom) features and edge features.
@@ -12,11 +11,11 @@ generate_graphs: True
 graphType: 'XG' # currently this is the only graph type implemented
 
 # address where to find the data-base files, and where to put the graph files once created
-DataBaseDirectory: '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/DataBase_AMES/FILES_DEV'
-TargetDirectory: '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/GraphDataBase_AMES_NEW'
+DataBaseDirectory: '/AMES_GNN_MTL_Network/XYZ_files'
+TargetDirectory: '/AMES_GNN_MTL_Network/GraphDataBase_AMES'
 
 # path to the CSV file used to determine train/val/test splits
-DataPath: '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES_FINAL/data/data_new_with_split_descriptors.csv'
+DataPath: '/AMES_GNN_MTL_Network/AMES_FINAL/data/Ames_mutagenicity_strain_specific.csv'
 
 # the file extensions, both for the input and for the graph files
 
@@ -37,7 +36,7 @@ nodeFeatures:   # the following are a list of mendeleev recognised keywords
    - 'series'
 
 # important note: first run counter.py to determine which species are present in the molecules and update the 
-# section below. This is accurate for the dataset used in this paper
+# section below. This is accurate for the dataset used in this paper.
 
 species: ["N", "C", "H", "O", "S", "Cl", "Be", "Br", "Pt", "P", 
           "F", "As", "Hg", "Zn", "Si", "V", "I", "B", "Sn", "Ge", 
@@ -45,30 +44,15 @@ species: ["N", "C", "H", "O", "S", "Cl", "Be", "Br", "Pt", "P",
           "Mn", "Fe", "Ga", "Pd", "Na", "Ti", "Bi", "Co", "Ni", 
           "Ce", "Ba", "Zr", "Rh"]
 
-# Edges can have three different input features: distance (related to the length of the edge),
-# bond-angle, which is a sum of cosines of bond angles (note that this particular feature
-# is in general different for each of the two edges that define a bond, as the angles are 
-# defined between the neighbours of i in the first edge, and between the neighbours of j
-# in the second edge), and finally dihedral features, which are a sum of cosines of dihedral
-# angles in which i-j is the central bond (contrary to bond-angle, this feature is the same
-# for both edges in the bond
-
 nMaxNeighbours: 850 # Needs to be adjusted based on max number of atoms in molecules (depending on dataset)
 # 850 is accurate for the dataset uesed in this paper
 
-# bond angle features
-
 BondAngleFeatures: True
-
-# optionally, edges can also have dihedral features, i.e. a sum of cosines of the dihedral angles
-# in which the edge participates as the central edge. A dihedral angle in a sequence of three
-# consecutive edges, 1-2-3-4 is the cosine of the angle between planes 1-2-3 and 2-3-4, and is
-# assigned to edge 2-3.
 
 DihedralAngleFeatures: True
 
 # Edge distance encoding: "raw" (default, single float) or "rbf" (Gaussian radial basis functions)
-distanceEncoding: "raw"
+distanceEncoding: "rbf"
 
 # RBF parameters (only used when distanceEncoding is "rbf")
 # n_features: number of Gaussian basis functions

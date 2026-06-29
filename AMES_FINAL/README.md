@@ -1,7 +1,7 @@
 # A Multitask Graph Neural Network Framework for Ames Mutagenicity Prediction
 Abigail E. Teitgen, Eugenia Ulzurrun, Nuria E. Campillo, and Eduardo R. Hernández
 
-This codebase trains and evaluates a GNN-based multi-task learning model to predict Ames mutagenicity across five bacterial strains (TA98, TA100, TA102, TA1535, TA1537). Molecules are represented as graphs (GINEConv architecture); a shared graph encoder feeds into five task-specific prediction heads.
+This codebase trains and evaluates a GNN-based multi-task learning model to predict Ames mutagenicity across five bacterial strains (TA98, TA100, TA102, TA1535, TA1537). Molecules are represented as graphs (GINEConv architecture).
 
 ---
 
@@ -9,7 +9,7 @@ This codebase trains and evaluates a GNN-based multi-task learning model to pred
 
 Follow these steps to reproduce the main results. See [Setup](#setup) first to install dependencies.
 
-**A) Build the graph database**
+**Build the graph database**
 
 Unzip the provided XYZ files, then build the graph database:
 
@@ -20,7 +20,7 @@ python graph_maker.py graph_maker_sample.yml
 
 Update `DataBaseDirectory`, `TargetDirectory`, and `DataPath` in `graph_maker_sample.yml` to point to your local paths before running.
 
-**B) Train the model**
+**Train the model**
 
 ```bash
 python run_model.py \
@@ -33,7 +33,21 @@ python run_model.py \
 
 Update `database` and `data_file` in `train_sample.yml` to match your graph database and data paths.
 
-**C) Reproduce cross-validation evaluation results**
+**Evaluate the model**
+
+```bash
+python run_model.py \
+    --mode eval \
+    --input_file train_sample.yml \
+    --output_dir ./output/eval \
+    --checkpoint_file ./checkpoints/metrics_77_0.pt \
+    --use_thresholds --temperature_scaling --threshold_metric bal_acc
+```
+
+Update `database` and `data_file` in `train_sample.yml` to match your graph database and data paths.
+Replace `metrics_77_0.pt` with whichever provided checkpoint you want to analyze (metrics_77_0.pt is the checkpoint used in the paper).
+
+**Reproduce cross-validation evaluation results**
 
 Using the provided checkpoint files:
 
@@ -43,12 +57,12 @@ python run_model.py \
     --input_file train_sample.yml \
     --output_dir ./output/XFV_eval \
     --metrics_dir ./metrics \
-    --checkpoints_dir ./checkpoints/Final_RBF_XFV \
+    --checkpoints_dir ./checkpoints \
     --n_top_seeds 5 \
     --use_thresholds --temperature_scaling --threshold_metric bal_acc
 ```
 
-The `checkpoints/` directory should contain the provided `metrics_{seed}_{fold}.pt` files. `metrics_dir` should point to the directory containing `val_losses.csv` from the cross-validation run (included with the checkpoints).
+The `checkpoints/` directory should contain the provided `metrics_{seed}_{fold}.pt` files. `metrics_dir` should point to the directory containing `val_losses.csv` from the cross-validation run, here is `metrics/`.
 
 Plot and summarize cross-validation results:
 
@@ -59,26 +73,27 @@ python run_model.py \
     --metrics_dir ./metrics
 ```
 
-**D) Run the explainer analysis**
+**Run the explainer analysis**
 
 ```bash
 python GNN_explainer_analysis.py \
     --input_file train_sample.yml \
     --output_dir ./output/explainer \
-    --checkpoint_file ./checkpoints/metrics_42_3.pt \
+    --checkpoint_file ./checkpoints/metrics_77_0.pt \
     --analyze_input_features
 ```
 
-Replace `metrics_42_3.pt` with whichever provided checkpoint you want to analyze (metrics_42_3.pt is the checkpoint used in the paper).
+Replace `metrics_77_0.pt` with whichever provided checkpoint you want to analyze (metrics_77_0.pt is the checkpoint used in the paper).
 
 ---
 
-## Directory Structure
+## Code overview
 
 ```
 AMES_FINAL/
 ├── run_model.py                     # Main driver: train, evaluate, HP optimization, analysis
-├── GNN_explainer_analysis.py        # GNNExplainer + Integrated Gradients analysis
+├── GNN_explainer_analysis.py        # GNNExplainer + Integrated Gradients + novel-fragment analysis
+├── shap_analysis_standalone.py      # Standalone grouped-KernelSHAP feature analysis (this requires a separate venv)
 ├── graph_maker.py                   # Build graph database from XYZ files
 ├── train_sample.yml                 # Example training/evaluation configuration
 ├── graph_maker_sample.yml           # Example graph construction configuration
@@ -114,7 +129,7 @@ AMES_FINAL/
 └── STOPFLAG.yml                     # Set STOPFLAG: True to halt training gracefully
 ```
 
-The graph database lives outside this directory, and is created using `graph_maker.py`:
+The graph database is located outside this directory, and is created using `graph_maker.py`:
 
 ```
 GraphDataBase_AMES/
@@ -175,12 +190,13 @@ pip install \
 > - `mendeleev` is required by the graph construction modules to look up element properties (period, block, electronegativity, etc.) used as node features.
 > - `mordred` is only needed when running `calculate_descriptors.py` or using `inputMode: "descriptor"`/`"combined"`.
 > - `scipy` is required for temperature scaling in `run_model.py`.
+> - the SHAP analysis requires a separate venv because of package version conflicts, and is set up as a standalone analysis, see section below 
 
 ---
 
 
 
-## Data File Format (`data.csv`)
+## Data File Format (`Ames_mutagenicity_strain_specific.csv`)
 
 The data file should contain at minimum:
 
@@ -189,9 +205,9 @@ The data file should contain at minimum:
 | `SMILES` | Canonical SMILES string |
 | `TA98`, `TA100`, `TA102`, `TA1535`, `TA1537` | Binary labels (0 = negative, 1 = positive, -1 = missing) |
 | `Overall` | Overall consensus label (used in `eval` mode for misclassification analysis) |
-| `split` | `train`, `validate`, or `test` |
+| `split` | `train`, `validate (internal)`, or `test (external)` |
 
-For `"descriptor"` and `"combined"` input modes, the file must also contain Mordred descriptor columns — generate these with `calculate_descriptors.py`.
+For `"descriptor"` and `"combined"` input modes, the file must also contain Mordred descriptor columns — generate these with `calculate_descriptors.py`. This is only used for ablation analysis.
 
 ---
 
@@ -228,16 +244,16 @@ Generates 3D XYZ files from a SMILES CSV using RDKit ETKDGv3 conformer generatio
 
 ```bash
 python smiles_to_xyz.py \
-    --input_csv data.csv \
+    --input_csv Ames_mutagenicity_strain_specific.csv \
     --smiles_col SMILES \
     --output_dir ./FILES_XYZ
 ```
 
 | Argument | Default | Description |
 |----------|---------|-------------|
-| `--input_csv` | `data_with_negatives.csv` | Input CSV with SMILES |
+| `--input_csv` | `data.csv` | Input CSV with SMILES |
 | `--smiles_col` | `SMILES` | Name of the SMILES column |
-| `--output_dir` | `./FILES_XYZ_new` | Directory to write XYZ files |
+| `--output_dir` | `./FILES_XYZ` | Directory to write XYZ files |
 
 **Output:** One `{row}_ames_mutagenicity_data_{row}.xyz` file per molecule.
 
@@ -266,7 +282,7 @@ python graph_maker.py graph_maker_sample.yml
 ```
 
 ### Graph Construction Configuration (`graph_maker_sample.yml`)
-**Note: The current graph_maker_sample.yml file will generate the graphs used in the paper, so you don't need to change any values unless desired to reproduce ablation analysis etc. The only thing to update are the data paths for your computer.**
+**Note: The current graph_maker_sample.yml file will generate the graphs used in the paper, so you don't need to change any values unless desired to reproduce ablation analysis etc. The only things necessary to update are the paths.**
 
 | Field | Description |
 |-------|-------------|
@@ -314,8 +330,8 @@ Only needed for `inputMode: "descriptor"` or `"combined"`. Computes all 2D Mordr
 
 ```bash
 python calculate_descriptors.py \
-    --input_csv data_new_with_split.csv \
-    --output_csv data_new_with_split_descriptors.csv
+    --input_csv Ames_mutagenicity_strain_specific.csv \
+    --output_csv Ames_mutagenicity_strain_specific_descriptors.csv
 ```
 
 The resulting file is used with `run_model.py` by setting `data_file` in the training YAML.
@@ -331,7 +347,7 @@ python visualize_graphs.py \
     --input_file train_sample.yml \
     --n_graphs 100 \
     --partition test \
-    --output_dir ./graph_viz \
+    --output_dir ./graph_visualization \
     --output_format pdf
 ```
 
@@ -358,7 +374,7 @@ Each figure shows two panels: RDKit 2D structure on the left and the molecular g
 
 ## Training Configuration (`train_sample.yml`)
 
-All `run_model.py` modes read hyperparameters and paths from a YAML file. Key fields:
+All `run_model.py` modes read hyperparameters and paths from a YAML file. train_sample includes the default parameters from the paper. Key fields:
 
 | Field | Description |
 |-------|-------------|
@@ -521,14 +537,14 @@ python run_model.py \
     --mode eval \
     --input_file train_sample.yml \
     --output_dir ./output/eval_results \
-    --checkpoint_file ./checkpoints/metrics_42_3.pt
+    --checkpoint_file ./checkpoints/metrics_77_0.pt
 
 # Temperature scaling + per-task threshold optimisation (maximise sensitivity)
 python run_model.py \
     --mode eval \
     --input_file train_sample.yml \
     --output_dir ./output/eval_results \
-    --checkpoint_file ./checkpoints/metrics_42_3.pt \
+    --checkpoint_file ./checkpoints/metrics_77_0.pt \
     --use_thresholds --temperature_scaling --threshold_metric sn
 
 # Temperature scaling + single consensus threshold (maximise balanced accuracy)
@@ -536,7 +552,7 @@ python run_model.py \
     --mode eval \
     --input_file train_sample.yml \
     --output_dir ./output/eval_results \
-    --checkpoint_file ./checkpoints/metrics_42_3.pt \
+    --checkpoint_file ./checkpoints/metrics_77_0.pt \
     --use_thresholds --temperature_scaling --tune_consensus_threshold --threshold_metric bal_acc
 ```
 
@@ -555,6 +571,7 @@ python run_model.py \
 - `model_output_raw.csv` — probabilities, true labels, binary predictions, and consensus per molecule
 - `roc_curves.png` — ROC curves for each strain + consensus (AUC annotated)
 - `pr_curves.png` — Precision-Recall curves for each strain + consensus (AP annotated)
+- `roc_curve_consensus.svg` / `pr_curve_consensus.svg` — standalone single-panel consensus-only ROC / PR curves
 
 ---
 
@@ -605,28 +622,14 @@ python run_model.py \
 
 ## GNNExplainer + Feature Importance Analysis (`GNN_explainer_analysis.py`)
 
-Runs GNNExplainer to identify important molecular fragments and computes structural alert overlap scores. Optionally runs Integrated Gradients for input feature importance.
+Runs GNNExplainer to identify important molecular fragments, computes structural alert overlap scores, and mines recurring **novel** substructures (enriched in mutagenic predictions but not matching known alerts). Optionally runs Integrated Gradients for input feature importance.
 
 ```bash
-# GNNExplainer only
+# GNNExplainer
 python GNN_explainer_analysis.py \
     --input_file train_sample.yml \
     --output_dir ./output/explainer \
-    --checkpoint_file ./checkpoints/metrics_42_3.pt
-
-# GNNExplainer + Integrated Gradients feature importance
-python GNN_explainer_analysis.py \
-    --input_file train_sample.yml \
-    --output_dir ./output/explainer \
-    --checkpoint_file ./checkpoints/metrics_42_3.pt \
-    --analyze_input_features
-
-# Integrated Gradients only (skip GNNExplainer — faster for re-running IG analysis)
-python GNN_explainer_analysis.py \
-    --input_file train_sample.yml \
-    --output_dir ./output/explainer \
-    --checkpoint_file ./checkpoints/metrics_42_3.pt \
-    --analyze_input_features_only
+    --checkpoint_file ./checkpoints/metrics_77_0.pt
 ```
 
 To override the data file path from the YAML:
@@ -635,11 +638,11 @@ To override the data file path from the YAML:
 python GNN_explainer_analysis.py \
     --input_file train_sample.yml \
     --output_dir ./output/explainer \
-    --checkpoint_file ./checkpoints/metrics_42_3.pt \
+    --checkpoint_file ./checkpoints/metrics_77_0.pt \
     --data_file /path/to/custom_data.csv
 ```
 
-Replace `metrics_42_3.pt` with whichever provided checkpoint you want to analyze (`metrics_41_1.pt` is the checkpoint used in the paper).
+Replace `metrics_77_0.pt` with whichever provided checkpoint you want to analyze (`metrics_77_0.pt` is the checkpoint used in the paper).
 
 **Key flags:**
 
@@ -660,6 +663,7 @@ Replace `metrics_42_3.pt` with whichever provided checkpoint you want to analyze
   - `<alert>_smarts_pos_avg_rep0.png` — smallest matching molecule
   - `<alert>_smarts_pos_avg_rep1.png` — second smallest
   - `<alert>_smarts_pos_avg_rep2.png` — third smallest
+  - `attribution_color_scale.svg` — vertical colour-scale legend (relative attribution, white→dark red) for these positional plots
 - `toxic_overlap_by_strain_heatmap.pdf` — heatmap of mean GNN overlap score (toxic molecules only) per alert per strain; alerts with zero overall overlap excluded
 - `alert_auc_by_strain_heatmap.pdf` — heatmap of AUROC per alert per strain (model predicted probability vs ground-truth mutagenicity for alert-matched molecules; requires ≥10 samples per cell)
 - `alert_performance_bars.pdf` — horizontal bar chart of mean overlap score per alert, sorted descending; alerts with zero overlap excluded
@@ -678,28 +682,60 @@ Replace `metrics_42_3.pt` with whichever provided checkpoint you want to analyze
   - `summary_correct_toxic.pdf`, `summary_correct_nontoxic.pdf`, `summary_incorrect.pdf`
   - `summary_correct_toxic_smiles.csv`, `summary_correct_nontoxic_smiles.csv`, `summary_incorrect_smiles.csv` — SMILES strings in PDF row order, plus `avg_attributions` column (JSON dict mapping atom index → mean edge-mask score across 5 strains)
 
-*Input feature importance (`--analyze_input_features` or `--analyze_input_features_only`):*
-- `feature_importance_plots/node_feature_importance_task_N.png` — per-task node feature bar charts
-- `feature_importance_plots/edge_feature_importance_task_N.png` — per-task edge feature bar charts
-- `feature_importance_plots/overall_node_feature_importance.png` — overall node feature importance bar chart
-- `feature_importance_plots/overall_edge_feature_importance.png` — overall edge feature importance bar chart
-- `feature_importance_plots/node_feature_importance_heatmap.png` — node feature importance across tasks (heatmap)
-- `feature_importance_plots/edge_feature_importance_heatmap.png` — edge feature importance across tasks (heatmap)
-- `feature_importance_plots/overall_feature_importance_violin.png` — SHAP-style layered violin plot of signed per-molecule Integrated Gradients attributions. Each row = one feature; x = IG attribution value (positive or negative); dot color = normalized input feature value (blue = low, red = high) via coolwarm; gray violin outlines show density; dots are beeswarm-jittered. One-hot node feature groups (Period 1–7, Block s/p/d/f, Element group) are averaged into single scores. RBF distance bins are averaged into a single "Distance" feature. Circles = node features, diamonds = edge features; features sorted by mean absolute attribution.
-- `feature_importance_plots/overall_feature_importance_violin_values.csv` — per-molecule values underlying the violin plot (columns: Feature, Type, SHAP Value, Feature Value)
+*Novel-fragment discovery (GNNExplainer path):*
+
+Recurring substructures are obtained as the radius-2/3 circular environments around the model's important atoms. Each is screened against an **extended** alert list (the base alerts plus a few novelty-only SMARTS: any nitro, aromatic azo, poly-halo alkanes/alkenes, sulfonate/sulfate esters) and Tanimoto similarity, then a fragment is called *novel* if it is organic, ≥5 heavy atoms, has a ring or ≥2 heteroatoms, occurs ≥5 times, matches no known/extended alert, and is **statistically enriched** in mutagenic predictions (one-sided binomial test + Benjamini–Hochberg FDR, q<0.05).
+- `explainer_discovered_fragments_summary.csv` — every mined substructure with per-task and positive-prediction counts and matched alerts
+- `explainer_novel_fragment_candidates.csv` — the FDR-significant novel substructures (with `pos_frac`, `pval`, `qval`)
+- `top_discovered_fragments_grid.pdf` — grid image of the most frequent discovered substructures
+- `fragments_known_vs_novel_combined.png` — side-by-side grid of known-alert vs novel substructures
 
 ---
 
+## Standalone SHAP Analysis (`shap_analysis_standalone.py`)
+
+A separate, GPU-friendly script computes **grouped KernelSHAP** (true Shapley values, via the `shap`
+library). It runs in its **own virtual environment** (it pulls `shap`/numpy 2.x, which conflicts with `mordred` in
+the main env) and depends only on `torch` + `torch_geometric`
 
 
+```bash
+python3 -m venv ~/venvs/ames_shap
+source ~/venvs/ames_shap/bin/activate
+
+# 1) Install torch matching YOUR CUDA first. Examples:
+#    CUDA 12.1:  pip install torch --index-url https://download.pytorch.org/whl/cu121
+#    CPU only:   pip install torch --index-url https://download.pytorch.org/whl/cpu
+# Prefer the same torch version as your training env (torch 2.8.x) for clean checkpoint loading.
+pip install torch --index-url https://download.pytorch.org/whl/cu121
+
+# 2) The rest (torch_geometric wheel resolves against the installed torch):
+pip install -r requirements_shap.txt
+```
+
+Verify: `python -c "import shap, torch, torch_geometric; print(torch.cuda.is_available())"`
 
 
-## Key References
+## Run (recommended to run on GPU/HPC)
 
-- **Architecture**: GINEConv-based GNN encoder with shared + task-specific MLP heads
-- **Loss**: Masked weighted binary cross-entropy (ignores `-1` labels)
-- **CV**: MultilabelStratifiedKFold (5 folds) preserving label distribution
-- **Threshold optimization**: Coordinate ascent with 1-SE rule on validation set
-- **Consensus prediction**: OR rule across all 5 task heads
-- **GNNExplainer**: Edge mask → top-15% edges define important atoms; SMARTS-position averaging aligns structural alert importance across molecules with different atom orderings; node importance scaled by summed incident edge-mask weight
-- **Integrated Gradients**: Signed per-feature attributions computed along a straight-line path from a zero baseline; RBF distance bins averaged into a single "Distance" score; visualized as a SHAP-style layered violin plot colored by input feature value
+```bash
+source ~/venvs/ames_shap/bin/activate
+python shap_analysis_standalone.py \
+    --input_file train_sample.yml
+    --checkpoint_file ./checkpoints/metrics_77_0.pt \
+    --output_dir ./output/SHAP
+    --device auto \
+    --shap_max_mols 20 \
+    --shap_nsamples auto \
+    --shap_chunk 256
+```
+
+Outputs (in `<output_dir>/feature_importance_plots_SHAP/`): the SHAP beeswarm violin (`.png`/`.svg`/
+`_values.csv`) plus per-strain and overall SHAP bar charts and heatmaps.
+
+
+Flags: `--shap_max_mols` (molecules per strain head; SHAP is expensive), `--shap_nsamples`
+(`auto` = 2·M+2048, or an integer), `--shap_chunk` (coalitions per batched GPU forward),
+`--device` (`auto`/`cuda`/`cpu`), `--tasks` (e.g. `0,1` for a subset of strain heads).
+
+---

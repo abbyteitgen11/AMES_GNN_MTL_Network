@@ -126,7 +126,7 @@ def load_alerts():
 # Extra SMARTS used ONLY by the novel-fragment detection (NOT the overlap/heatmap/AUC analyses), to
 # suppress "near-miss" categories the base list lacks so they stop showing up as novel candidates.
 _EXTRA_ALERTS = [
-    ("Aromatic azo (extended)", "[c][NX2]=[NX2][#6]"),
+    ("Aromatic azo (extended)", "[c][NX2]=[NX2]"),
     ("gem/poly-halo alkane (extended)", "[CX4]([F,Cl,Br,I])[F,Cl,Br,I]"),
     ("1,1-/halo alkene (extended)", "[CX3](=[CX3])[F,Cl,Br,I]"),
     ("Nitro group, any (extended)", "[$([NX3](=O)=O),$([N+](=O)[O-])]"),
@@ -570,14 +570,16 @@ def _fragment_mol_props(frag_smiles, alerts_compiled):
     }
 
 
-def select_novel_fragments(df_rows, alerts_compiled, min_heavy=5, min_hetero=2, min_support=5):
+def select_novel_fragments(df_rows, alerts_compiled, min_heavy=5, min_hetero=2, min_support=5, alpha=0.05):
     """Single, unified definition of a 'novel' fragment, used by BOTH the CSV and the figure (and the
-    standalone refilter script). Canonicalizes + deduplicates fragments (summing counts), then keeps a
-    fragment iff it matches no known alert, is fully organic, has >= min_heavy heavy atoms and (a ring
-    OR >= min_hetero heteroatoms), has >= min_support total occurrences, and is enriched in positive
-    predictions (pos_frac >= dataset base rate). Returns a DataFrame (canonical `fragment`, `mol`,
-    properties, `pos_frac`) ranked by enrichment.
+    standalone refilter script). Canonicalizes + deduplicates fragments (summing counts), keeps only
+    organic, neutral, non-alert fragments with >= min_heavy heavy atoms, (a ring OR >= min_hetero
+    heteroatoms) and >= min_support occurrences, then keeps those **statistically enriched** in
+    positive predictions: a one-sided exact binomial test (null p0 = dataset base rate) with
+    Benjamini-Hochberg FDR control at `alpha`. Returns a DataFrame (canonical `fragment`, `mol`,
+    properties, `pos_frac`, `pval`, `qval`) ranked by significance.
     """
+    from scipy.stats import binomtest
     df = pd.DataFrame(df_rows)
     if df.empty:
         return df
@@ -608,16 +610,30 @@ def select_novel_fragments(df_rows, alerts_compiled, min_heavy=5, min_hetero=2, 
         return cand
     base_rate = cand["total_pos_count"].sum() / max(1, cand["total_count"].sum())
     cand["pos_frac"] = cand["total_pos_count"] / cand["total_count"].clip(lower=1)
-    keep = (
+
+    # Structural pre-filters (everything except enrichment).
+    pre = (
         (cand["matched_alerts"] == "")
         & (~cand["has_metal"])
         & (cand["net_charge"] == 0)
         & (cand["n_heavy"] >= min_heavy)
         & (cand["has_ring"] | (cand["n_hetero"] >= min_hetero))
         & (cand["total_count"] >= min_support)
-        & (cand["pos_frac"] >= base_rate)
     )
-    return cand[keep].sort_values(["pos_frac", "total_pos_count"], ascending=False).reset_index(drop=True)
+    tested = cand[pre].copy()
+    if tested.empty:
+        return tested
+
+    # One-sided exact binomial enrichment test (H1: positive rate > base rate) + BH-FDR.
+    tested["pval"] = [binomtest(int(k), int(n), base_rate, alternative="greater").pvalue
+                      for k, n in zip(tested["total_pos_count"], tested["total_count"])]
+    tested = tested.sort_values("pval").reset_index(drop=True)
+    m = len(tested)
+    raw_q = tested["pval"].to_numpy() * m / (np.arange(m) + 1)
+    tested["qval"] = np.minimum.accumulate(raw_q[::-1])[::-1].clip(0, 1)  # BH step-up
+
+    novel = tested[tested["qval"] < alpha].copy()
+    return novel.sort_values(["qval", "pos_frac"], ascending=[True, False]).reset_index(drop=True)
 
 
 def save_fragment_artifacts(df_rows, per_task_sets, frag_examples, output_dir, alerts_compiled, global_smiles, topN_grid=24):
@@ -631,7 +647,7 @@ def save_fragment_artifacts(df_rows, per_task_sets, frag_examples, output_dir, a
     df_sorted = df_frags.sort_values("total_pos_count", ascending=False)
     novel = select_novel_fragments(df_rows, alerts_compiled)
     novel_cols = ["fragment", "n_heavy", "n_hetero", "has_ring",
-                  "total_count", "total_pos_count", "pos_frac", "matched_alerts"]
+                  "total_count", "total_pos_count", "pos_frac", "pval", "qval", "matched_alerts"]
     novel[[c for c in novel_cols if c in novel.columns]].to_csv(
         os.path.join(output_dir, "explainer_novel_fragment_candidates.csv"), index=False)
 

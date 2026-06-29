@@ -1,37 +1,37 @@
-
 # Input file for model training
+# Default parameters here are the optimized hyperparameters reported in the paper
 
-nGraphConvolutionLayers: 4 #5 # Number of graph convolutional layers
-nNodeNeurons: 195 #78 #77 # Number of node neurons for GNN
-nEdgeNeurons: 14 #109 #184 # Number of edge neurons for GNN
-dropoutGNN: 0.0609 #0.0176 #0.0503 # Dropout in graph convolutional layers
-momentumBatchNorm: 0.3700 #0.6003 #0.6806 # Batch normalization in graph convolutional layers
+nGraphConvolutionLayers: 5 # Number of graph convolutional layers
+nNodeNeurons: 257 # Number of node neurons for GNN
+nEdgeNeurons: 291 # Number of edge neurons for GNN
+dropoutGNN: 0.0898 # Dropout in graph convolutional layers
+momentumBatchNorm: 0.3378 # Batch normalization in graph convolutional layers
 
-nSharedLayers: 1 #2 #2  # Number of layers in shared core
-nTargetSpecificLayers: 2 #2 #1 # Number of layers in target specific core
-nShared: [92] # [167, 108] #[101,93] # Number of neurons in shared core
-nTarget: [118,170] #[96, 104] #[218] # Number of neurons in target specific core
-dropoutShared: [0.1622] #[0.074, 0.240] #[0.272, 0.253] # Dropout in shared core
-dropoutTarget: [0.0536,0.4618] #[0.463, 0.065] #[0.261] # Dropout in target specific core
+nSharedLayers: 1 # Number of layers in shared core
+nTargetSpecificLayers: 2 # Number of layers in target specific core
+nShared: [128] # Number of neurons in shared core
+nTarget: [183,149] # Number of neurons in target specific core
+dropoutShared: [0.1629] # Dropout in shared core
+dropoutTarget: [0.3468,0.3632] # Dropout in target specific core
 
 # Weights for weighted cost function
-w1: 4.7066 #5.88 #4.99
-w2: 2.7213 #5.67 #4.08
-w3: 2.0795 #1.57 #1.55
-w4: 1.0101 #1.02 #52.96
-w5: 3.3616 #2.16 #2.94
+w1: 1.004 
+w2: 3.590 
+w3: 2.246 
+w4: 1.121
+w5: 1.137 
 
 # Activation function
 ActivationFunction: 'Tanh'
 
-nEpochs: 200 #np.iinfo(np.int32). # Number of epochs
+nEpochs: 200 # Number of epochs
 nBatch: 32 # Batch size
 nCheckpoint: 1 # Checkpoint frequency
 randomSeed: 42 # Random seed
-#nTrainMaxEntries: 1500 # Number of training samples to use
-#nValMaxEntries: 300 # Number of validation examples to  use
+#nTrainMaxEntries: 1500 # Number of training samples to use, if you want to use a subset of the full train set 
+#nValMaxEntries: 300 # Number of validation examples to  use, if you want to use a subset of the full val set
 
-learningRate: 0.000076 #0.00027 #0.0001 
+learningRate: 0.000059 #0.00027 #0.0001 
 
 weightedCostFunction: True # Include weighted cost function
 L2Regularization: 0.005 # L2 regularization coefficient
@@ -55,10 +55,10 @@ callbacks:
 descriptionText: 'No data transformation'
 
 # where the graph data-base resides
-database: '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/GraphDataBase_AMES_NEW_RBF_2D/' #'/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/GraphDataBase_AMES_NEW/' #'/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/GraphDataBase_AMES_additional_data' 
+database: '/AMES_GNN_MTL_Network/GraphDataBase_AMES/'
 
 # file with molecular data
-data_file: '/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES_FINAL/data/data_new_with_split_descriptors.csv' #data_new_with_split_descriptors.csv' #'/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/AMES_FINAL/data/data_new_with_split_descriptors.csv' #'/Users/abigailteitgen/Dropbox/Postdoc/AMES_GNN_MTL_Network/Additional_data/final_additional_dataset.csv' 
+data_file: '/AMES_GNN_MTL_Network/AMES_FINAL/data/Ames_mutagenicity_strain_specific.csv'
 
 # transformData: std
 
