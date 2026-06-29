@@ -11,11 +11,11 @@ generate_graphs: True
 graphType: 'XG' # currently this is the only graph type implemented
 
 # address where to find the data-base files, and where to put the graph files once created
-DataBaseDirectory: '/AMES_GNN_MTL_Network/XYZ_files'
+DataBaseDirectory: '/AMES_GNN_MTL_Network/AMES_FINAL/FILES_XYZ/FILES_DEV' #Need to unzip XYZ_files.zip first 
 TargetDirectory: '/AMES_GNN_MTL_Network/GraphDataBase_AMES'
 
 # path to the CSV file used to determine train/val/test splits
-DataPath: '/AMES_GNN_MTL_Network/AMES_FINAL/data/Ames_mutagenicity_strain_specific.csv'
+DataPath: '/AMES_GNN_MTL_Network/AMES_FINAL/Ames_mutagenicity_strain_specific.csv'
 
 # the file extensions, both for the input and for the graph files
 

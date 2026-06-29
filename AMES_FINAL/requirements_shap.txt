@@ -1,0 +1,14 @@
+# Dependencies for shap_analysis_standalone.py (its own venv, separate from the main mordred/numpy-1 env).
+# Install torch FIRST (matching your platform; on macOS `pip install torch` gives a CPU/MPS build),
+# then: pip install -r requirements_shap.txt
+torch
+torch_geometric
+shap
+numpy
+scipy
+scikit-learn
+pandas
+matplotlib
+seaborn
+pyyaml
+mendeleev
