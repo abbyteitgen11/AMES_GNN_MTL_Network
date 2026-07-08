@@ -18,7 +18,7 @@ unzip XYZ_files.zip -d ./FILES_XYZ
 python graph_maker.py graph_maker_sample.yml
 ```
 
-Update `DataBaseDirectory`, `TargetDirectory`, and `DataPath` in `graph_maker_sample.yml` to point to your local paths before running.
+Update `DataBaseDirectory`, `TargetDirectory`, and `DataPath` in `graph_maker_sample.yml` to match your local paths before running.
 
 **Train the model**
 
@@ -596,7 +596,7 @@ python run_model.py \
 
 ## GNNExplainer + Feature Importance Analysis (`GNN_explainer_analysis.py`)
 
-Runs GNNExplainer to identify important molecular fragments, computes structural alert overlap scores, and mines recurring **novel** substructures (enriched in mutagenic predictions but not matching known alerts).
+Runs GNNExplainer to identify important molecular fragments, computes structural alert overlap scores, and searches for recurring **novel** substructures (enriched in mutagenic predictions but not matching known alerts).
 
 ```bash
 # GNNExplainer
@@ -640,11 +640,11 @@ Replace `metrics_77_0.pt` with whichever provided checkpoint you want to analyze
 
 *Novel-fragment discovery (GNNExplainer path):*
 
-Recurring substructures are obtained as the radius-2/3 circular environments around the model's important atoms. Each is screened against an **extended** alert list (the base alerts plus a few novelty-only SMARTS: any nitro, aromatic azo, poly-halo alkanes/alkenes, sulfonate/sulfate esters) and Tanimoto similarity, then a fragment is called *novel* if it is organic, ≥5 heavy atoms, has a ring or ≥2 heteroatoms, occurs ≥5 times, matches no known/extended alert, and is **statistically enriched** in mutagenic predictions (one-sided binomial test + Benjamini–Hochberg FDR, q<0.05).
+Recurring substructures are obtained as the radius-2/3 circular environments around the model's important atoms. Each is screened against an **extended** alert list (the base alerts plus a few novelty-only SMARTS: any nitro, aromatic azo, poly-halo alkanes/alkenes, sulfonate/sulfate esters) and Tanimoto similarity, then a fragment is considered *novel* if it has ≥5 heavy atoms, has a ring or ≥2 heteroatoms, occurs ≥5 times, matches no known/extended alert, and is **statistically enriched** in mutagenic predictions (one-sided binomial test + Benjamini–Hochberg FDR, q<0.05).
 - `explainer_discovered_fragments_summary.csv` — every substructure with per-task and positive-prediction counts and matched alerts
 - `explainer_novel_fragment_candidates.csv` — the FDR-significant novel substructures (with `pos_frac`, `pval`, `qval`)
 - `top_discovered_fragments_grid.pdf` — grid image of the most frequent discovered substructures
-- `fragments_known_vs_novel_combined.png` — side-by-side grid of known-alert vs novel substructures
+- `fragments_known_vs_novel_combined.png` — grid of known-alert vs novel substructures
 
 ---
 
@@ -653,7 +653,7 @@ Recurring substructures are obtained as the radius-2/3 circular environments aro
 ## Standalone SHAP Analysis (`shap_analysis_standalone.py`)
 
 A separate, GPU-friendly script computes **grouped KernelSHAP** (true Shapley values, via the `shap`
-library). It runs in its **own virtual environment** (it pulls `shap`/numpy 2.x, which conflicts with `mordred` in
+library). It runs in its **own virtual environment** (it uses `shap`/numpy 2.x, which conflicts with `mordred` in
 the main env) and depends only on `torch` + `torch_geometric`
 
 
