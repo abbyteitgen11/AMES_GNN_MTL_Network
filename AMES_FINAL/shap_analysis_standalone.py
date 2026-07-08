@@ -1,20 +1,5 @@
 """
-Standalone grouped-KernelSHAP feature analysis for the multi-task AMES GNN.
-
-This is a self-contained companion to the Integrated-Gradients analysis in GNN_explainer_analysis.py.
-It uses the real `shap` library (KernelExplainer) to compute true game-theoretic Shapley values for
-each molecule's prediction, where the "players" are the SAME grouped features as the IG analysis:
-
-    node groups : Period, Block, Element group  (one-hot families collapsed to one player each)
-    node singles: each continuous atomic descriptor is its own player
-    edge groups : Distance (all RBF bins together), Bond angle, Dihedral angle
-
-A player is "present" when its feature columns keep real values and "absent" when set to the baseline
-(zeros) -- the same zero baseline the IG analysis uses, so the two are directly comparable. Coalitions
-are evaluated by tiling the molecule's graph and running a single batched (GPU) forward pass.
-
-It depends on nothing in GNN_explainer_analysis.py and does NOT import rdkit/mordred/mendeleev, so it
-runs in its own light venv where `shap` (numpy 2.x) coexists fine. See requirements_shap.txt.
+Standalone KernelSHAP feature analysis
 
 Run (after creating the venv, see requirements_shap.txt):
     python shap_analysis_standalone.py \
@@ -23,8 +8,7 @@ Run (after creating the venv, see requirements_shap.txt):
         --output_dir <out_dir> \
         --device auto --shap_max_mols 20 --shap_nsamples auto
 
-GPU: pass --device cuda (or auto). The model + tiled graph tensors run on the GPU; only shap's small
-weighted regression runs on the CPU.
+GPU: set --device cuda (or auto)
 """
 
 import argparse

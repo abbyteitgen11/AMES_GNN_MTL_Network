@@ -1,4 +1,5 @@
-# Consolidated from GNN_explainer_analysis_final.py and GNN_explainer_analysis_input_features.py
+# Runs all explainer analysis
+
 from datetime import datetime
 import faulthandler
 import os
@@ -135,8 +136,7 @@ _EXTRA_ALERTS = [
 
 
 def load_extended_alerts():
-    """Base alerts (load_alerts) PLUS a few extra near-miss SMARTS, for the NOVEL-FRAGMENT analysis
-    only. load_alerts() is intentionally left unchanged so every other alert analysis is unaffected."""
+    """For novel fragment analysis"""
     compiled = load_alerts()
     for name, smarts in _EXTRA_ALERTS:
         patt = Chem.MolFromSmarts(smarts)
@@ -335,11 +335,9 @@ def build_fragment_catalog(per_task_impatoms, per_task_preds, per_task_labels, g
     return df_rows, per_task_top_sets, frag_examples
 
 
-# Radii of the circular environments mined around important atoms (tunable).
 _SUBSTRUCTURE_RADII = (2, 3)
 
-# Functional groups kept INTACT when cutting circular environments, so the radius boundary never
-# truncates them into chemically meaningless bare-[N+]/OS artifacts (which also hid known alerts).
+# Do not truncate functional groups
 _COMPLETION_SMARTS = [
     "[$([NX3](=O)=O),$([N+](=O)[O-])]",  # nitro (C- or N-)
     "[SX4](=O)(=O)",                      # sulfonyl / sulfonate / sulfate
@@ -351,7 +349,6 @@ _COMPLETION_PATTS = [Chem.MolFromSmarts(s) for s in _COMPLETION_SMARTS]
 
 
 def _group_matches(mol):
-    """Atom-index sets of completion functional groups in `mol`, for boundary completion."""
     out = []
     for patt in _COMPLETION_PATTS:
         if patt is None:
@@ -362,8 +359,6 @@ def _group_matches(mol):
 
 
 def _circular_env_smiles(mol, atom_idx, radius, group_matches=()):
-    """Canonical, H-free SMILES of the radius-`radius` circular environment around `atom_idx`, with
-    any touched functional group completed and net-charged/invalid artifacts dropped."""
     env = Chem.FindAtomEnvironmentOfRadiusN(mol, radius, atom_idx)
     if not env:
         return None
@@ -395,14 +390,7 @@ def _circular_env_smiles(mol, atom_idx, radius, group_matches=()):
 def build_substructure_catalog(per_task_impatoms, per_task_preds, per_task_labels, global_smiles,
                                alerts_compiled, alert_fps, radii=_SUBSTRUCTURE_RADII, top_k=200,
                                **_ignored):
-    """Recurring-substructure mining for novel-fragment detection (replaces the whole-region dedup).
-
-    For each molecule/task, extracts the radius-r circular environments around the model's TIGHT
-    important HEAVY atoms (on the implicit-H mol; heavy indices are graph-aligned, so this also keeps
-    hydrogens out of the novel analysis), deduplicates substructures within the molecule, and tallies
-    occurrence/positive-occurrence counts across all explanations. Same `df_rows` schema as
-    build_fragment_catalog, so all downstream fragment functions/figures are unchanged.
-    """
+    """Substructure search (novel fragment analysis)"""
     n_tasks = len(per_task_impatoms)
     n_mols = len(global_smiles)
     frag_counts_per_task = [Counter() for _ in range(n_tasks)]
@@ -465,12 +453,7 @@ def build_substructure_catalog(per_task_impatoms, per_task_preds, per_task_label
     return df_rows, per_task_top_sets, frag_examples
 
 def get_fragment_smiles(mol, atom_indices):
-    """Extract a clean, canonical, hydrogen-free SMILES for the selected atoms.
-
-    Uses RDKit's MolFragmentToSmiles so bond orders and aromaticity are inherited from the parent
-    molecule (no more invalid 'cc(...)'-style fragments), then round-trips + RemoveHs so the result
-    is a valid canonical SMILES that deduplicates and substructure-matches against the alert SMARTS.
-    """
+    """Extract a clean, canonical, hydrogen-free SMILES for the selected atoms"""
     if mol is None or not atom_indices:
         return None
     n_atoms = mol.GetNumAtoms()
@@ -497,12 +480,6 @@ def compare_fragment_to_alerts(frag_smiles, alerts_compiled,
                                fp_radius=2,
                                fp_bits=2048,
                                similarity_threshold=0.65):
-    """
-    Minimal-change improvement:
-    - keeps existing substructure matching
-    - adds fingerprint similarity fallback (no new SMARTS needed)
-    - returns SAME FORMAT as before
-    """
 
     if frag_smiles is None:
         return []
@@ -545,7 +522,7 @@ _ORGANIC_ATOMS = {1, 5, 6, 7, 8, 9, 15, 16, 17, 35, 53}
 
 def _fragment_mol_props(frag_smiles, alerts_compiled):
     """Canonical mol + properties for a fragment SMILES, or None if invalid.
-    matched_alerts is recomputed robustly (both substructure directions) on the canonical fragment."""
+    matched_alerts is recomputed (both substructure directions) on the canonical fragment."""
     if not isinstance(frag_smiles, str) or not frag_smiles:
         return None
     m = Chem.MolFromSmiles(frag_smiles, sanitize=False)
@@ -571,14 +548,7 @@ def _fragment_mol_props(frag_smiles, alerts_compiled):
 
 
 def select_novel_fragments(df_rows, alerts_compiled, min_heavy=5, min_hetero=2, min_support=5, alpha=0.05):
-    """Single, unified definition of a 'novel' fragment, used by BOTH the CSV and the figure (and the
-    standalone refilter script). Canonicalizes + deduplicates fragments (summing counts), keeps only
-    organic, neutral, non-alert fragments with >= min_heavy heavy atoms, (a ring OR >= min_hetero
-    heteroatoms) and >= min_support occurrences, then keeps those **statistically enriched** in
-    positive predictions: a one-sided exact binomial test (null p0 = dataset base rate) with
-    Benjamini-Hochberg FDR control at `alpha`. Returns a DataFrame (canonical `fragment`, `mol`,
-    properties, `pos_frac`, `pval`, `qval`) ranked by significance.
-    """
+    """Select novel fragments"""
     from scipy.stats import binomtest
     df = pd.DataFrame(df_rows)
     if df.empty:
@@ -688,7 +658,7 @@ def save_fragment_artifacts(df_rows, per_task_sets, frag_examples, output_dir, a
     img = Draw.MolsToGridImage(mols, molsPerRow=min(6, len(mols)), subImgSize=(200, 200), legends=legends)
     img.save(os.path.join(output_dir, "top_discovered_fragments_grid.pdf"))
 
-# Split fragments into known-alert vs novel, using the SAME unified novel definition as the CSV.
+# Split fragments into known vs novel
 def get_fragment_info_lists(df_rows, alerts_compiled, global_smiles, min_heavy_atoms=2):
     # Novel: identical definition/ranking as explainer_novel_fragment_candidates.csv.
     novel_df = select_novel_fragments(df_rows, alerts_compiled)
@@ -790,8 +760,7 @@ def assemble_and_save_summary(per_task_dfs, per_task_impatoms, per_task_preds, p
     avg_attr_correct_toxic = []
     avg_attr_correct_nontoxic = []
     avg_attr_incorrect = []
-    # Per-strain + average cell render data, captured so single-molecule SVGs
-    # can be regenerated from the CSV without rerunning the analysis.
+    # Per-strain + average 
     cells_correct_toxic = []
     cells_correct_nontoxic = []
     cells_incorrect = []
@@ -1207,7 +1176,7 @@ def analyze_per_atom_overlap_by_alert(per_task_impatoms, alerts_compiled, global
     each structural alert.
 
     Averaging key: SMARTS tuple index i, so position 0 always maps to the same chemical atom
-    in the query pattern across every molecule — no fragile hashing needed.
+    in the query pattern across every molecule
 
     Ring atoms in the same ring as a SMARTS-matched atom but not explicitly in the SMARTS
     are tracked with key (nearest_smarts_pos, ring_distance, element), which is consistent
@@ -1478,7 +1447,6 @@ def analyze_per_atom_overlap_by_alert(per_task_impatoms, alerts_compiled, global
     csv_path = os.path.join(output_dir, "alert_atom_smarts_pos_avg_summary.csv")
     pd.DataFrame.from_records(all_records).to_csv(csv_path, index=False)
 
-# --- NEW FUNCTION: plot_important_atoms_by_alert ---
 def plot_important_atoms_by_alert(alert_name, patt_list, global_smiles, per_task_impatoms, per_task_labels, output_dir, mols_per_row=6,
                                   max_mols=48):
     mols_to_plot = []
@@ -1486,14 +1454,12 @@ def plot_important_atoms_by_alert(alert_name, patt_list, global_smiles, per_task
     alert_plot_dir = os.path.join(output_dir, "alert_instance_grids")
     os.makedirs(alert_plot_dir, exist_ok=True)
 
-    # Collect tight important atoms and predictions by mol_id and task_id
+    # Collect important atoms and predictions by mol_id and task_id
     mol_task_data = defaultdict(lambda: defaultdict(dict))
 
     for task_idx in range(len(per_task_impatoms)):
         imp_list = per_task_impatoms[task_idx][task_idx]
 
-        # NOTE: If predictions are needed, they would need to be passed here as well.
-        # Since they are not, we only plot if the tight set is non-empty.
 
         for mol_id, imp_entry in enumerate(imp_list):
             mol_task_data[mol_id][task_idx]['tight'] = imp_entry.get("tight", [])
@@ -1532,7 +1498,7 @@ def plot_important_atoms_by_alert(alert_name, patt_list, global_smiles, per_task
                             if len(match_set & imp_atoms_set) > len(best_match_atoms & imp_atoms_set):
                                 best_match_atoms = match_set
 
-                    # Three-way coloring:
+                    # Colors:
                     #   orange = overlap (in both alert and GNN)
                     #   blue   = alert-only (in alert but not GNN)
                     #   red    = GNN-only (in GNN but not alert)
@@ -1573,7 +1539,6 @@ def plot_important_atoms_by_alert(alert_name, patt_list, global_smiles, per_task
             highlight_bond_colors={},
             size=cell_size
         )
-        # Add legend text to the top of the image
         draw = ImageDraw.Draw(im)
         try:
             font = ImageFont.truetype('DejaVuSans.ttf', 14)
@@ -1770,7 +1735,7 @@ def plot_alert_performance_bars(df_perf, output_dir=None):
     order = df_perf.sort_values(ascending=False).index
     df_perf = df_perf.loc[order]
 
-    #fig, ax = plt.subplots(figsize=(12, 0.4 * len(df_perf)))  # longer and skinnier
+    #fig, ax = plt.subplots(figsize=(12, 0.4 * len(df_perf)))  
     fig, ax = plt.subplots(figsize=(5, 15))
 
     y = np.arange(len(df_perf))
@@ -1818,11 +1783,6 @@ def compute_toxic_overlap_by_strain(alerts_compiled, per_task_dfs, n_tasks, aler
 
 def export_overlap_diagnostic_xlsx(alerts_compiled, per_task_dfs, n_tasks, output_path,
                                     global_smiles, per_task_impatoms):
-    """
-    Export per-molecule overlap diagnostics for direct comparison with manual spreadsheet.
-    Records n_raw_match_atoms and n_expanded_atoms separately so the denominator used by
-    the code can be compared against whatever atom count was used in the spreadsheet.
-    """
     records = []
 
     for alert_name, smarts in alerts_compiled:
@@ -1929,7 +1889,7 @@ def compute_auc_by_alert_strain(alerts_compiled, per_task_dfs, n_tasks):
 
 
 def plot_auc_heatmap_by_strain(auc_df, output_dir=None, order=None):
-    """Heatmap of AUROC per alert × strain (mirrors the overlap heatmap)."""
+    """Heatmap of AUROC per alert × strain"""
     mean_auc = auc_df.mean(axis=1, skipna=True)
     shown = mean_auc[mean_auc.notna()].index          # which alerts to display
     ordered = _order_alerts(shown, order)             # match the alert performance bars order
@@ -1959,25 +1919,7 @@ def plot_auc_heatmap_by_strain(auc_df, output_dir=None, order=None):
 
 
 def compute_alert_category_auc(alerts_compiled, per_task_dfs, n_tasks):
-    """
-    For each alert, categorise all molecules into 4 groups based on alert presence
-    and overall Ames outcome, then compute a one-vs-rest AUROC per category using
-    the model's average probability across all strain heads.
 
-    Categories
-    ----------
-    A = alert_matched & label_overall==1  (alert present, mutagenic)
-    B = alert_matched & label_overall==0  (alert present, non-mutagenic)
-    C = ~alert_matched & label_overall==1 (alert absent, mutagenic)
-    D = ~alert_matched & label_overall==0 (alert absent, non-mutagenic)
-
-    AUC_X = AUROC(is_X ~ avg_model_prob) across all molecules for this alert.
-    Interpretation:
-      High AUC_A  → model correctly assigns high probability to alert+mutagenic.
-      Low  AUC_B  → model is NOT fooled by alert-positive non-mutagenic molecules.
-      High AUC_C  → model finds mutagenic molecules even without structural alerts.
-      Low  AUC_D  → model correctly assigns low probability to non-alert, non-mutagenic.
-    """
     from sklearn.metrics import roc_auc_score
 
     all_alerts = [name for name, _ in alerts_compiled]
@@ -2034,12 +1976,7 @@ def compute_alert_category_auc(alerts_compiled, per_task_dfs, n_tasks):
 
 
 def plot_alert_category_heatmap(cat_df, output_dir=None, order=None):
-    """
-    Two side-by-side heatmaps per alert:
-      Left  — fraction of molecules in each category (A, B, C, D)
-      Right — one-vs-rest AUROC for each category
-    Alerts ordered to match the alert performance bars (`order`).
-    """
+
     cat_df = cat_df.dropna(subset=["AUC_A"], how="all").copy().set_index("alert")
     cat_df = cat_df.loc[_order_alerts(cat_df.index, order)]
 
@@ -2144,7 +2081,7 @@ def plot_heatmap(importances_dict, feature_names, title, filename, plot_dir):
     matrix = np.array(matrix)  # shape: (T, F)
     num_tasks, num_features = matrix.shape
 
-    # -------- FIX LABEL MISMATCHES -------- #
+
     if len(feature_names) != num_features:
         print(
             f"[WARN] feature_names ({len(feature_names)}) does not match matrix width ({num_features}). "
@@ -2189,12 +2126,7 @@ def plot_shap_violin(node_matrix, node_feature_names,
                      edge_matrix, edge_feature_names,
                      node_feat_values, edge_feat_values,
                      node_groups, title, filename, plot_dir):
-    """
-    SHAP layered violin plot.
-    x = signed IG attribution value; color = actual input feature value (blue=low, red=high).
-    KDE violin outline shows density; dots are beeswarm-jittered inside.
-    One-hot node feature groups are averaged into a single score.
-    """
+
     from scipy.stats import gaussian_kde
 
     # --- Group one-hot node features (attributions and feature values together) ---
@@ -2241,9 +2173,6 @@ def plot_shap_violin(node_matrix, node_feature_names,
     sorted_shap = all_shap[:, sort_order]
     sorted_feat_vals = all_feat_vals[:, sort_order]
 
-    # Normalise feature values per feature for colormap (0=low, 1=high). Robust 5-95 percentile clip
-    # (matches shap.summary_plot); min-max is dominated by the heavy right-skew of molecular feature
-    # values and washes the bulk to one color.
     feat_lo = np.nanpercentile(sorted_feat_vals, 5, axis=0, keepdims=True)
     feat_hi = np.nanpercentile(sorted_feat_vals, 95, axis=0, keepdims=True)
     feat_range = np.where(feat_hi - feat_lo == 0, 1.0, feat_hi - feat_lo)
@@ -2344,7 +2273,6 @@ def main():
     # Set database path
     database_path = input_data.get("database", "./GraphDataBase_AMES")
 
-    # The database is described with its own yaml file; so read it
     database_file = database_path + '/graph_description.yml'
 
     with open(database_file, 'r') as database_stream:
@@ -2640,9 +2568,7 @@ def main():
         # Known structural alerts
         alerts_compiled = load_alerts()
 
-        ### Fragment analysis (NOVEL-FRAGMENT DETECTION ONLY)
-        # Uses the EXTENDED alert list + recurring-substructure mining. This block is isolated: every
-        # other analysis below keeps using the base `alerts_compiled` / `load_alerts()`.
+        ### Fragment analysis
         extended_alerts = load_extended_alerts()
         extended_alert_fps = compute_alert_fps(extended_alerts)
         # Recurring circular substructures mined around the model's tight important atoms.
@@ -2702,7 +2628,7 @@ def main():
                 os.path.join(args.output_dir, "auc_by_alert_strain.csv"), index=True
             )
 
-        # 4-category analysis (A/B/C/D fractions + one-vs-rest AUROC)
+        # 4 category analysis
         cat_df = compute_alert_category_auc(alerts_compiled, per_task_dfs, 5)
         if len(cat_df) > 0:
             cat_df.to_csv(
@@ -2823,10 +2749,6 @@ def main():
 
             # -------------------------------
             # 8. Mask dihedral importance
-            #    Set attribution = 0 for edges where dihedral doesn't exist.
-            #    NOTE: the dihedral *input* construction bug (only the last edge per molecule got a
-            #    value) was fixed in XG_graphs.py; dihedral importance is only valid for graph
-            #    databases rebuilt with that fix. See the caveat near `edge_feature_names`.
             # -------------------------------
             if dihedral_angle_features and edge_attributions.size(1) >= n_edge_features:
                 edge_attributions[:, _dihedral_idx] = edge_attributions[:, _dihedral_idx] * dihedral_mask.float()
@@ -2945,7 +2867,7 @@ def main():
                 correct_overall = row['Overall']
                 correct_val_overall.append(correct_overall)
 
-            # After looping dataset, store results per task
+            # Store results per task
             ig_per_task_impatoms.append({task_id: important_atoms_per_mol})
             ig_per_task_preds.append({task_id: predictions})
             ig_per_task_labels.append({task_id: correct_val})
@@ -3011,10 +2933,7 @@ def main():
         overall_node_importance = np.mean(np.vstack(all_node_importances), axis=0)
         overall_edge_importance = np.mean(np.vstack(all_edge_importances), axis=0)
 
-        # Group RBF distance bins into a single "Distance" value.
-        # IG is additive across input dims, so the distance's total attribution is the SUM over
-        # its n_dist_feats RBF bins (averaging would divide by n_dist_feats and cancel opposite
-        # signs, making distance importance look ~n_dist_feats x too small).
+        # Group RBF distance bins into a single distance value.
         def _group_edge(arr):
             dist = arr[:n_dist_feats].sum()
             return np.concatenate([[dist], arr[n_dist_feats:]])
@@ -3031,12 +2950,6 @@ def main():
             "Mass number", "Van der Waals radius"
         ]
 
-        # NOTE on the dihedral feature: a graph-construction bug (dihedral loop scoped outside the
-        # edge loop, so only the last edge per molecule got a value) was fixed in XG_graphs.py. The
-        # "Dihedral angle" importance below is therefore only meaningful for graph databases REBUILT
-        # with the fixed XG_graphs.py (and a model retrained on them). For any older XG database the
-        # dihedral column is ~0 for all but one edge per molecule, so its importance there is a data
-        # artifact, not a real result. (Bond angle and distance are computed per-edge and are fine.)
         edge_feature_names = (
             ["Distance"] +
             (["Bond angle"] if bond_angle_features else []) +
@@ -3058,7 +2971,7 @@ def main():
         plot_dir = os.path.join(args.output_dir, "feature_importance_plots")
         os.makedirs(plot_dir, exist_ok=True)
 
-        # Node feature per-task barplots
+        # Node feature per-task bar plots
         plot_task_bars(
             ig_node_feature_importance,
             node_feature_names,
@@ -3067,7 +2980,7 @@ def main():
             plot_dir
         )
 
-        # Edge feature per-task barplots
+        # Edge feature per-task bar plots
         plot_task_bars(
             ig_edge_feature_importance,
             edge_feature_names,
@@ -3112,7 +3025,6 @@ def main():
             plot_dir
         )
 
-        # SHAP-style scatter plot (node + edge combined)
         if (all_node_importances_per_mol and all_edge_importances_per_mol
                 and all_node_feat_values_per_mol and all_edge_feat_values_per_mol
                 and len(all_node_feat_values_per_mol) == len(all_node_importances_per_mol)

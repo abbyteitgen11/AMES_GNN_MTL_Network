@@ -1,5 +1,5 @@
 """
-run_model.py — Consolidated GNN-MTL driver script for AMES mutagenicity prediction.
+run_model.py — Consolidated MTL-GNN driver script for AMES mutagenicity prediction.
 
 Usage:
     python run_model.py --mode <mode> --output_dir <dir> --input_file <yaml> [options]
@@ -168,7 +168,7 @@ def setup_logging(log_file):
 
 
 # ==============================================================================
-# Optuna study helpers
+# Optuna 
 # ==============================================================================
 
 def save_study(study, path):
@@ -180,16 +180,6 @@ def save_study(study, path):
 
 
 def load_study(path):
-    """Load an Optuna study from a pickle file.
-
-    Applies compatibility shims for studies saved with older library versions:
-    1. NumPy 1.x → 2.x: BitGenerator stored as class reference, now expects string name.
-       Also, NumPy 2.x validates the MT19937 state dict format more strictly; use a
-       lenient subclass (_CompatMT19937) that ignores incompatible state data.
-    2. Old Optuna → new Optuna: _ParzenEstimatorParameters NamedTuple grew new required
-       fields (e.g. categorical_distance_func); patch __new__ to supply None for missing fields.
-    Both shims are restored after loading regardless of success or failure.
-    """
     import numpy.random._pickle as _np_rand_pickle
     import optuna.samplers._tpe.parzen_estimator as _tpe_pe_mod
 
@@ -216,9 +206,6 @@ def load_study(path):
 
     _np_rand_pickle.__bit_generator_ctor = _compat_bg_ctor
 
-    # __randomstate_ctor and __generator_ctor capture __bit_generator_ctor
-    # as a default argument at definition time, so patching the module
-    # attribute alone doesn't reach them. Override both to use our shim.
     _orig_rs_ctor = _np_rand_pickle.__randomstate_ctor
     _orig_gen_ctor = _np_rand_pickle.__generator_ctor
 
@@ -253,10 +240,6 @@ def load_study(path):
         _np_rand_pickle.__generator_ctor = _orig_gen_ctor
         _PEP.__new__ = _orig_pep_new
 
-
-# ==============================================================================
-# Shared config loading helpers
-# ==============================================================================
 
 def load_yaml_and_graph_info(input_file):
     """
@@ -406,7 +389,7 @@ def count_trainable_parameters(model):
 
 
 # ==============================================================================
-# Descriptor helpers (used by "descriptor" and "combined" input modes)
+# Descriptors
 # ==============================================================================
 
 _NON_DESC_COLS = {
@@ -467,7 +450,7 @@ def get_input_mode(input_data):
 
 
 # ==============================================================================
-# Metrics writing helper
+# Metrics
 # ==============================================================================
 
 def compute_npv_mcc(m1):
@@ -517,19 +500,11 @@ def get_multilabel_targets(dataset):
 
 
 # ==============================================================================
-# GNN inference helper
+# GNN inference
 # ==============================================================================
 
 def run_inference(model, loader, device, params, thresholds=None,
                   input_mode="gnn", desc_dict=None):
-    """
-    Run model inference on a DataLoader.
-    Returns (y_pred_logit_cat, y_pred_binary_cat, y_true_cat, file_names).
-
-    thresholds:  list of 5 per-task decision thresholds. Defaults to [0.5]*5 if None.
-    input_mode:  "gnn", "descriptor", or "combined"
-    desc_dict:   {mol_id: np.float32 array} — required when input_mode != "gnn"
-    """
     if thresholds is None:
         thresholds = [0.5] * 5
     p = params
@@ -606,11 +581,10 @@ def run_inference(model, loader, device, params, thresholds=None,
 
 def run_train(args):
     """
-    Train the GNN-MTL model with fixed hyperparameters from the YAML config.
+    Train the GNN-MTL model with fixed hyperparameters
     Saves checkpoints every nCheckpoint epochs to --checkpoints_dir.
     Logs train/val loss to TensorBoard. Evaluates on test set after training.
 
-    Ported from GNN_MTL_GPU.py.
     """
     os.makedirs(args.output_dir, exist_ok=True)
     os.makedirs(args.checkpoints_dir, exist_ok=True)
@@ -766,7 +740,7 @@ def run_train(args):
                     "val_loss": val_loss,
                 }, ckpt_path)
 
-            # Callbacks: pass val_loss (not train_loss) to both LRScheduler and EarlyStopping
+            # Callbacks: pass val_loss to both LRScheduler and EarlyStopping
             lr_before = optimizer.param_groups[0]["lr"]
             for callback in callbacks:
                 callback(val_loss)
@@ -992,7 +966,6 @@ def run_hp_opt(args):
     Runs 5-fold CV on the training set for each trial.
     Saves/resumes the study as a .pkl file in --optuna_dir.
 
-    Ported from GNN_MTL_HP_KF.py (using BuildNN_GNN_MTL_GINEConv throughout).
     """
     os.makedirs(args.output_dir, exist_ok=True)
     os.makedirs(args.optuna_dir, exist_ok=True)
@@ -1031,7 +1004,7 @@ def run_hp_opt(args):
     logging.info(f"Input mode: {input_mode}")
 
     if input_mode in ("gnn", "combined"):
-        # Load training data (5-fold CV on train set only)
+        # Load training data (5-fold CV)
         trainDataset = GraphDataSet(
             os.path.join(database_path, "train/"),
             nMaxEntries=nTrainMaxEntries, seed=seed_global
@@ -1051,7 +1024,7 @@ def run_hp_opt(args):
         n_descriptor_inputs = desc_folds[0][0][0].shape[1]
         desc_dict = {}
 
-    # Optionally seed the first trial with hyperparameters from the YAML config
+    # Optionally seed the first trial with hyperparameters
     if args.seed_params and len(study.trials) == 0:
         seed_dict = {
             "nGraphConvolutionalLayers": input_data.get("nGraphConvolutionLayers", 3),
@@ -1292,7 +1265,6 @@ def run_seeds_cfv(args):
     Saves per-fold checkpoints to --checkpoints_dir and per-fold metrics CSVs to --output_dir.
     Also saves avg_val_losses.csv and val_losses.csv summary files.
 
-    Ported from GNN_MTL_HP_KF_seeds.py.
     """
     os.makedirs(args.output_dir, exist_ok=True)
     os.makedirs(args.checkpoints_dir, exist_ok=True)
@@ -1323,7 +1295,7 @@ def run_seeds_cfv(args):
     logging.info(f"Input mode: {input_mode}")
 
     if input_mode in ("gnn", "combined"):
-        # Load train + val datasets (combined for 5-fold CV)
+        # Load train + val datasets
         trainDataset = GraphDataSet(
             os.path.join(database_path, "train/"), nMaxEntries=nTrainMaxEntries, seed=42
         )
@@ -1364,7 +1336,6 @@ def run_seeds_cfv(args):
             mskf = MultilabelStratifiedKFold(n_splits=5, shuffle=True, random_state=seed)
             fold_iter = enumerate(mskf.split(X_indices, y_multilabel))
         else:
-            # Use fixed folds from data.py (SEED is fixed there)
             fold_iter = enumerate(desc_folds)
 
         val_losses_this_seed = []
@@ -1496,14 +1467,13 @@ def run_seeds_cfv(args):
         all_fold_losses[seed] = val_losses_this_seed
         logging.info(f"Seed {seed}: avg val loss = {avg_val_loss:.6f}")
 
-    # Write avg_val_losses.csv — one column per seed, one data row
     seed_headers = [str(s) for s in random_seeds]
     with open(os.path.join(args.output_dir, "avg_val_losses.csv"), "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(seed_headers)
         writer.writerow([avg_val_losses_per_seed[s] for s in random_seeds])
 
-    # Write val_losses.csv matching the expected format:
+    # Write val_losses.csv:
     #   Row 0: ,,Seed,...
     #   Row 1: Fold,,seed1,seed2,...
     #   Rows 2-6: ,fold_idx,loss,...
@@ -1526,11 +1496,11 @@ def run_seeds_cfv(args):
 
 
 # ==============================================================================
-# Threshold optimization helpers (for eval and top_seeds_eval modes)
+# Threshold optimization (for eval and top_seeds_eval modes)
 # ==============================================================================
 
 def consensus_from_heads(y_pred_cat):
-    """Apply OR rule across 5 task heads to produce consensus predictions."""
+    """Consensus"""
     N = y_pred_cat.shape[0]
     y_cons = np.zeros(N, dtype=int)
     for i in range(N):
@@ -1545,7 +1515,7 @@ def consensus_from_heads(y_pred_cat):
 
 
 def consensus_truth(y_true_cat):
-    """Apply OR rule to ground-truth labels to produce consensus truth."""
+    """Consensus"""
     N = y_true_cat.shape[0]
     y_cons_true = np.zeros(N, dtype=int)
     for i in range(N):
@@ -1578,7 +1548,7 @@ def eval_consensus_metric(y_true_cat, y_logit_cat, thresholds, metric="sn"):
 
 
 def one_se_choice(th_grid, scores):
-    """Return the threshold within 1 standard error of the best score (1-SE rule)."""
+    """Return the threshold within 1 standard error of the best score"""
     scores = np.array(scores, dtype=float)
     best = np.max(scores)
     se = np.std(scores, ddof=1) / np.sqrt(len(scores)) if len(scores) > 1 else 0.0
@@ -1588,7 +1558,7 @@ def one_se_choice(th_grid, scores):
 
 def coord_ascent_consensus(y_true_cat, y_prob_cat, init_th=None, metric="sn", rounds=3):
     """
-    Coordinate ascent over the 5 per-task thresholds using the 1-SE rule.
+    Coordinate ascent over the 5 per-task thresholds
     Returns (thresholds, best_metric_value, best_scores).
     """
     ths = [0.5] * 5 if init_th is None else list(init_th)
@@ -1619,7 +1589,6 @@ def coord_ascent_consensus(y_true_cat, y_prob_cat, init_th=None, metric="sn", ro
 def crossfit_thresholds_for_consensus(y_true_cat, y_prob_cat, K=5, metric="sn", seed=0):
     """
     K-fold cross-fitting on the validation set to find robust consensus thresholds.
-    Learns thresholds on K-1 folds; aggregates via median across folds.
     Returns list of 5 thresholds.
     """
     N = len(y_true_cat)
@@ -1639,15 +1608,10 @@ def crossfit_thresholds_for_consensus(y_true_cat, y_prob_cat, K=5, metric="sn", 
 
 
 # ==============================================================================
-# Temperature scaling helpers
+# Temperature scaling 
 # ==============================================================================
 
 def fit_temperature(y_true_cat, y_prob_cat):
-    """
-    Fit a scalar temperature T on the validation set by minimising BCE (NLL).
-    y_prob_cat: (N, 5) probabilities (post-sigmoid). y_true_cat: (N, 5) labels (-1/0/1).
-    Returns scalar T > 0.
-    """
     mask = y_true_cat != -1
     y_true_flat = y_true_cat[mask].astype(float)
     y_prob_flat = np.clip(y_prob_cat[mask], 1e-7, 1 - 1e-7)
@@ -1669,14 +1633,10 @@ def apply_temperature(y_prob_cat, T):
 
 
 # ==============================================================================
-# Consensus threshold helpers (single shared threshold)
+# Consensus threshold 
 # ==============================================================================
 
 def tune_single_consensus_threshold(y_true_cat, y_prob_cat, metric="sn"):
-    """
-    Grid-search a single shared threshold that maximises `metric` on the consensus
-    (OR) prediction across all 5 tasks. Returns scalar threshold.
-    """
     grid = np.linspace(0.05, 0.95, 19)
     scores = []
     for t in grid:
@@ -1686,10 +1646,6 @@ def tune_single_consensus_threshold(y_true_cat, y_prob_cat, metric="sn"):
 
 
 def crossfit_single_threshold(y_true_cat, y_prob_cat, K=5, metric="sn", seed=0):
-    """
-    K-fold cross-fitting version of tune_single_consensus_threshold.
-    Aggregates per-fold thresholds via median. Returns scalar threshold.
-    """
     N = len(y_true_cat)
     idx = np.arange(N)
     rng = np.random.RandomState(seed)
@@ -1715,7 +1671,7 @@ STRAIN_LABELS = ["TA98", "TA100", "TA102", "TA1535", "TA1537"]
 def plot_eval_curves(y_true_cat, y_prob_cat, output_dir, prefix=""):
     """
     Save ROC and Precision-Recall curves for each of the 5 strains and the
-    consensus (OR) prediction. Consensus score = max task probability.
+    consensus prediction
 
     Outputs: {prefix}roc_curves.png, {prefix}pr_curves.png
     """
@@ -1748,7 +1704,6 @@ def plot_eval_curves(y_true_cat, y_prob_cat, output_dir, prefix=""):
         axes_pr[i].set_ylabel("Precision")
         axes_pr[i].legend()
 
-    # Consensus: max task probability as consensus score
     y_cons_score = np.max(y_prob_cat, axis=1)
     y_cons_true_arr = consensus_truth(y_true_cat)
     mask_cons = (y_cons_true_arr != -1) & ~np.isnan(y_cons_score)
@@ -1806,9 +1761,8 @@ def plot_eval_curves(y_true_cat, y_prob_cat, output_dir, prefix=""):
 def run_eval(args):
     """
     Load a saved checkpoint, optimize consensus thresholds on the validation set,
-    evaluate on the test set, and save comprehensive metrics and raw outputs.
+    evaluate on the test set, and save metrics and raw outputs.
 
-    Ported from GNN_MTL_eval.py.
     """
     if args.checkpoint_file is None:
         raise ValueError("--checkpoint_file is required for eval mode.")
@@ -1935,7 +1889,7 @@ def run_eval(args):
         y_true_cat, y_pred_cat, y_logit_cat
     )
 
-    # Read overall labels from data CSV (works with both data.csv and data_new_with_split.csv)
+    # Read overall labels from data CSV
     df_data = pd.read_csv(data_path)
     id_to_overall = df_data.set_index("Id")["Overall"].to_dict()
     y_labels_overall = []
@@ -2236,7 +2190,6 @@ def run_analyze_cfv(args):
     Reads metrics_seed_*_fold_*.csv files and produces summary plots and statistics.
     Optionally plots a validation loss heatmap if --val_loss_file is provided.
 
-    Ported from analyze_crossfold_val.py (active code, lines 134+).
     """
     os.makedirs(args.output_dir, exist_ok=True)
     metrics_dir = args.metrics_dir or args.output_dir
@@ -2417,7 +2370,7 @@ def run_analyze_cfv(args):
         plt.savefig(os.path.join(args.output_dir, "validation_loss_heatmap.png"), dpi=300)
         plt.close()
 
-    # --- Optional: Validation loss heatmap (legacy .xlsx source) ---
+    # --- Optional: Validation loss heatmap ---
     if args.val_loss_file and os.path.exists(args.val_loss_file):
         import matplotlib
         matplotlib.rcParams["savefig.transparent"] = True
@@ -2447,7 +2400,6 @@ def run_viz_optuna(args):
     If --optuna_file is given, analyzes that single study.
     Otherwise, loads all .pkl files from --optuna_dir for multi-study analysis.
 
-    Ported from visualize_optuna.py.
     """
     os.makedirs(args.output_dir, exist_ok=True)
 
