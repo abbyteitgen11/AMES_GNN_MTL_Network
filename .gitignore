@@ -38,6 +38,8 @@ AMES_FINAL/train_descriptors.yml
 AMES_FINAL/refilter_novel_fragments.py
 AMES_FINAL/README_full.md
 AMES_FINAL/novel_fragment_literature_assessment.md
+AMES_FINAL/shap_summary_table.py
+AMES_FINAL/throwaway_enantiomer_test/
 report_AMES.docx
 *.claude
 *.claude/
