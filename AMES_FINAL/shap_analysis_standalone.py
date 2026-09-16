@@ -20,6 +20,11 @@ import numpy as np
 import pandas as pd
 import matplotlib
 matplotlib.use("Agg")
+# matplotlib defaults to Type 3 fonts in PDF/PS. Type 3 glyphs are unhinted, render
+# poorly in most PDF viewers (the classic "blurry matplotlib text"), and are rejected
+# by many publishers. 42 = TrueType: hinted, selectable and publisher-safe.
+matplotlib.rcParams["pdf.fonttype"] = 42
+matplotlib.rcParams["ps.fonttype"] = 42
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 import seaborn as sns
@@ -201,8 +206,17 @@ def shap_for_molecule(task_model, data, node_col_to_group, edge_col_to_group, gr
 # Plotting (self-contained copies, kept visually identical to the IG figures)
 # ---------------------------------------------------------------------------
 def plot_shap_violin(node_matrix, node_feature_names, edge_matrix, edge_feature_names,
-                     node_feat_values, edge_feat_values, node_groups, title, filename, plot_dir):
-    """SHAP beeswarm/violin: x = signed SHAP value; color = input feature value (blue low, red high)."""
+                     node_feat_values, edge_feat_values, node_groups, title, filename, plot_dir,
+                     figsize=None, svg_dpi=600, fontsize=None, vector_formats=()):
+    """SHAP beeswarm/violin: x = signed SHAP value; color = input feature value (blue low, red high).
+
+    figsize:  (width, height) in inches; default (10, max(6, n_features * 0.5)).
+    svg_dpi:  resolution of the rasterized point layer inside the SVG.
+    fontsize: base point size for tick/label text; None keeps matplotlib defaults.
+              Set this when passing a small figsize, otherwise the default 10 pt type is
+              cramped. Render at the final size rather than rescaling in Inkscape --
+              rescaling shrinks the type and is what makes it look poor.
+    """
     from scipy.stats import gaussian_kde
 
     grouped_node_names, grouped_node_cols, grouped_node_feat_cols = [], [], []
@@ -244,7 +258,9 @@ def plot_shap_violin(node_matrix, node_feature_names, edge_matrix, edge_feature_
     norm_feat_vals = np.clip((sorted_feat_vals - feat_lo) / feat_range, 0.0, 1.0)
 
     n_feats = len(sorted_names)
-    _, ax = plt.subplots(figsize=(10, max(6, n_feats * 0.5)))
+    if figsize is None:
+        figsize = (10, max(6, n_feats * 0.5))
+    _, ax = plt.subplots(figsize=figsize)
     cmap = plt.cm.coolwarm
     rng = np.random.default_rng(seed=42)
 
@@ -257,8 +273,11 @@ def plot_shap_violin(node_matrix, node_feature_names, edge_matrix, edge_feature_
                 kde = gaussian_kde(vals, bw_method='scott')
                 x_range = np.linspace(vals.min(), vals.max(), 200)
                 kde_density = kde(x_range); kde_density = kde_density / kde_density.max()
+                # rasterized for the same reason as the scatter below: this band carries
+                # alpha, and EPS has no alpha channel, so a vector version forces the
+                # exporter to flatten the page (taking the text with it).
                 ax.fill_between(x_range, y_center - 0.4 * kde_density, y_center + 0.4 * kde_density,
-                                color="lightgray", alpha=0.6, zorder=1)
+                                color="lightgray", alpha=0.6, zorder=1, rasterized=True)
                 kde_at_pts = kde(vals); kde_at_pts = kde_at_pts / kde_at_pts.max()
                 jitter = rng.uniform(-1, 1, size=len(vals)) * 0.38 * kde_at_pts
             except Exception:
@@ -266,21 +285,46 @@ def plot_shap_violin(node_matrix, node_feature_names, edge_matrix, edge_feature_
         else:
             jitter = rng.uniform(-0.35, 0.35, size=len(vals))
         marker = "o" if feat_type_map[sorted_names[feat_idx]] == "Node" else "D"
+        # rasterized: the point cloud is ~8k markers per feature; as vectors it makes the
+        # SVG tens of MB and unopenable in Inkscape. Axes, text and the colourbar stay vector.
         ax.scatter(vals, y_center + jitter, c=fv_norm, cmap=cmap, vmin=0, vmax=1,
-                   alpha=0.7, s=10, linewidths=0, marker=marker, zorder=3)
+                   alpha=0.7, s=10, linewidths=0, marker=marker, zorder=3, rasterized=True)
 
     ax.set_yticks(range(n_feats)); ax.set_yticklabels(sorted_names)
-    ax.invert_yaxis(); ax.axvline(0, color="darkgray", linewidth=0.8, zorder=2)
+    ax.invert_yaxis()
+    # zorder above the rasterized scatter (3), not between the two rasterized layers.
+    # EPS has no alpha channel, so each rasterized layer is written as an OPAQUE image;
+    # anything drawn beneath one is painted over. At zorder=2 this line vanished behind
+    # the point cloud in EPS, surviving only above/below the outermost rows.
+    ax.axvline(0, color="darkgray", linewidth=0.8, zorder=4)
     sm = plt.cm.ScalarMappable(cmap=cmap, norm=plt.Normalize(vmin=0, vmax=1)); sm.set_array([])
-    plt.colorbar(sm, ax=ax, label="Feature value (normalized)", shrink=0.4, pad=0.01)
+    cb = plt.colorbar(sm, ax=ax, label="Feature value (normalized)", shrink=0.4, pad=0.01)
     ax.legend(handles=[
         Line2D([], [], color="gray", marker="o", linestyle="None", markersize=6, label="Node feature"),
         Line2D([], [], color="gray", marker="D", linestyle="None", markersize=6, label="Edge feature"),
-    ], loc="lower right")
+    ], loc="lower right", framealpha=1.0,   # framealpha<1 is alpha, which EPS cannot express
+       **({} if fontsize is None else {"fontsize": fontsize}))
     ax.set_xlabel("SHAP value"); ax.set_ylabel(""); ax.set_title(title)
+
+    if fontsize is not None:
+        ax.tick_params(axis="both", labelsize=fontsize)
+        ax.set_xlabel("SHAP value", fontsize=fontsize + 1)
+        ax.set_title(title, fontsize=fontsize + 2)
+        cb.set_label("Feature value (normalized)", fontsize=fontsize)
+        cb.ax.tick_params(labelsize=fontsize - 1)
+
     plt.tight_layout()
+    stem = os.path.join(plot_dir, os.path.splitext(filename)[0])
     plt.savefig(os.path.join(plot_dir, filename), dpi=300)
-    plt.savefig(os.path.join(plot_dir, os.path.splitext(filename)[0] + ".svg"))
+    # dpi applies to the rasterized data layers; without it they render at the default
+    # figure dpi and look soft.
+    plt.savefig(stem + ".svg", dpi=svg_dpi)
+    # Write EPS/PDF straight from matplotlib rather than converting the SVG afterwards.
+    # The data layers are already rasterized, so only they become embedded images; the
+    # text, axes and legend stay vector. Converting the SVG to EPS in Inkscape instead
+    # flattens the whole page (EPS has no alpha channel), which is what blurs the text.
+    for ext in vector_formats:
+        plt.savefig(f"{stem}.{ext}", dpi=svg_dpi)
     plt.close()
 
     records = []
@@ -335,7 +379,8 @@ def plot_heatmap(importances_dict, feature_names, title, filename, plot_dir):
 # ---------------------------------------------------------------------------
 # Driver
 # ---------------------------------------------------------------------------
-def replot_violin_from_csv(csv_path, output_dir):
+def replot_violin_from_csv(csv_path, output_dir, figsize=None, svg_dpi=600, fontsize=None,
+                           vector_formats=()):
     """Re-render the SHAP violin from an existing `..._values.csv` with the fixed (percentile) color
     normalization, without recomputing SHAP. Rows are molecule-ordered and consistent across features;
     node/edge split comes from the 'Type' column. (One-hot group rows stay flat here, since their
@@ -361,7 +406,9 @@ def replot_violin_from_csv(csv_path, output_dir):
     os.makedirs(output_dir, exist_ok=True)
     plot_shap_violin(node_shap, node_feats, edge_shap, edge_feats, node_fv, edge_fv, [],
                      "Overall Feature Importance — KernelSHAP (per molecule)",
-                     "overall_feature_importance_violin_SHAP.png", output_dir)
+                     "overall_feature_importance_violin_SHAP.png", output_dir,
+                     figsize=figsize, svg_dpi=svg_dpi, fontsize=fontsize,
+                     vector_formats=vector_formats)
     logging.info("[SHAP] re-plotted violin from %s into %s", csv_path, output_dir)
 
 
@@ -381,6 +428,20 @@ def get_args():
                    help="Coalitions per batched GNN forward pass.")
     p.add_argument("--shap_nsamples", default="auto",
                    help="KernelSHAP nsamples: 'auto' (2*M+2048) or an integer.")
+    p.add_argument("--figsize", nargs=2, type=float, metavar=("W", "H"), default=None,
+                   help="Violin figure size in inches, e.g. --figsize 7.2 5. Default is "
+                        "10 x (0.5 per feature). Render at the final size rather than "
+                        "rescaling afterwards in Inkscape.")
+    p.add_argument("--svg_dpi", type=int, default=600,
+                   help="Resolution of the rasterized point layer inside the SVG (default 600).")
+    p.add_argument("--fontsize", type=float, default=None,
+                   help="Base point size for violin tick/axis text. Set this alongside a small "
+                        "--figsize; default 10 pt type is cramped below about 8 x 6 in.")
+    p.add_argument("--formats", default="",
+                   help="Comma-separated extra vector formats written straight from "
+                        "matplotlib, e.g. --formats eps,pdf. Use these in LaTeX rather than "
+                        "converting the SVG: EPS has no alpha channel, so an SVG->EPS "
+                        "conversion flattens the page and blurs the text.")
     p.add_argument("--device", default="auto", choices=["auto", "cuda", "cpu"])
     p.add_argument("--tasks", default=None,
                    help="Comma-separated strain-head indices 0-4 (default: all 5).")
@@ -393,7 +454,10 @@ def main():
     os.makedirs(args.output_dir, exist_ok=True)
 
     if args.replot_from_csv:
-        replot_violin_from_csv(args.replot_from_csv, args.output_dir)
+        replot_violin_from_csv(args.replot_from_csv, args.output_dir,
+                               figsize=tuple(args.figsize) if args.figsize else None,
+                               svg_dpi=args.svg_dpi, fontsize=args.fontsize,
+                               vector_formats=tuple(f.strip() for f in args.formats.split(',') if f.strip()))
         return
 
     if not args.input_file or not args.checkpoint_file:
