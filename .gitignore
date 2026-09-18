@@ -40,6 +40,8 @@ AMES_FINAL/README_full.md
 AMES_FINAL/novel_fragment_literature_assessment.md
 AMES_FINAL/shap_summary_table.py
 AMES_FINAL/throwaway_enantiomer_test/
+AMES_FINAL/replot_alert_figures.py
+AMES_FINAL/throwaway_rerun/
 report_AMES.docx
 *.claude
 *.claude/
