@@ -694,3 +694,10 @@ Flags: `--shap_max_mols` (molecules per strain), `--shap_nsamples`
 `--device` (`auto`/`cuda`/`cpu`), `--tasks` (e.g. `0,1` for a subset of strains).
 
 ---
+
+References:
+Martinez, M. J.; Sabando, M. V.; Soto, A. J.; Roca, C.; Requena-Triguero, C.; Campillo, N. E.; Paez, J. A.; Ponzoni, I. Multitask deep neural networks for Ames mutagenicity prediction. Journal of Chemical Information and Modeling 2022, 62(24), 6342–6351, DOI: 10.1021/acs.jcim.2c00532.
+
+Code from the above publication was utilized for re-training and evaluating the Martinez model on the updated dataset presenting in this publication, and for model development including model evaluation metrics, weighted loss function, and data import 
+
+
