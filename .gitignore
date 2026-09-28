@@ -42,6 +42,8 @@ AMES_FINAL/shap_summary_table.py
 AMES_FINAL/throwaway_enantiomer_test/
 AMES_FINAL/replot_alert_figures.py
 AMES_FINAL/throwaway_rerun/
+AMES_FINAL/compare_2D_3D_atom_importance.py
+AMES_FINAL/training_curves_3D.py
 report_AMES.docx
 *.claude
 *.claude/
